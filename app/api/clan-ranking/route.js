@@ -13,26 +13,38 @@ function toNumber(value) {
   return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
 }
 
-function resolveSourceUrl(href) {
-  if (!href) return null;
+function normalizeUrl(value) {
+  if (!value) return null;
   try {
-    const url = new URL(href, SITE_ORIGIN);
-    return url.origin === SITE_ORIGIN ? url.toString() : null;
+    const url = new URL(value, SITE_ORIGIN);
+    if (url.origin !== SITE_ORIGIN) return null;
+    return url.toString();
   } catch {
     return null;
   }
 }
 
-function findClanLink($, tr) {
-  const direct = $(tr).find('td').eq(1).find('a[href]').first().attr('href');
-  if (direct) return resolveSourceUrl(direct);
+function extractUrlFromElement($, element) {
+  const el = $(element);
+  const direct = [
+    el.attr('href'),
+    el.attr('data-href'),
+    el.attr('data-url'),
+    el.attr('data-link'),
+    el.attr('data-clan-url'),
+    el.attr('data-target')
+  ].find(Boolean);
 
-  const rowHref = $(tr).attr('data-href') || $(tr).attr('data-url');
-  if (rowHref) return resolveSourceUrl(rowHref);
+  if (direct) return normalizeUrl(direct);
 
-  const onclick = $(tr).find('[onclick*="clan"], [onclick*="Clan"]').first().attr('onclick');
-  const match = onclick?.match(/(?:location(?:\.href)?\s*=|window\.open\s*\(\s*["'])([^"')]+)["']/i);
-  return resolveSourceUrl(match?.[1]);
+  const onclick = el.attr('onclick') || '';
+  const quoted = onclick.match(/['\"]((?:https?:\/\/|\/|\?)[^'\"]+)['\"]/i);
+  if (quoted) return normalizeUrl(quoted[1]);
+
+  const urlLike = onclick.match(/((?:https?:\/\/|\/|\?)[^\s'\")]+clan[^\s'\")]+)/i);
+  if (urlLike) return normalizeUrl(urlLike[1]);
+
+  return null;
 }
 
 export async function GET() {
@@ -55,8 +67,14 @@ export async function GET() {
     let season = 'Season 2';
 
     $('table').each((_, table) => {
-      const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
-      if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) return;
+      const headers = $(table)
+        .find('thead th')
+        .map((__, el) => clean($(el).text()).toLowerCase())
+        .get();
+
+      if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) {
+        return;
+      }
 
       $(table).find('tbody tr').each((__, tr) => {
         const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
@@ -67,7 +85,9 @@ export async function GET() {
         const master = cells[2];
         const [memberCurrent, memberMax] = (cells[3] || '0/0').split('/').map(toNumber);
         const reputation = toNumber(cells[4]);
-        const detailUrl = findClanLink($, tr);
+
+        const clanCell = $(tr).find('td').eq(1);
+        const detailUrl = extractUrlFromElement($, clanCell) || extractUrlFromElement($, clanCell.find('a,button,[data-href],[data-url],[onclick]').first());
 
         if (rank > 0 && clan) {
           rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, detailUrl });
