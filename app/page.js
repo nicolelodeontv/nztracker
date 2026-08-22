@@ -6,7 +6,43 @@ const REFRESH_MS = 30000;
 const HISTORY_KEY = 'nztracker-history-v1';
 const FAVORITES_KEY = 'nztracker-favorites-v1';
 const formatNumber = value => new Intl.NumberFormat('en-US').format(Number(value || 0));
-const formatTime = value => value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
+const formatTime = value => value ? new Date(value).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '—';
+
+function downloadText(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function csvEscape(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function clanHistoryCsv(history) {
+  const lines = ['timestamp,season,rank,clan,master,members_current,members_max,reputation'];
+  for (const snapshot of history) {
+    for (const row of snapshot.rows || []) {
+      lines.push([
+        snapshot.capturedAt,
+        snapshot.season || '',
+        row.rank,
+        row.clan,
+        row.master,
+        row.memberCurrent,
+        row.memberMax,
+        row.reputation
+      ].map(csvEscape).join(','));
+    }
+  }
+  return lines.join('\n');
+}
 
 export default function Home() {
   const [rows,setRows]=useState([]),[season,setSeason]=useState('Season 2'),[status,setStatus]=useState('loading'),[updatedAt,setUpdatedAt]=useState(null);
@@ -29,9 +65,11 @@ export default function Home() {
   const chart=points.map((v,i)=>`${points.length<2?0:i/(points.length-1)*100},${92-(v-min)/Math.max(1,max-min)*80}`).join(' ');
   function toggleFavorite(clan){setFavorites(cur=>{const next=cur.includes(clan)?cur.filter(x=>x!==clan):[...cur,clan];try{localStorage.setItem(FAVORITES_KEY,JSON.stringify(next));}catch{}return next;});}
   function selectClan(row){setSelectedClan(row);setMembers([]);setMemberPrevious({});loadMembers(row);}
-  function exportHistory(){const blob=new Blob([JSON.stringify(history,null,2)],{type:'application/json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='ninja-zenshin-clan-history.json';a.click();URL.revokeObjectURL(u);}
+  function exportHistoryJson(){downloadText('ninja-zenshin-clan-history.json',JSON.stringify(history,null,2),'application/json;charset=utf-8');}
+  function exportHistoryCsv(){downloadText('ninja-zenshin-clan-history.csv',clanHistoryCsv(history),'text/csv;charset=utf-8');}
+
   return <main className="shell">
-    <header className="hero"><div><div className="eyebrow"><span className={`dot ${status}`}/> NINJA ZENSHIN // CLAN TRACKER</div><h1>Clan Ranking</h1><p>Live clan reputation and member reputation for <strong>{season}</strong>.</p></div><div className="controls"><button className="ghost" onClick={exportHistory}>⇩ History</button><button className="refresh" onClick={load}>↻ Refresh</button><button className={`toggle ${autoRefresh?'on':''}`} onClick={()=>setAutoRefresh(v=>!v)}><span className="switch"/> Auto {autoRefresh?'ON':'OFF'}</button></div></header>
+    <header className="hero"><div><div className="eyebrow"><span className={`dot ${status}`}/> NINJA ZENSHIN // CLAN TRACKER</div><h1>Clan Ranking</h1><p>Live clan reputation and member reputation for <strong>{season}</strong>.</p></div><div className="controls"><button className="ghost" onClick={exportHistoryJson}>⇩ History JSON</button><button className="ghost" onClick={exportHistoryCsv}>⇩ History CSV</button><button className="refresh" onClick={load}>↻ Refresh</button><button className={`toggle ${autoRefresh?'on':''}`} onClick={()=>setAutoRefresh(v=>!v)}><span className="switch"/> Auto {autoRefresh?'ON':'OFF'}</button></div></header>
     <section className="stats"><Stat label="CURRENT #1" value={leader?.clan||'—'} sub={leader?`${formatNumber(leader.reputation)} reputation`:'Loading'}/><Stat label="TRACKED CLANS" value={rows.length||'—'} sub="Live Clan Ranking"/><Stat label="MEMBERS" value={rows.length?`${formatNumber(totalMembers)} / ${formatNumber(totalSlots)}`:'—'} sub={totalSlots?`${Math.round(totalMembers/totalSlots*100)}% capacity`:'Loading'}/><Stat label="AVG. REPUTATION" value={rows.length?formatNumber(averageRep):'—'} sub="Across clans"/></section>
     <section className="toolbar"><div className="search"><span>⌕</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search clan or master..."/></div><div className="filters"><button className={showFavorites?'filter active':'filter'} onClick={()=>setShowFavorites(v=>!v)}>★ Favorites {favorites.length?`(${favorites.length})`:''}</button><div className="selectWrap"><span>Sort</span><select value={sort} onChange={e=>setSort(e.target.value)}><option value="rank">Rank</option><option value="reputation">Reputation</option><option value="members">Members</option></select></div></div><div className="updated">{updatedAt?`Updated ${formatTime(updatedAt)}`:'Connecting...'} {autoRefresh&&<span>• next {countdown}s</span>}</div></section>
     <section className="tableCard"><div className="tableHead"><span>RANK</span><span>CLAN</span><span>MASTER</span><span>MEMBERS</span><span>REPUTATION</span><span>Δ</span><span>★</span></div><div className="rows">{filtered.map(row=><div key={`${row.clan}-${row.rank}`} className="tableRow" onClick={()=>selectClan(row)} role="button" tabIndex={0} onKeyDown={e=>e.key==='Enter'&&selectClan(row)}><div className={`rank r${row.rank}`}>{row.rank<=3?['♛','◆','◆'][row.rank-1]:`#${row.rank}`}</div><div className="clan"><strong>{row.clan}</strong><div className="bar"><i style={{width:`${row.memberMax?Math.min(100,row.memberCurrent/row.memberMax*100):0}%`}}/></div></div><div className="master">{row.master||'—'}</div><div className="members">{row.memberCurrent}/{row.memberMax}</div><div className="rep">{formatNumber(row.reputation)}</div><div className={`movement ${previous[row.clan]-row.rank>0?'up':previous[row.clan]-row.rank<0?'down':'same'}`}>{previous[row.clan]?(previous[row.clan]-row.rank>0?`↑ ${previous[row.clan]-row.rank}`:previous[row.clan]-row.rank<0?`↓ ${Math.abs(previous[row.clan]-row.rank)}`:'—'):'—'}</div><button className={favorites.includes(row.clan)?'star active':'star'} onClick={e=>{e.stopPropagation();toggleFavorite(row.clan)}}>{favorites.includes(row.clan)?'★':'☆'}</button></div>)}{!filtered.length&&<div className="empty">No clans match your search.</div>}</div></section>
