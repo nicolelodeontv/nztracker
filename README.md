@@ -17,7 +17,7 @@ The tracker is designed for quick monitoring without requiring an account or ext
 ### Live Clan Ranking
 
 - Live clan rank, clan name, master, member count, and reputation
-- Automatic updates every **10 seconds**
+- Continuous background synchronization
 - No manual refresh button or refresh toggle required
 - Search by clan name or master
 - Favorites / pinned clans
@@ -43,7 +43,7 @@ The member panel can display:
 - Individual reputation
 - Reputation change between live updates
 - Live status and last update time
-- Automatic updates while the clan is open
+- Continuous background synchronization while the clan is open
 
 ### Member Reputation History
 
@@ -99,12 +99,13 @@ Ninja Zenshin
                      └── CSV / JSON export
 ```
 
-## Refresh Behavior
+## Live Synchronization
 
-- The browser dashboard automatically polls the tracker every **10 seconds**.
-- Clan ranking API responses use `no-store` so the tracker can receive current reputation changes on each poll.
+- The dashboard synchronizes with the tracker in the background without requiring user interaction.
+- Clan ranking API responses use `no-store` so the tracker can receive current reputation changes during synchronization.
 - Clan member API responses also use `no-store` for live member reputation updates.
-- Live member information continues updating automatically while a clan's member panel is open.
+- The interface intentionally does not expose a refresh countdown or fixed update interval.
+- A **LIVE · SYNCING** indicator shows that background synchronization is active.
 
 ## Local History
 
