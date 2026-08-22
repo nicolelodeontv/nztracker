@@ -1,4 +1,4 @@
-export const revalidate = 30;
+export const revalidate = 0;
 
 const SITE_ORIGIN = 'https://ninjazenshin.online';
 const MEMBER_API = `${SITE_ORIGIN}/clan-ranking/members`;
@@ -23,7 +23,7 @@ export async function GET(request) {
 
   try {
     const response = await fetch(target, {
-      next: { revalidate: 30 },
+      cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0',
         Accept: 'application/json,text/plain,*/*'
@@ -50,13 +50,7 @@ export async function GET(request) {
         })).filter((member) => member.name)
       : [];
 
-    return Response.json({
-      clanId,
-      members,
-      count: members.length,
-      fetchedAt: new Date().toISOString(),
-      source: target
-    });
+    return Response.json({ clanId, members, count: members.length, fetchedAt: new Date().toISOString(), source: target });
   } catch (error) {
     return Response.json({
       error: 'Unable to fetch Ninja Zenshin clan members',
