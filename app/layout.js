@@ -1,0 +1,10 @@
+import './globals.css';
+
+export const metadata = {
+  title: 'Ninja Zenshin — Live Clan Tracker',
+  description: 'Live Ninja Zenshin clan ranking tracker.'
+};
+
+export default function RootLayout({ children }) {
+  return <html lang="en"><body>{children}</body></html>;
+}
