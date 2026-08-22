@@ -28,6 +28,10 @@ export default function Home() {
   const [favorites, setFavorites] = useState([]);
   const [showFavorites, setShowFavorites] = useState(false);
   const [selectedClan, setSelectedClan] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [memberPrevious, setMemberPrevious] = useState({});
+  const [memberStatus, setMemberStatus] = useState('idle');
+  const [memberUpdatedAt, setMemberUpdatedAt] = useState(null);
   const [notifications, setNotifications] = useState(false);
 
   useEffect(() => {
@@ -79,12 +83,41 @@ export default function Home() {
     }
   }, [notifications, saveHistory]);
 
+  const loadMembers = useCallback(async (clan, silent = false) => {
+    if (!clan?.detailUrl) {
+      setMembers([]);
+      setMemberStatus('unavailable');
+      return;
+    }
+    try {
+      if (!silent) setMemberStatus('loading');
+      const res = await fetch(`/api/clan-members?url=${encodeURIComponent(clan.detailUrl)}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setMemberPrevious(current => {
+        const snapshot = {};
+        for (const member of current.members || []) snapshot[member.name] = member.reputation;
+        return snapshot;
+      });
+      setMembers(data.members || []);
+      setMemberUpdatedAt(data.fetchedAt ? new Date(data.fetchedAt) : new Date());
+      setMemberStatus('live');
+    } catch {
+      setMemberStatus('error');
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => load(true), REFRESH_MS);
     return () => clearInterval(timer);
   }, [autoRefresh, load]);
+  useEffect(() => {
+    if (!autoRefresh || !selectedClan) return;
+    const timer = setInterval(() => loadMembers(selectedClan, true), REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [autoRefresh, selectedClan, loadMembers]);
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => setCountdown(v => v <= 1 ? 30 : v - 1), 1000);
@@ -140,13 +173,20 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
+  function selectClan(row) {
+    setSelectedClan(row.clan);
+    setMemberPrevious({});
+    setMembers([]);
+    loadMembers(row);
+  }
+
   return (
     <main className="shell">
       <header className="hero">
         <div>
           <div className="eyebrow"><span className={`dot ${status}`} /> NINJA ZENSHIN // LIVE TRACKER</div>
           <h1>Clan Ranking</h1>
-          <p>Live reputation monitoring for <strong>{season}</strong> with rank movement and history.</p>
+          <p>Live reputation monitoring for <strong>{season}</strong> with rank movement, member stats and history.</p>
         </div>
         <div className="controls">
           <button className="ghost" onClick={enableNotifications}>🔔 {notifications ? 'Alerts ON' : 'Alerts'}</button>
@@ -178,13 +218,13 @@ export default function Home() {
         <div className="tableHead"><span>RANK</span><span>CLAN</span><span>MASTER</span><span>MEMBERS</span><span>REPUTATION</span><span>Δ</span><span>★</span></div>
         <div className="rows">
           {!filtered.length && <div className="empty">No clans match your search.</div>}
-          {filtered.map(row => <ClanRow key={`${row.rank}-${row.clan}`} row={row} previous={previous[row.clan]} favorite={favorites.includes(row.clan)} onFavorite={() => toggleFavorite(row.clan)} onSelect={() => setSelectedClan(row.clan)} />)}
+          {filtered.map(row => <ClanRow key={`${row.rank}-${row.clan}`} row={row} previous={previous[row.clan]} favorite={favorites.includes(row.clan)} onFavorite={() => toggleFavorite(row.clan)} onSelect={() => selectClan(row)} />)}
         </div>
       </section>
 
       <section className="analytics">
         <div className="panel">
-          <div className="panelTop"><div><div className="panelLabel">REP GAIN</div><h2>{selected?.clan || '—'}</h2></div><div className="metric">{selected ? `#${selected.rank}` : '—'}</div></div>
+          <div className="panelTop"><div><div className="panelLabel">CLAN REP GAIN</div><h2>{selected?.clan || '—'}</h2></div><div className="metric">{selected ? `#${selected.rank}` : '—'}</div></div>
           <div className="gainGrid">
             <Metric label="CURRENT REP" value={selected ? formatNumber(selected.reputation) : '—'} />
             <Metric label="10-MIN GAIN" value={`${reputationGain(selected, history)} rep`} />
@@ -200,9 +240,34 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="memberPanel">
+        <div className="panelTop">
+          <div>
+            <div className="panelLabel">LIVE MEMBERS</div>
+            <h2>{selected?.clan || 'Select a clan'}</h2>
+          </div>
+          <div className="memberStatus">{memberStatus === 'live' ? `● LIVE · ${formatTime(memberUpdatedAt)}` : memberStatus === 'loading' ? 'Loading…' : memberStatus === 'error' ? 'Member fetch error' : memberStatus === 'unavailable' ? 'Detail link unavailable' : 'Select a clan'}</div>
+        </div>
+
+        {memberStatus === 'loading' && <div className="memberEmpty">Fetching live member names and reputation…</div>}
+        {memberStatus === 'unavailable' && <div className="memberEmpty">The source did not expose a clan-detail link for this clan yet.</div>}
+        {memberStatus === 'error' && <div className="memberEmpty">Unable to fetch this clan’s member data right now. The ranking itself is still live.</div>}
+        {memberStatus === 'live' && !members.length && <div className="memberEmpty">No member table was found on the clan detail page.</div>}
+        {members.length > 0 && (
+          <div className="memberTable">
+            <div className="memberHead"><span>#</span><span>MEMBER</span><span>REPUTATION</span><span>Δ REP</span></div>
+            {members.map((member, index) => {
+              const old = memberPrevious[member.name];
+              const delta = typeof old === 'number' ? member.reputation - old : 0;
+              return <div className="memberRow" key={`${member.name}-${index}`}><span className="memberRank">{index + 1}</span><strong>{member.name}</strong><span>{formatNumber(member.reputation)}</span><span className={delta > 0 ? 'movement up' : delta < 0 ? 'movement down' : 'movement same'}>{delta > 0 ? `+${formatNumber(delta)}` : delta < 0 ? formatNumber(delta) : '—'}</span></div>;
+            })}
+          </div>
+        )}
+      </section>
+
       <footer>
         <span>Source: ninjazenshin.online/?panel=clan-ranking</span>
-        <span>Local history: {history.length} snapshots · Refresh: 30s · Select a row to inspect</span>
+        <span>Local history: {history.length} snapshots · Ranking + members refresh every 30s</span>
       </footer>
     </main>
   );
@@ -217,8 +282,7 @@ function reputationGain(selected, history) {
 }
 
 function reputationPerMinute(selected, history) {
-  const gain = reputationGain(selected, history);
-  return Math.round(gain / 10);
+  return Math.round(reputationGain(selected, history) / 10);
 }
 
 function Stat({ label, value, sub }) {
@@ -233,7 +297,7 @@ function ClanRow({ row, previous, favorite, onFavorite, onSelect }) {
   const delta = previous ? previous - row.rank : 0;
   const movement = delta > 0 ? 'up' : delta < 0 ? 'down' : 'same';
   const pct = row.memberMax ? Math.round(row.memberCurrent / row.memberMax * 100) : 0;
-  return <div className="tableRow" onClick={onSelect}>
+  return <div className="tableRow" onClick={onSelect} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onSelect()}>
     <div className={`rank r${row.rank}`}>{row.rank <= 3 ? ['♛','◆','◆'][row.rank - 1] : `#${row.rank}`}</div>
     <div className="clan"><strong>{row.clan}</strong><div className="bar"><i style={{ width: `${Math.min(pct,100)}%` }} /></div></div>
     <div className="master">{row.master || '—'}</div>
