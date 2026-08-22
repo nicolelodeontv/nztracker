@@ -1,7 +1,19 @@
 {
   "name": "ninja-zenshin-live-tracker",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
-  "scripts": {"dev":"next dev","build":"next build","start":"next start","lint":"next lint"},
-  "dependencies": {"cheerio":"^1.1.2","next":"^15.5.0","react":"^19.1.1","react-dom":"^19.1.1"}
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "cheerio": "1.1.2",
+    "next": "16.3.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
 }
