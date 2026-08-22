@@ -115,9 +115,12 @@ export default function Home() {
   }, [autoRefresh, load]);
   useEffect(() => {
     if (!autoRefresh || !selectedClan) return;
-    const timer = setInterval(() => loadMembers(selectedClan, true), REFRESH_MS);
+    const timer = setInterval(() => {
+      const clan = rows.find(row => row.clan === selectedClan);
+      if (clan) loadMembers(clan, true);
+    }, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [autoRefresh, selectedClan, loadMembers]);
+  }, [autoRefresh, selectedClan, rows, loadMembers]);
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => setCountdown(v => v <= 1 ? 30 : v - 1), 1000);
