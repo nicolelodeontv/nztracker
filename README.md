@@ -1,14 +1,16 @@
 # Ninja Zenshin Live Clan Tracker
 
-A lightweight live dashboard for monitoring **Ninja Zenshin Clan Ranking** data in a dedicated dark, gaming-style interface.
+A live Clan Ranking dashboard for **Ninja Zenshin**, built to make clan rankings, reputation, member activity, and season changes easier to monitor in one place.
 
-## Live Tracker
+## About
 
-**Website:** https://nztracker.vercel.app/
+**Ninja Zenshin Live Clan Tracker** is an independent community-built tracker that reads the live Ninja Zenshin Clan Ranking data and presents it in a dedicated dark, gaming-style dashboard. It provides live clan rankings, member details, reputation tracking, rank movement, local history, exports, and automatic season detection.
 
-**Source:** https://ninjazenshin.online/?panel=clan-ranking
+The tracker is designed for quick monitoring without requiring an account or external database. Local history is stored in the browser, while live ranking and member information is fetched from the Ninja Zenshin source through the deployed application.
 
-The tracker reads the live Clan Ranking page and keeps the dashboard updated automatically.
+**Live Website:** https://nztracker.vercel.app/
+
+**Data Source:** https://ninjazenshin.online/?panel=clan-ranking
 
 ## Features
 
