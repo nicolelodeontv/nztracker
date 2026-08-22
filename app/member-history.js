@@ -112,14 +112,14 @@ function renderHistory() {
   old?.remove();
 
   const section = document.createElement('section');
-  section.className = 'memberHistory';
+  section.className = 'memberHistory memberHistoryUnified';
   section.dataset.memberHistory = 'true';
   section.dataset.renderKey = renderKey;
   section.dataset.sortField = activeField;
   section.dataset.sortDirection = activeDirection;
   section.innerHTML = `
-    <div class="memberHistoryHeader">
-      <div><div class="panelLabel">MEMBER REPUTATION HISTORY</div><strong>${snapshots.length} snapshots</strong><span> · automatic 30s snapshots</span></div>
+    <div class="memberHistoryHeader memberHistoryUnifiedHeader">
+      <div><div class="panelLabel">REPUTATION HISTORY</div><strong>${snapshots.length} snapshots</strong><span> · automatic 30s snapshots</span></div>
       <div class="memberHistoryActions"><button type="button" class="ghost" data-history-json>⇩ JSON</button><button type="button" class="ghost" data-history-csv>⇩ CSV</button></div>
     </div>
     <div class="memberHistoryTableWrap"><table class="memberHistoryTable"><thead><tr>
