@@ -1,0 +1,13 @@
+/* Sidebar navigation polish */
+.sideNav nav .navItem:nth-child(1)::before{content:'🏆';}
+.sideNav nav .navItem:nth-child(2)::before{content:'⚔️';}
+.sideNav nav .navItem:nth-child(3)::before{content:'🔔';}
+.sideNav nav .navItem:nth-child(4)::before{content:'👥';}
+.sideNav nav .navItem{font-size:0;}
+.sideNav nav .navItem::before{font-size:18px;line-height:1;filter:saturate(.9);}
+.sideNav nav .navItem:hover::before,.sideNav nav .navItem.active::before{filter:saturate(1.15);}
+.sideNav .navItem.settings{margin-top:auto!important;margin-bottom:32px!important;}
+.sideNav .navItem.settings::before{content:'⚙️';font-size:18px;}
+.sideNav .navItem.settings{font-size:0;}
+.sideNav .navItem.settings.selected::before{filter:saturate(1.2);}
+@media(max-width:700px){.sideNav .navItem.settings{margin-bottom:24px!important;}}
