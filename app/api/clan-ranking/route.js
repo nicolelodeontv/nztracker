@@ -88,9 +88,10 @@ export async function GET() {
 
         const clanCell = $(tr).find('td').eq(1);
         const detailUrl = extractUrlFromElement($, clanCell) || extractUrlFromElement($, clanCell.find('a,button,[data-href],[data-url],[onclick]').first());
+        const memberLookupUrl = detailUrl || `${SITE_ORIGIN}/?panel=clan-ranking&clan_name=${encodeURIComponent(clan)}`;
 
         if (rank > 0 && clan) {
-          rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, detailUrl });
+          rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, detailUrl: memberLookupUrl });
         }
       });
     });
