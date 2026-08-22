@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 
 export const revalidate = 0;
 
-the const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
+const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
