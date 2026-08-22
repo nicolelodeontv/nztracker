@@ -1,6 +1,8 @@
 /* Mobile-first refinements for the live clan tracker. */
 .liveBadge{display:inline-flex;align-items:center;gap:7px;padding:10px 12px;border:1px solid rgba(93,229,173,.22);border-radius:11px;background:rgba(93,229,173,.055);color:var(--good);font:700 .64rem/1 'JetBrains Mono',monospace;letter-spacing:.08em;white-space:nowrap}
 .liveBadge:first-letter{font-size:.8rem}
+.gainValue{font-family:'JetBrains Mono',monospace;font-size:.68rem;font-weight:800;color:var(--good);text-align:right;white-space:nowrap}
+.totalGainValue{font-family:'JetBrains Mono',monospace;font-size:.68rem;font-weight:800;color:var(--cyan);text-align:right;white-space:nowrap}
 
 @media (max-width: 900px){
   .shell{width:min(calc(100% - 28px),720px);padding-top:24px}
@@ -37,7 +39,7 @@
   .filter{width:100%;justify-content:center;padding:9px 12px}
   .updated{font-size:.58rem;padding:2px 2px 3px}
   .tableCard{margin-left:-10px;margin-right:-10px;border-radius:0;border-left:0;border-right:0}
-  .tableHead,.tableRow{grid-template-columns:46px minmax(170px,2fr) 96px 100px 82px 48px;gap:10px;min-width:610px}
+  .tableHead,.tableRow{grid-template-columns:46px minmax(170px,2fr) 96px 100px 82px 76px 86px 48px;gap:10px;min-width:760px}
   .tableHead{padding:11px 12px;font-size:.56rem}
   .tableRow{min-height:62px;padding:9px 12px;font-size:.69rem}
   .tableRow>div:nth-child(3){display:none}
@@ -45,7 +47,7 @@
   .master{display:none}
   .members{font-size:.62rem}
   .rep{font-size:.67rem}
-  .movement{font-size:.58rem}
+  .gainValue,.totalGainValue{font-size:.58rem}
   .star{font-size:15px}
   .bar{margin-top:7px}
   .analytics{gap:10px;margin-top:10px}
@@ -67,8 +69,8 @@
   .memberStatus{font-size:.55rem;padding-top:0}
   .modalClose{width:34px;height:34px}
   .memberModalBody{padding:10px}
-  .memberTable{min-width:590px}
-  .memberHead,.memberRow{grid-template-columns:38px minmax(180px,1fr) 70px 120px 88px;gap:10px}
+  .memberTable{min-width:660px}
+  .memberHead,.memberRow{grid-template-columns:38px minmax(180px,1fr) 70px 120px 76px 86px;gap:10px}
   .memberHead{padding:10px 12px;font-size:.55rem}
   .memberRow{min-height:46px;padding:8px 12px;font-size:.64rem}
   .memberModalFooter{padding:10px 12px;font-size:.55rem;line-height:1.5}
@@ -80,5 +82,5 @@
   .controls .liveBadge{grid-column:auto}
   .stats{grid-template-columns:1fr 1fr}
   .statValue{font-size:.9rem}
-  .tableHead,.tableRow{min-width:575px}
+  .tableHead,.tableRow{min-width:720px}
 }
