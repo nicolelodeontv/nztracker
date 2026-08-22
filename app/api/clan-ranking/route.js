@@ -3,7 +3,6 @@ import * as cheerio from 'cheerio';
 export const revalidate = 30;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-const SITE_ORIGIN = 'https://ninjazenshin.online';
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -11,40 +10,6 @@ function clean(value) {
 
 function toNumber(value) {
   return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
-}
-
-function normalizeUrl(value) {
-  if (!value) return null;
-  try {
-    const url = new URL(value, SITE_ORIGIN);
-    if (url.origin !== SITE_ORIGIN) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function extractUrlFromElement($, element) {
-  const el = $(element);
-  const direct = [
-    el.attr('href'),
-    el.attr('data-href'),
-    el.attr('data-url'),
-    el.attr('data-link'),
-    el.attr('data-clan-url'),
-    el.attr('data-target')
-  ].find(Boolean);
-
-  if (direct) return normalizeUrl(direct);
-
-  const onclick = el.attr('onclick') || '';
-  const quoted = onclick.match(/['\"]((?:https?:\/\/|\/|\?)[^'\"]+)['\"]/i);
-  if (quoted) return normalizeUrl(quoted[1]);
-
-  const urlLike = onclick.match(/((?:https?:\/\/|\/|\?)[^\s'\")]+clan[^\s'\")]+)/i);
-  if (urlLike) return normalizeUrl(urlLike[1]);
-
-  return null;
 }
 
 export async function GET() {
@@ -81,17 +46,23 @@ export async function GET() {
         if (cells.length < 5) return;
 
         const rank = toNumber(cells[0]);
-        const clan = cells[1];
+        const clanCell = $(tr).find('td').eq(1);
+        const clan = clean(clanCell.text());
         const master = cells[2];
         const [memberCurrent, memberMax] = (cells[3] || '0/0').split('/').map(toNumber);
         const reputation = toNumber(cells[4]);
-
-        const clanCell = $(tr).find('td').eq(1);
-        const detailUrl = extractUrlFromElement($, clanCell) || extractUrlFromElement($, clanCell.find('a,button,[data-href],[data-url],[onclick]').first());
-        const memberLookupUrl = detailUrl || `${SITE_ORIGIN}/?panel=clan-ranking&clan_name=${encodeURIComponent(clan)}`;
+        const clanId = clean(clanCell.find('[data-clan]').attr('data-clan') || '');
 
         if (rank > 0 && clan) {
-          rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, detailUrl: memberLookupUrl });
+          rows.push({
+            rank,
+            clan,
+            master,
+            memberCurrent,
+            memberMax,
+            reputation,
+            clanId: clanId || null
+          });
         }
       });
     });
