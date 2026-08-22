@@ -5,8 +5,10 @@ import './mobile-responsive.css';
 import './rep-pop.css';
 import './final-theme.css';
 import './damn-good-theme.css';
+import './nav-polish.css';
 import MemberHistory from './member-history';
 import MemberLiveSort from './member-live-sort';
+import NavBehavior from './nav-behavior';
 
 export const metadata = {
   title: 'Ninja Zenshin — Live Clan Tracker',
@@ -14,5 +16,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body>{children}<MemberHistory /><MemberLiveSort /></body></html>;
+  return <html lang="en"><body>{children}<MemberHistory /><MemberLiveSort /><NavBehavior /></body></html>;
 }
