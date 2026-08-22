@@ -59,20 +59,21 @@ function makeCsv(clan, snapshots) {
       previousByName[member.name] = member.reputation;
     }
   }
-  return lines.join('\n');
+  return '\ufeff' + lines.join('\r\n');
 }
 function downloadFile(filename, content, type) {
-  const blob = new Blob([content], { type });
+  const blob = new Blob([content], { type: `${type};charset=utf-8` });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.target = '_self';
   link.rel = 'noopener';
-  link.style.display = 'none';
+  link.style.position = 'fixed';
+  link.style.left = '-9999px';
   document.body.appendChild(link);
   link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 5000);
 }
 
 function renderHistory() {
@@ -87,13 +88,16 @@ function renderHistory() {
   if (snapshot) saveSnapshot(snapshot);
 
   const old = modalBody.querySelector('[data-member-history]');
-  if (old) old.remove();
-
   const snapshots = currentClanHistory(title);
   const rows = buildHistoryRows(snapshots);
+  const renderKey = `${title}|${snapshots.length}|${snapshots.at(-1)?.capturedAt || ''}|${rows.length}`;
+  if (old?.dataset.renderKey === renderKey) return;
+  old?.remove();
+
   const section = document.createElement('section');
   section.className = 'memberHistory';
   section.dataset.memberHistory = 'true';
+  section.dataset.renderKey = renderKey;
   section.innerHTML = `
     <div class="memberHistoryHeader">
       <div><div class="panelLabel">MEMBER REPUTATION HISTORY</div><strong>${snapshots.length} snapshots</strong><span> · automatic 30s snapshots</span></div>
@@ -105,23 +109,22 @@ function renderHistory() {
   `;
   modalBody.appendChild(section);
 
-  section.querySelector('[data-history-json]')?.addEventListener('click', () => {
+  section.querySelector('[data-history-json]')?.addEventListener('click', e => {
+    e.preventDefault();
     const current = currentClanHistory(title);
-    downloadFile(`ninja-zenshin-${safeName(title)}-member-history.json`, JSON.stringify({ clan:title, snapshots:current }, null, 2), 'application/json;charset=utf-8');
+    downloadFile(`ninja-zenshin-${safeName(title)}-member-history.json`, JSON.stringify({ clan:title, snapshotCount:current.length, snapshots:current }, null, 2), 'application/json');
   });
-  section.querySelector('[data-history-csv]')?.addEventListener('click', () => {
+  section.querySelector('[data-history-csv]')?.addEventListener('click', e => {
+    e.preventDefault();
     const current = currentClanHistory(title);
-    downloadFile(`ninja-zenshin-${safeName(title)}-member-history.csv`, makeCsv(title, current), 'text/csv;charset=utf-8');
+    downloadFile(`ninja-zenshin-${safeName(title)}-member-history.csv`, makeCsv(title, current), 'text/csv');
   });
 }
 
 export default function MemberHistory() {
   useEffect(() => {
     let frame = 0;
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(renderHistory);
-    };
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(renderHistory); };
     const observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList:true, subtree:true, characterData:true });
     const timer = window.setInterval(schedule, 1000);
