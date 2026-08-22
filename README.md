@@ -4,7 +4,7 @@ A live Clan Ranking dashboard for **Ninja Zenshin**, built to make clan rankings
 
 ## About
 
-**Ninja Zenshin Live Clan Tracker** is an independent community-built tracker that reads the live Ninja Zenshin Clan Ranking data and presents it in a dedicated dark, gaming-style dashboard. It provides live clan rankings, member details, reputation tracking, rank movement, local history, exports, and automatic season detection.
+**Ninja Zenshin Live Clan Tracker** is an independent community-built tracker that reads the live Ninja Zenshin Clan Ranking data and presents it in a dedicated dark, gaming-style dashboard. It provides live clan rankings, member details, reputation tracking, rank movement, local history, exports, automatic season detection, and a responsive mobile layout.
 
 The tracker is designed for quick monitoring without requiring an account or external database. Local history is stored in the browser, while live ranking and member information is fetched from the Ninja Zenshin source through the deployed application.
 
@@ -17,9 +17,8 @@ The tracker is designed for quick monitoring without requiring an account or ext
 ### Live Clan Ranking
 
 - Live clan rank, clan name, master, member count, and reputation
-- Automatic live refresh
-- Manual refresh button
-- Auto-refresh ON/OFF toggle
+- Automatic updates every **10 seconds**
+- No manual refresh button or refresh toggle required
 - Search by clan name or master
 - Favorites / pinned clans
 - Rank movement indicators
@@ -29,6 +28,7 @@ The tracker is designed for quick monitoring without requiring an account or ext
 - Reputation gain and reputation-per-minute calculations
 - Reputation history chart
 - Season label detected from the live Ninja Zenshin Clan Ranking page
+- Responsive layout for desktop, tablet, and mobile screens
 
 The ranking is kept in live rank order from the source. There is no longer a clan sorting dropdown beside Favorites.
 
@@ -41,9 +41,9 @@ The member panel can display:
 - Member name
 - Level
 - Individual reputation
-- Reputation change between live refreshes
+- Reputation change between live updates
 - Live status and last update time
-- Automatic refresh while the clan is open
+- Automatic updates while the clan is open
 
 ### Member Reputation History
 
@@ -101,9 +101,10 @@ Ninja Zenshin
 
 ## Refresh Behavior
 
-- The browser dashboard polls the tracker every **10 seconds** when Auto Refresh is enabled.
-- The server-side Clan Ranking source is cached/revalidated for approximately **30 seconds**.
-- Live member information refreshes automatically while a clan's member panel is open.
+- The browser dashboard automatically polls the tracker every **10 seconds**.
+- Clan ranking API responses use `no-store` so the tracker can receive current reputation changes on each poll.
+- Clan member API responses also use `no-store` for live member reputation updates.
+- Live member information continues updating automatically while a clan's member panel is open.
 
 ## Local History
 
@@ -126,6 +127,7 @@ This means:
 - Rajdhani
 - JetBrains Mono
 - Browser `localStorage` for history
+- Responsive CSS media queries
 
 ## Run Locally
 
