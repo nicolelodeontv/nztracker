@@ -1,6 +1,5 @@
 import './globals.css';
 import MemberHistory from './member-history';
-import MemberSort from './member-sort';
 import MemberLiveSort from './member-live-sort';
 
 export const metadata = {
@@ -9,5 +8,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body>{children}<MemberHistory /><MemberSort /><MemberLiveSort /></body></html>;
+  return <html lang="en"><body>{children}<MemberHistory /><MemberLiveSort /></body></html>;
 }
