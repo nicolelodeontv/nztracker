@@ -2,71 +2,97 @@
 
 import { useEffect } from 'react';
 
-function sortMembers(container, mode) {
-  const table = container.querySelector('.memberTable');
-  if (!table) return;
-  const head = table.querySelector('.memberHead');
-  if (!head) return;
-  const rows = [...table.querySelectorAll('.memberRow')];
-  if (!rows.length) return;
+const SORT_KEY = 'nztracker-live-member-sort';
 
-  rows.sort((a, b) => {
-    const nameA = a.querySelector('strong')?.textContent?.trim().toLowerCase() || '';
-    const nameB = b.querySelector('strong')?.textContent?.trim().toLowerCase() || '';
-    const levelA = Number((a.children[2]?.textContent || '').replace(/[^0-9]/g, '')) || 0;
-    const levelB = Number((b.children[2]?.textContent || '').replace(/[^0-9]/g, '')) || 0;
-    const repA = Number((a.children[3]?.textContent || '').replace(/[^0-9.-]/g, '')) || 0;
-    const repB = Number((b.children[3]?.textContent || '').replace(/[^0-9.-]/g, '')) || 0;
-
-    if (mode === 'name-asc') return nameA.localeCompare(nameB);
-    if (mode === 'name-desc') return nameB.localeCompare(nameA);
-    if (mode === 'level-desc') return levelB - levelA || nameA.localeCompare(nameB);
-    if (mode === 'level-asc') return levelA - levelB || nameA.localeCompare(nameB);
-    if (mode === 'rep-asc') return repA - repB || nameA.localeCompare(nameB);
-    return repB - repA || nameA.localeCompare(nameB);
-  });
-
-  rows.forEach((row, index) => {
-    row.children[0].textContent = String(index + 1);
-    table.appendChild(row);
-  });
+function getCellValue(row, key) {
+  const name = row.querySelector('strong')?.textContent?.trim().toLowerCase() || '';
+  const level = Number((row.children[2]?.textContent || '').replace(/[^0-9]/g, '')) || 0;
+  const reputation = Number((row.children[3]?.textContent || '').replace(/[^0-9.-]/g, '')) || 0;
+  const delta = Number((row.children[4]?.textContent || '').replace(/[^0-9.-]/g, '')) || 0;
+  if (key === 'name') return name;
+  if (key === 'level') return level;
+  if (key === 'reputation') return reputation;
+  if (key === 'delta') return delta;
+  return Number((row.children[0]?.textContent || '').replace(/[^0-9]/g, '')) || 0;
 }
 
-function mountSort() {
+function sortRows(table, key, direction) {
+  const rows = [...table.querySelectorAll('.memberRow')];
+  rows.sort((a, b) => {
+    const aValue = getCellValue(a, key);
+    const bValue = getCellValue(b, key);
+    let result;
+    if (typeof aValue === 'string') result = aValue.localeCompare(bValue);
+    else result = aValue - bValue;
+    if (result === 0) result = getCellValue(a, 'name').localeCompare(getCellValue(b, 'name'));
+    return direction === 'asc' ? result : -result;
+  });
+
+  const fragment = document.createDocumentFragment();
+  rows.forEach((row, index) => {
+    row.children[0].textContent = String(index + 1);
+    fragment.appendChild(row);
+  });
+  table.appendChild(fragment);
+}
+
+function readSavedSort() {
+  try {
+    const saved = sessionStorage.getItem(SORT_KEY);
+    return saved ? JSON.parse(saved) : { key: 'reputation', direction: 'desc' };
+  } catch {
+    return { key: 'reputation', direction: 'desc' };
+  }
+}
+
+function saveSort(sort) {
+  try { sessionStorage.setItem(SORT_KEY, JSON.stringify(sort)); } catch {}
+}
+
+function updateHeaders(head, activeKey, direction) {
+  const headers = [
+    ['rank', '#'],
+    ['name', 'MEMBER'],
+    ['level', 'LEVEL'],
+    ['reputation', 'REPUTATION'],
+    ['delta', 'Δ REP']
+  ];
+
+  head.innerHTML = headers.map(([key, label]) => {
+    const active = key === activeKey;
+    const arrow = active ? (direction === 'asc' ? '↑' : '↓') : '↕';
+    return `<button type="button" class="historySortBtn memberHeaderSort ${active ? 'active' : ''}" data-member-sort-key="${key}" aria-label="Sort by ${label}"><span>${label}</span><span>${arrow}</span></button>`;
+  }).join('');
+}
+
+function mountHeaderSort() {
   const modal = document.querySelector('.memberModal');
-  const body = modal?.querySelector('.memberModalBody');
-  const table = body?.querySelector('.memberTable');
-  if (!modal || !body || !table) return;
+  const table = modal?.querySelector('.memberTable');
+  const head = table?.querySelector('.memberHead');
+  if (!modal || !table || !head) return;
 
-  let bar = body.querySelector('[data-member-sort]');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.dataset.memberSort = 'true';
-    bar.className = 'memberSortBar';
-    bar.innerHTML = `
-      <span class="memberSortLabel">SORT</span>
-      <select class="memberSortSelect" aria-label="Sort live members">
-        <option value="rep-desc">Reputation ↓</option>
-        <option value="rep-asc">Reputation ↑</option>
-        <option value="level-desc">Level ↓</option>
-        <option value="level-asc">Level ↑</option>
-        <option value="name-asc">Name A–Z</option>
-        <option value="name-desc">Name Z–A</option>
-      </select>
-    `;
-    body.insertBefore(bar, table);
+  // Remove the old standalone dropdown if an older bundle created it.
+  modal.querySelector('[data-member-sort]')?.remove();
 
-    const select = bar.querySelector('select');
-    const saved = sessionStorage.getItem('nztracker-member-sort') || 'rep-desc';
-    select.value = saved;
-    select.addEventListener('change', () => {
-      sessionStorage.setItem('nztracker-member-sort', select.value);
-      sortMembers(body, select.value);
+  let sort = readSavedSort();
+  updateHeaders(head, sort.key, sort.direction);
+  sortRows(table, sort.key, sort.direction);
+
+  if (!head.dataset.memberHeaderBound) {
+    head.dataset.memberHeaderBound = 'true';
+    head.addEventListener('click', event => {
+      const button = event.target.closest('[data-member-sort-key]');
+      if (!button) return;
+
+      const key = button.dataset.memberSortKey;
+      sort = key === sort.key
+        ? { key, direction: sort.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: key === 'name' ? 'asc' : 'desc' };
+
+      saveSort(sort);
+      updateHeaders(head, sort.key, sort.direction);
+      sortRows(table, sort.key, sort.direction);
     });
-    sortMembers(body, select.value);
-  } else {
-    const select = bar.querySelector('select');
-    if (select) sortMembers(body, select.value);
   }
 }
 
@@ -75,7 +101,7 @@ export default function MemberSort() {
     let frame = 0;
     const schedule = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(mountSort);
+      frame = requestAnimationFrame(mountHeaderSort);
     };
     const observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList: true, subtree: true });
