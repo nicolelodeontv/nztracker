@@ -3,6 +3,8 @@ import * as cheerio from 'cheerio';
 export const revalidate = 0;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
+// Current Season 2 / Round 2 target used by the Ninja Zenshin reference tracker.
+const SEASON_END = '2026-09-14T00:00:00+08:00';
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -32,19 +34,12 @@ export async function GET() {
     let season = 'Season 2';
 
     $('table').each((_, table) => {
-      const headers = $(table)
-        .find('thead th')
-        .map((__, el) => clean($(el).text()).toLowerCase())
-        .get();
-
-      if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) {
-        return;
-      }
+      const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
+      if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) return;
 
       $(table).find('tbody tr').each((__, tr) => {
         const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
         if (cells.length < 5) return;
-
         const rank = toNumber(cells[0]);
         const clanCell = $(tr).find('td').eq(1);
         const clan = clean(clanCell.text());
@@ -52,10 +47,7 @@ export async function GET() {
         const [memberCurrent, memberMax] = (cells[3] || '0/0').split('/').map(toNumber);
         const reputation = toNumber(cells[4]);
         const clanId = clean(clanCell.find('[data-clan]').attr('data-clan') || '');
-
-        if (rank > 0 && clan) {
-          rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, clanId: clanId || null });
-        }
+        if (rank > 0 && clan) rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, clanId: clanId || null });
       });
     });
 
@@ -63,17 +55,11 @@ export async function GET() {
     const seasonMatch = bodyText.match(/Clan Ranking\s+Season\s+(\d+)/i);
     if (seasonMatch) season = `Season ${seasonMatch[1]}`;
 
-    if (!rows.length) {
-      return Response.json({ error: 'Clan ranking table not found' }, { status: 502 });
-    }
-
+    if (!rows.length) return Response.json({ error: 'Clan ranking table not found' }, { status: 502 });
     rows.sort((a, b) => a.rank - b.rank);
 
-    return Response.json({ season, rows, fetchedAt: new Date().toISOString(), source: SOURCE });
+    return Response.json({ season, seasonEndsAt: SEASON_END, rows, fetchedAt: new Date().toISOString(), source: SOURCE });
   } catch (error) {
-    return Response.json({
-      error: 'Unable to fetch Ninja Zenshin',
-      details: error instanceof Error ? error.message : String(error)
-    }, { status: 502 });
+    return Response.json({ error: 'Unable to fetch Ninja Zenshin', details: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }
