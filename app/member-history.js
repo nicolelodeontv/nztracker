@@ -9,7 +9,7 @@ function readHistory() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
 }
 function writeHistory(history) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch {} }
-function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeHtml(value) { return String(value ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c])); }
 function safeName(value) { return String(value || 'member-history').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase() || 'member-history'; }
 
 function parseCurrentModal() {
@@ -48,6 +48,16 @@ function buildHistoryRows(clanHistory) {
   }
   return rows.slice(-100).reverse();
 }
+function sortHistoryRows(rows, field, direction) {
+  const multiplier = direction === 'asc' ? 1 : -1;
+  return [...rows].sort((a,b) => {
+    if (field === 'member') return a.name.localeCompare(b.name, undefined, { sensitivity:'base' }) * multiplier;
+    if (field === 'level') return (a.level-b.level || a.name.localeCompare(b.name)) * multiplier;
+    if (field === 'reputation') return (a.reputation-b.reputation || a.name.localeCompare(b.name)) * multiplier;
+    if (field === 'delta') return (a.delta-b.delta || a.name.localeCompare(b.name)) * multiplier;
+    return (new Date(a.capturedAt).getTime()-new Date(b.capturedAt).getTime() || a.name.localeCompare(b.name)) * multiplier;
+  });
+}
 function makeCsv(clan, snapshots) {
   const lines = ['timestamp,clan,member,level,reputation,delta_reputation'];
   const previousByName = {};
@@ -55,7 +65,7 @@ function makeCsv(clan, snapshots) {
     for (const member of snapshot.members) {
       const previous = previousByName[member.name];
       const delta = typeof previous === 'number' ? member.reputation - previous : '';
-      lines.push([snapshot.capturedAt,clan,member.name,member.level,member.reputation,delta].map(v=>`"${String(v ?? '').replace(/"/g,'""')}"`).join(','));
+      lines.push([snapshot.capturedAt,clan,member.name,member.level,member.reputation,delta].map(v=>`\"${String(v ?? '').replace(/\"/g,'\"\"')}\"`).join(','));
       previousByName[member.name] = member.reputation;
     }
   }
@@ -75,6 +85,10 @@ function downloadFile(filename, content, type) {
   link.click();
   window.setTimeout(() => { link.remove(); URL.revokeObjectURL(url); }, 5000);
 }
+function sortLabel(field, activeField, activeDirection) {
+  if (field !== activeField) return '↕';
+  return activeDirection === 'asc' ? '↑' : '↓';
+}
 
 function renderHistory() {
   const modalBody = document.querySelector('.memberModalBody');
@@ -90,7 +104,10 @@ function renderHistory() {
   const old = modalBody.querySelector('[data-member-history]');
   const snapshots = currentClanHistory(title);
   const rows = buildHistoryRows(snapshots);
-  const renderKey = `${title}|${snapshots.length}|${snapshots.at(-1)?.capturedAt || ''}|${rows.length}`;
+  const activeField = old?.dataset.sortField || 'time';
+  const activeDirection = old?.dataset.sortDirection || 'desc';
+  const sortedRows = sortHistoryRows(rows, activeField, activeDirection);
+  const renderKey = `${title}|${snapshots.length}|${snapshots.at(-1)?.capturedAt || ''}|${rows.length}|${activeField}|${activeDirection}`;
   if (old?.dataset.renderKey === renderKey) return;
   old?.remove();
 
@@ -98,24 +115,41 @@ function renderHistory() {
   section.className = 'memberHistory';
   section.dataset.memberHistory = 'true';
   section.dataset.renderKey = renderKey;
+  section.dataset.sortField = activeField;
+  section.dataset.sortDirection = activeDirection;
   section.innerHTML = `
     <div class="memberHistoryHeader">
       <div><div class="panelLabel">MEMBER REPUTATION HISTORY</div><strong>${snapshots.length} snapshots</strong><span> · automatic 30s snapshots</span></div>
       <div class="memberHistoryActions"><button type="button" class="ghost" data-history-json>⇩ JSON</button><button type="button" class="ghost" data-history-csv>⇩ CSV</button></div>
     </div>
-    <div class="memberHistoryTableWrap"><table class="memberHistoryTable"><thead><tr><th>TIME</th><th>MEMBER</th><th>LEVEL</th><th>REPUTATION</th><th>Δ REP</th></tr></thead><tbody>
-      ${rows.length ? rows.map(row=>`<tr><td>${escapeHtml(new Date(row.capturedAt).toLocaleString())}</td><td>${escapeHtml(row.name)}</td><td>${row.level || '—'}</td><td>${Number(row.reputation || 0).toLocaleString()}</td><td class="${row.delta>0?'up':row.delta<0?'down':''}">${row.delta>0?'+'+row.delta.toLocaleString():row.delta<0?row.delta.toLocaleString():'—'}</td></tr>`).join('') : '<tr><td colspan="5" class="memberHistoryEmpty">History will appear after the next live refresh.</td></tr>'}
+    <div class="memberHistoryTableWrap"><table class="memberHistoryTable"><thead><tr>
+      ${[['time','TIME'],['member','MEMBER'],['level','LEVEL'],['reputation','REPUTATION'],['delta','Δ REP']].map(([field,label])=>`<th><button type="button" class="historySortBtn ${activeField===field?'active':''}" data-sort-field="${field}">${label}<span>${sortLabel(field,activeField,activeDirection)}</span></button></th>`).join('')}
+    </tr></thead><tbody>
+      ${sortedRows.length ? sortedRows.map(row=>`<tr><td>${escapeHtml(new Date(row.capturedAt).toLocaleString())}</td><td>${escapeHtml(row.name)}</td><td>${row.level || '—'}</td><td>${Number(row.reputation || 0).toLocaleString()}</td><td class="${row.delta>0?'up':row.delta<0?'down':''}">${row.delta>0?'+'+row.delta.toLocaleString():row.delta<0?row.delta.toLocaleString():'—'}</td></tr>`).join('') : '<tr><td colspan="5" class="memberHistoryEmpty">History will appear after the next live refresh.</td></tr>'}
     </tbody></table></div>
   `;
   modalBody.appendChild(section);
 
+  section.querySelectorAll('[data-sort-field]').forEach(button => button.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const field = button.dataset.sortField || 'time';
+    const nextDirection = section.dataset.sortField === field ? (section.dataset.sortDirection === 'asc' ? 'desc' : 'asc') : (field === 'member' ? 'asc' : 'desc');
+    section.dataset.sortField = field;
+    section.dataset.sortDirection = nextDirection;
+    section.dataset.renderKey = '';
+    renderHistory();
+  }));
+
   section.querySelector('[data-history-json]')?.addEventListener('click', e => {
     e.preventDefault();
+    e.stopPropagation();
     const current = currentClanHistory(title);
     downloadFile(`ninja-zenshin-${safeName(title)}-member-history.json`, JSON.stringify({ clan:title, snapshotCount:current.length, snapshots:current }, null, 2), 'application/json');
   });
   section.querySelector('[data-history-csv]')?.addEventListener('click', e => {
     e.preventDefault();
+    e.stopPropagation();
     const current = currentClanHistory(title);
     downloadFile(`ninja-zenshin-${safeName(title)}-member-history.csv`, makeCsv(title, current), 'text/csv');
   });
