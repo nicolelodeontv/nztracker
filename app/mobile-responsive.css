@@ -1,0 +1,84 @@
+/* Mobile-first refinements for the live clan tracker. */
+.liveBadge{display:inline-flex;align-items:center;gap:7px;padding:10px 12px;border:1px solid rgba(93,229,173,.22);border-radius:11px;background:rgba(93,229,173,.055);color:var(--good);font:700 .64rem/1 'JetBrains Mono',monospace;letter-spacing:.08em;white-space:nowrap}
+.liveBadge:first-letter{font-size:.8rem}
+
+@media (max-width: 900px){
+  .shell{width:min(calc(100% - 28px),720px);padding-top:24px}
+  .hero{grid-template-columns:1fr;gap:20px;padding:24px 0 22px;align-items:start}
+  .controls{justify-content:flex-start;max-width:none}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr));padding:18px 0}
+  .toolbar{grid-template-columns:1fr auto;align-items:center}
+  .search{grid-column:1 / -1}
+  .updated{text-align:left}
+  .tableCard{border-radius:15px}
+  .analytics{grid-template-columns:1fr}
+  .memberModal{padding:10px}
+  .memberModalBox{max-height:94vh;border-radius:16px}
+  .memberModalHeader{padding:16px;gap:12px}
+  .memberModalBody{padding:12px}
+}
+
+@media (max-width: 640px){
+  html,body{min-width:320px}
+  .shell{width:calc(100% - 20px);padding:12px 0 18px}
+  .hero{padding:16px 0 18px}
+  .eyebrow{font-size:.58rem;letter-spacing:.09em;margin-bottom:11px}
+  h1{font-size:clamp(2.35rem,14vw,4rem);letter-spacing:-.055em}
+  .hero p{font-size:.83rem;margin-top:12px}
+  .controls{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:8px}
+  .controls .liveBadge{grid-column:1 / -1;justify-content:center}
+  .controls .ghost{width:100%;padding:9px 8px;font-size:.67rem}
+  .stats{gap:8px;padding:12px 0}
+  .stat{padding:14px;border-radius:14px}
+  .statValue{font-size:1rem;margin-top:8px}
+  .sub{font-size:.63rem;margin-top:5px}
+  .toolbar{grid-template-columns:1fr;gap:8px;padding:7px 0 12px}
+  .filters{width:100%}
+  .filter{width:100%;justify-content:center;padding:9px 12px}
+  .updated{font-size:.58rem;padding:2px 2px 3px}
+  .tableCard{margin-left:-10px;margin-right:-10px;border-radius:0;border-left:0;border-right:0}
+  .tableHead,.tableRow{grid-template-columns:46px minmax(170px,2fr) 96px 100px 82px 48px;gap:10px;min-width:610px}
+  .tableHead{padding:11px 12px;font-size:.56rem}
+  .tableRow{min-height:62px;padding:9px 12px;font-size:.69rem}
+  .tableRow>div:nth-child(3){display:none}
+  .clan strong{font-size:.74rem}
+  .master{display:none}
+  .members{font-size:.62rem}
+  .rep{font-size:.67rem}
+  .movement{font-size:.58rem}
+  .star{font-size:15px}
+  .bar{margin-top:7px}
+  .analytics{gap:10px;margin-top:10px}
+  .panel{padding:15px;border-radius:14px}
+  .panelTop{gap:9px}
+  .panelLabel{font-size:.56rem}
+  .panel h2{font-size:1rem}
+  .metric{font-size:.78rem}
+  .gainGrid{gap:8px;margin-top:14px}
+  .metricCard{padding:11px}
+  .metricValue{font-size:.86rem;margin-top:6px}
+  .chartPanel{min-height:215px}
+  .chart{height:125px;margin-top:15px}
+  .chartEmpty{height:125px;margin-top:15px;font-size:.58rem;text-align:center;padding:12px}
+  .chartLegend{font-size:.55rem}
+  .memberModalHeader{padding:13px;display:grid;grid-template-columns:1fr;gap:10px}
+  .memberModalHeader h2{font-size:1.15rem}
+  .memberModalActions{justify-content:space-between;align-items:center;width:100%}
+  .memberStatus{font-size:.55rem;padding-top:0}
+  .modalClose{width:34px;height:34px}
+  .memberModalBody{padding:10px}
+  .memberTable{min-width:590px}
+  .memberHead,.memberRow{grid-template-columns:38px minmax(180px,1fr) 70px 120px 88px;gap:10px}
+  .memberHead{padding:10px 12px;font-size:.55rem}
+  .memberRow{min-height:46px;padding:8px 12px;font-size:.64rem}
+  .memberModalFooter{padding:10px 12px;font-size:.55rem;line-height:1.5}
+  footer{font-size:.58rem;padding-top:14px}
+}
+
+@media (max-width: 380px){
+  .controls{grid-template-columns:1fr}
+  .controls .liveBadge{grid-column:auto}
+  .stats{grid-template-columns:1fr 1fr}
+  .statValue{font-size:.9rem}
+  .tableHead,.tableRow{min-width:575px}
+}
