@@ -101,7 +101,16 @@ function renderHistory() {
   const snapshot = parseCurrentModal();
   if (snapshot) saveSnapshot(snapshot);
 
-  const old = modalBody.querySelector('[data-member-history]');
+  let combined = modalBody.querySelector('[data-member-combined]');
+  if (!combined) {
+    combined = document.createElement('div');
+    combined.className = 'memberCombinedPanel';
+    combined.dataset.memberCombined = 'true';
+    memberTable.parentElement?.insertBefore(combined, memberTable);
+    combined.appendChild(memberTable);
+  }
+
+  const old = combined.querySelector('[data-member-history]');
   const snapshots = currentClanHistory(title);
   const rows = buildHistoryRows(snapshots);
   const activeField = old?.dataset.sortField || 'time';
@@ -128,7 +137,7 @@ function renderHistory() {
       ${sortedRows.length ? sortedRows.map(row=>`<tr><td>${escapeHtml(new Date(row.capturedAt).toLocaleString())}</td><td>${escapeHtml(row.name)}</td><td>${row.level || '—'}</td><td>${Number(row.reputation || 0).toLocaleString()}</td><td class="${row.delta>0?'up':row.delta<0?'down':''}">${row.delta>0?'+'+row.delta.toLocaleString():row.delta<0?row.delta.toLocaleString():'—'}</td></tr>`).join('') : '<tr><td colspan="5" class="memberHistoryEmpty">History will appear after the next live refresh.</td></tr>'}
     </tbody></table></div>
   `;
-  modalBody.appendChild(section);
+  combined.appendChild(section);
 
   section.querySelectorAll('[data-sort-field]').forEach(button => button.addEventListener('click', e => {
     e.preventDefault();
