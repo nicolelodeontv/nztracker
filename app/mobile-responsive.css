@@ -1,6 +1,8 @@
 /* Mobile-first refinements for the live clan tracker. */
 .liveBadge{display:inline-flex;align-items:center;gap:7px;padding:10px 12px;border:1px solid rgba(93,229,173,.22);border-radius:11px;background:rgba(93,229,173,.055);color:var(--good);font:700 .64rem/1 'JetBrains Mono',monospace;letter-spacing:.08em;white-space:nowrap}
 .liveBadge:first-letter{font-size:.8rem}
+.tableHead,.tableRow{grid-template-columns:62px minmax(220px,2fr) minmax(150px,1.2fr) 110px 140px 82px 110px 48px;min-width:1080px}
+.memberHead,.memberRow{grid-template-columns:48px minmax(220px,1fr) 90px 160px 100px 120px;min-width:780px}
 .gainValue{font-family:'JetBrains Mono',monospace;font-size:.68rem;font-weight:800;color:var(--good);text-align:right;white-space:nowrap}
 .totalGainValue{font-family:'JetBrains Mono',monospace;font-size:.68rem;font-weight:800;color:var(--cyan);text-align:right;white-space:nowrap}
 
