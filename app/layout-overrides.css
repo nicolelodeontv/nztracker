@@ -194,3 +194,58 @@
   .controls{display:grid;grid-template-columns:1fr 1fr;}
   .controls .toggle{grid-column:1/-1;}
 }
+
+/* Final desktop ranking layout fix: give the table the full width so every column stays visible. */
+@media(min-width:1101px){
+  html body .shell{
+    width:min(calc(100% - 48px),1560px)!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    column-gap:0!important;
+  }
+  html body .tableCard,
+  html body .analytics{
+    grid-column:1 / -1!important;
+    grid-row:auto!important;
+  }
+  html body .tableCard{
+    overflow-x:hidden!important;
+  }
+  html body .analytics{
+    margin-top:16px!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1.55fr)!important;
+    gap:16px!important;
+  }
+  html body .analytics:before{
+    grid-column:1 / -1!important;
+  }
+  html body .tableCard .tableHead,
+  html body .tableCard .tableRow{
+    min-width:0!important;
+    width:100%!important;
+    grid-template-columns:72px minmax(260px,2.25fr) minmax(180px,1.35fr) 125px 165px 92px 52px!important;
+    column-gap:24px!important;
+  }
+  html body .tableCard .tableHead{
+    padding-left:32px!important;
+    padding-right:32px!important;
+  }
+  html body .tableCard .tableRow{
+    padding-left:32px!important;
+    padding-right:32px!important;
+  }
+}
+
+@media(min-width:821px) and (max-width:1100px){
+  html body .shell{
+    width:min(calc(100% - 36px),1200px)!important;
+  }
+  html body .tableCard .tableHead,
+  html body .tableCard .tableRow{
+    min-width:0!important;
+    grid-template-columns:60px minmax(180px,2fr) minmax(140px,1.2fr) 105px 135px 80px 46px!important;
+    column-gap:16px!important;
+  }
+  html body .tableCard .tableHead{padding-left:20px!important;padding-right:20px!important;}
+  html body .tableCard .tableRow{padding-left:20px!important;padding-right:20px!important;}
+}
