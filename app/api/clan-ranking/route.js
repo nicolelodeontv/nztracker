@@ -1,8 +1,8 @@
 import * as cheerio from 'cheerio';
 
-export const revalidate = 30;
+export const revalidate = 0;
 
-const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
+the const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -15,7 +15,7 @@ function toNumber(value) {
 export async function GET() {
   try {
     const response = await fetch(SOURCE, {
-      next: { revalidate: 30 },
+      cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0',
         Accept: 'text/html,application/xhtml+xml'
@@ -54,15 +54,7 @@ export async function GET() {
         const clanId = clean(clanCell.find('[data-clan]').attr('data-clan') || '');
 
         if (rank > 0 && clan) {
-          rows.push({
-            rank,
-            clan,
-            master,
-            memberCurrent,
-            memberMax,
-            reputation,
-            clanId: clanId || null
-          });
+          rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, clanId: clanId || null });
         }
       });
     });
@@ -77,12 +69,7 @@ export async function GET() {
 
     rows.sort((a, b) => a.rank - b.rank);
 
-    return Response.json({
-      season,
-      rows,
-      fetchedAt: new Date().toISOString(),
-      source: SOURCE
-    });
+    return Response.json({ season, rows, fetchedAt: new Date().toISOString(), source: SOURCE });
   } catch (error) {
     return Response.json({
       error: 'Unable to fetch Ninja Zenshin',
