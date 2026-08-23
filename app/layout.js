@@ -1,4 +1,5 @@
 import './globals.css';
+import './ui-fixes.css';
 import MemberHistory from './member-history';
 import MemberLiveSort from './member-live-sort';
 import NavBehavior from './nav-behavior';
