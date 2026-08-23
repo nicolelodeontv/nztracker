@@ -1,3 +1,4 @@
+import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 import './ui-fixes.css';
 import './feature-hub.css';
@@ -12,5 +13,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body><FeatureHub />{children}<MemberHistory /><MemberLiveSort /><NavBehavior /></body></html>;
+  return <ClerkProvider><html lang="en"><body><FeatureHub />{children}<MemberHistory /><MemberLiveSort /><NavBehavior /></body></html></ClerkProvider>;
 }
