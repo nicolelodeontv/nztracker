@@ -1,8 +1,10 @@
 import './globals.css';
 import './ui-fixes.css';
+import './feature-hub.css';
 import MemberHistory from './member-history';
 import MemberLiveSort from './member-live-sort';
 import NavBehavior from './nav-behavior';
+import FeatureHub from './feature-hub';
 
 export const metadata = {
   title: 'Ninja Zenshin — Live Clan Tracker',
@@ -10,5 +12,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body>{children}<MemberHistory /><MemberLiveSort /><NavBehavior /></body></html>;
+  return <html lang="en"><body><FeatureHub />{children}<MemberHistory /><MemberLiveSort /><NavBehavior /></body></html>;
 }
