@@ -2,45 +2,37 @@ import * as cheerio from 'cheerio';
 
 export const revalidate = 0;
 
-// Match the same Clan Ranking endpoint used by the reference tracker.
 const SOURCE = 'https://ninjazenshin.online/clan-ranking';
 const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
-function clean(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function toNumber(value) {
-  return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
-}
+function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
+function toNumber(value) { return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0; }
 
 export async function GET() {
   try {
     const response = await fetch(SOURCE, {
       cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0',
-        Accept: 'text/html,application/xhtml+xml'
-      }
+      headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0', Accept: 'text/html,application/xhtml+xml' }
     });
-
-    if (!response.ok) {
-      return Response.json({ error: `Source returned ${response.status}` }, { status: 502 });
-    }
+    if (!response.ok) return Response.json({ error: `Source returned ${response.status}` }, { status: 502 });
 
     const html = await response.text();
     const $ = cheerio.load(html);
     const rows = [];
     let season = 'Season 2';
 
-    // Use Ninja Zenshin's actual countdown target instead of a hard-coded date.
-    const countdownEnd = clean($('.clr-cd').attr('data-end') || '');
-    const seasonEnd = countdownEnd || FALLBACK_SEASON_END;
+    // Ninja Zenshin renders the authoritative remaining countdown as D/H/M/S values.
+    // data-clrcd may be empty, so read the four actual countdown elements.
+    const days = toNumber($('.clr-cd [data-d]').first().text());
+    const hours = toNumber($('.clr-cd [data-h]').first().text());
+    const minutes = toNumber($('.clr-cd [data-m]').first().text());
+    const seconds = toNumber($('.clr-cd [data-s]').first().text());
+    const hasCountdown = $('.clr-cd').length && $('.clr-cd [data-d]').length && $('.clr-cd [data-h]').length;
+    const remainingSeconds = hasCountdown ? days * 86400 + hours * 3600 + minutes * 60 + seconds : null;
 
     $('table').each((_, table) => {
       const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
       if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) return;
-
       $(table).find('tbody tr').each((__, tr) => {
         const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
         if (cells.length < 5) return;
@@ -58,13 +50,13 @@ export async function GET() {
     const bodyText = clean($('body').text());
     const seasonMatch = bodyText.match(/Clan Ranking\s+Season\s+(\d+)/i);
     if (seasonMatch) season = `Season ${seasonMatch[1]}`;
-
     if (!rows.length) return Response.json({ error: 'Clan ranking table not found' }, { status: 502 });
     rows.sort((a, b) => a.rank - b.rank);
 
     return Response.json({
       season,
-      seasonEndsAt: seasonEnd,
+      seasonEndsAt: FALLBACK_SEASON_END,
+      countdown: hasCountdown ? { days, hours, minutes, seconds, remainingSeconds } : null,
       rows,
       fetchedAt: new Date().toISOString(),
       source: SOURCE
