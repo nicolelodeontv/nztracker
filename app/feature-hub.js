@@ -13,6 +13,7 @@ const FEATURE_ITEMS = [
 export default function FeatureHub() {
   const [rows, setRows] = useState([]);
   const [notificationState, setNotificationState] = useState('idle');
+  const [discordState, setDiscordState] = useState('idle');
   const previous = useRef(new Map());
 
   useEffect(() => {
@@ -63,12 +64,29 @@ export default function FeatureHub() {
     setNotificationState(permission === 'granted' ? 'enabled' : 'denied');
   }
 
+  async function sendDiscordTest() {
+    setDiscordState('sending');
+    try {
+      const response = await fetch('/api/discord-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clan: rows[0]?.clan || 'Ninja Zenshin',
+          member: 'Tracker Test',
+          gain: 0,
+          rank: rows[0]?.rank || 0,
+          reputation: rows[0]?.reputation || 0
+        })
+      });
+      setDiscordState(response.ok ? 'sent' : 'error');
+    } catch {
+      setDiscordState('error');
+    }
+  }
+
   function handleClick(item) {
     if (item.action === 'notify') return enableNotifications();
-    if (item.action === 'discord') {
-      window.alert('Discord summaries are wired for webhook integration. Set DISCORD_WEBHOOK_URL in Vercel Environment Variables to enable posting.');
-      return;
-    }
+    if (item.action === 'discord') return sendDiscordTest();
     document.getElementById(item.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -89,7 +107,11 @@ export default function FeatureHub() {
             <span className="featureIcon" aria-hidden="true">{item.icon}</span>
             <span className="featureCopy">
               <strong>{item.title}</strong>
-              <small>{item.text}</small>
+              <small>
+                {item.action === 'discord' && discordState === 'sending' ? 'Sending test summary…' :
+                 item.action === 'discord' && discordState === 'sent' ? 'Discord test sent' :
+                 item.action === 'discord' && discordState === 'error' ? 'Webhook not configured' : item.text}
+              </small>
             </span>
             <span className="featureArrow" aria-hidden="true">→</span>
           </button>
