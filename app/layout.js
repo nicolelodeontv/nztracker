@@ -8,10 +8,11 @@ import './damn-good-theme.css';
 import './nav-polish.css';
 import './sidebar-cleanup.css';
 import './countdown-match.css';
+import './local-countdown.css';
 import MemberHistory from './member-history';
 import MemberLiveSort from './member-live-sort';
 import NavBehavior from './nav-behavior';
-import CountdownSync from './countdown-sync';
+import LocalCountdown from './local-countdown';
 
 export const metadata = {
   title: 'Ninja Zenshin — Live Clan Tracker',
@@ -19,5 +20,5 @@ export const metadata = {
 };
 
 export default function RootLayout({ children }) {
-  return <html lang="en"><body>{children}<MemberHistory /><MemberLiveSort /><NavBehavior /><CountdownSync /></body></html>;
+  return <html lang="en"><body>{children}<MemberHistory /><MemberLiveSort /><NavBehavior /><LocalCountdown /></body></html>;
 }
