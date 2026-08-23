@@ -7,6 +7,7 @@ import './final-theme.css';
 import './damn-good-theme.css';
 import './nav-polish.css';
 import './sidebar-cleanup.css';
+import './countdown-match.css';
 import MemberHistory from './member-history';
 import MemberLiveSort from './member-live-sort';
 import NavBehavior from './nav-behavior';
