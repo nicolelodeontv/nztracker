@@ -10,20 +10,41 @@ const FEATURE_ITEMS = [
   { icon: '🎮', title: 'Discord', text: 'Automatic attack summaries', action: 'discord' }
 ];
 
-export default function FeatureHub({ rows = [], onSelectClan }) {
+export default function FeatureHub() {
+  const [rows, setRows] = useState([]);
   const [notificationState, setNotificationState] = useState('idle');
   const previous = useRef(new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const response = await fetch(`/api/clan-ranking?t=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) setRows(data.rows || []);
+      } catch {
+        // The main dashboard remains authoritative when this secondary panel cannot load.
+      }
+    }
+    load();
+    const timer = setInterval(load, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     rows.forEach((row) => {
       const key = String(row.clanId || row.clan || row.rank);
       const current = Number(row.liveGain || 0);
       const prior = previous.current.get(key);
-      if (prior !== undefined && current > prior) {
-        const message = `${row.clan || 'Your clan'} gained +${current - prior} reputation.`;
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          new Notification('Ninja Zenshin attack detected', { body: message, tag: `nztracker-${key}` });
-        }
+      if (prior !== undefined && current > prior && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('Ninja Zenshin attack detected', {
+          body: `${row.clan || 'Your clan'} gained +${current - prior} reputation.`,
+          tag: `nztracker-${key}`
+        });
       }
       previous.current.set(key, current);
     });
@@ -45,7 +66,7 @@ export default function FeatureHub({ rows = [], onSelectClan }) {
   function handleClick(item) {
     if (item.action === 'notify') return enableNotifications();
     if (item.action === 'discord') {
-      window.alert('Discord summaries are ready for webhook integration. Add DISCORD_WEBHOOK_URL in Vercel environment variables to enable posting.');
+      window.alert('Discord summaries are wired for webhook integration. Set DISCORD_WEBHOOK_URL in Vercel Environment Variables to enable posting.');
       return;
     }
     document.getElementById(item.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
