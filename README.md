@@ -1,136 +1,144 @@
-# Ninja Zenshin Live Clan Tracker
+# 🥷 Ninja Zenshin Live Clan Tracker
 
-A live Clan Ranking dashboard for **Ninja Zenshin**, built to make clan rankings, reputation, member activity, and season changes easier to monitor in one place.
+A live community-built dashboard for monitoring **Ninja Zenshin Clan Ranking** data in a clean, dark gaming interface.
 
-## About
+**Live site:** https://nztracker.vercel.app/
 
-**Ninja Zenshin Live Clan Tracker** is an independent community-built tracker that reads the live Ninja Zenshin Clan Ranking data and presents it in a dedicated dark, gaming-style dashboard. It provides live clan rankings, member details, reputation tracking, rank movement, local history, exports, automatic season detection, and a responsive mobile layout.
+**Source:** https://ninjazenshin.online/?panel=clan-ranking
 
-The tracker is designed for quick monitoring without requiring an account or external database. Local history is stored in the browser, while live ranking and member information is fetched from the Ninja Zenshin source through the deployed application.
+## ✨ Features
 
-**Live Website:** https://nztracker.vercel.app/
+### 🏆 Live Clan Ranking
 
-**Data Source:** https://ninjazenshin.online/?panel=clan-ranking
-
-## Features
-
-### Live Clan Ranking
-
-- Live clan rank, clan name, master, member count, and reputation
-- Continuous background synchronization
-- No manual refresh button or refresh toggle required
+- Live clan rank, clan name, master, members, reputation, gain, and total gain
+- Automatic background synchronization
 - Search by clan name or master
-- Favorites / pinned clans
-- Rank movement indicators
 - Member-capacity progress bars
-- Local clan reputation history
-- History export as **CSV** or **JSON**
-- Reputation gain and reputation-per-minute calculations
-- Reputation history chart
-- Season label detected from the live Ninja Zenshin Clan Ranking page
-- Responsive layout for desktop, tablet, and mobile screens
+- Top-clan podium view
+- Live/updated/server-time indicators
+- Responsive desktop, tablet, and mobile layout
+- Dark Ninja Command Center visual design
 
-The ranking is kept in live rank order from the source. There is no longer a clan sorting dropdown beside Favorites.
+### 👥 Live Clan Members
 
-### Live Members
+Click a clan to open its live member panel.
 
-Click any clan in the ranking table to open its live member panel.
-
-The member panel can display:
+The member view can display:
 
 - Member name
 - Level
 - Individual reputation
-- Reputation change between live updates
-- Live status and last update time
-- Continuous background synchronization while the clan is open
+- Reputation gain
+- Total reputation gain
+- Live member count
+- Last synchronization time
 
-### Member Reputation History
+Member data is refreshed while the clan panel is open.
 
-Member reputation snapshots can be collected while a live clan panel is open.
+### ↕️ Member Sorting
 
-History is stored locally in the browser and can be exported without a database connection.
+The live member table supports sorting by:
 
-Exports include:
+- Member name
+- Level
+- Reputation
+- Gain
+- Total Gain
 
-- **CSV** — for Excel, Google Sheets, and data analysis
-- **JSON** — for complete snapshot data
+Click a column header to sort. Click it again to reverse the order.
 
-## Season Updates
+### ⏱️ Season Countdown
 
-The tracker is built to detect the current season from the live Ninja Zenshin Clan Ranking page instead of permanently displaying a fixed season number.
+The dashboard includes a live season countdown showing:
 
-When Ninja Zenshin moves to a new season and the source page exposes the new season information in the expected format, the tracker can update the displayed season automatically along with the new ranking data.
+- Days
+- Hours
+- Minutes
+- Seconds
 
-## Ninja Zenshin Member API
+The countdown remains visible as part of the season overview.
 
-The tracker uses the Ninja Zenshin clan-member endpoint through its own Next.js API route:
+### ⚙️ Settings
 
-```text
-https://ninjazenshin.online/clan-ranking/members/{clanId}
-```
+The Settings panel provides controls for:
 
-Member data can include:
+- Automatic live refresh
+- Compact table rows
 
-- `name`
-- `level`
-- `rep`
+Settings are kept locally in the browser.
 
-The tracker fetches member data server-side through `/api/clan-members`.
+### 📊 Local Tracking & Exports
 
-## Architecture
+The tracker can maintain local reputation/history information in the browser and supports data export where available.
+
+Exports use:
+
+- **CSV** for spreadsheets and analysis
+- **JSON** for structured data
+
+## 🎨 Design
+
+The current interface uses a **dark Ninja Command Center** style designed around readability and fast data scanning.
+
+- Dark near-black background
+- Cyan and violet accents
+- Space Grotesk for major headings
+- Manrope for UI text
+- JetBrains Mono for data, timestamps, and statistics
+- Responsive spacing and overflow handling for long clan/member names
+- Subtle hover states and restrained glow effects
+
+The layout intentionally avoids excessive neon effects so large ranking tables remain easy to read.
+
+## 🔄 Live Synchronization
+
+The dashboard retrieves live data through Next.js API routes and refreshes in the background.
 
 ```text
 Ninja Zenshin
      │
      ├── Clan Ranking
-     │       └── /api/clan-ranking
+     │      └── /api/clan-ranking
      │
      └── Clan Members
-             └── /api/clan-members
-                     │
-                     ▼
-              Next.js Tracker
-                     │
-                     ├── Live ranking
-                     ├── Live members
-                     ├── Season detection
-                     ├── Local history
-                     └── CSV / JSON export
+            └── /api/clan-members
+                    │
+                    ▼
+             Next.js Tracker
+                    │
+                    ├── Live ranking
+                    ├── Live members
+                    ├── Season countdown
+                    ├── Reputation tracking
+                    └── Responsive UI
 ```
 
-## Live Synchronization
+Live availability depends on the Ninja Zenshin source and its endpoints being reachable from the deployed environment.
 
-- The dashboard synchronizes with the tracker in the background without requiring user interaction.
-- Clan ranking API responses use `no-store` so the tracker can receive current reputation changes during synchronization.
-- Clan member API responses also use `no-store` for live member reputation updates.
-- The interface intentionally does not expose a refresh countdown or fixed update interval.
-- A **LIVE · SYNCING** indicator shows that background synchronization is active.
+## 💾 Local Data
 
-## Local History
-
-History is stored using browser `localStorage`.
+Some tracker state is stored in browser `localStorage`.
 
 This means:
 
 - No account is required
-- No external database is required
-- History stays on the device/browser where the tracker is being used
-- Clearing browser site data can remove stored history
+- No external database is required for local state
+- Data is tied to the browser/device being used
+- Clearing browser site data can remove locally stored information
 
-## Tech Stack
+## 🛠️ Tech Stack
 
 - Next.js
 - React
 - JavaScript
+- CSS
 - Vercel
-- Barlow Condensed
-- Rajdhani
 - JetBrains Mono
-- Browser `localStorage` for history
-- Responsive CSS media queries
+- Space Grotesk
+- Manrope
+- Browser `localStorage`
 
-## Run Locally
+## 🚀 Run Locally
 
 ```bash
 npm install
@@ -143,29 +151,29 @@ Open:
 http://localhost:3000
 ```
 
-## Build for Production
+## 📦 Production Build
 
 ```bash
 npm run build
 npm start
 ```
 
-## Deploy to Vercel
+## ☁️ Deploy to Vercel
 
-This project is configured for Vercel and can be deployed from the GitHub repository using standard Next.js deployment settings.
+The project is designed to deploy through Vercel using the GitHub repository:
 
-## Footer Credit
+```text
+nicolelodeontv/nztracker
+```
 
-The live tracker footer credits the project creator as **Created by Michol** and includes a Discord profile link.
+The production branch is `main`.
+
+## 👤 Credit
+
+Created by **Michol**
 
 Discord: https://discordapp.com/users/396080330702061588
 
-## Notes
+## ⚠️ Disclaimer
 
-The tracker is designed specifically around the **Clan Ranking** section. It does not track the PvE Leaderboard or PvP Leaderboard.
-
-Live data availability depends on the Ninja Zenshin website and its clan-member endpoints being reachable from the deployment environment.
-
-## Disclaimer
-
-This project is an independent community tracker and is not affiliated with, endorsed by, or officially connected to Ninja Zenshin or its operators.
+This is an independent community tracker and is not affiliated with, endorsed by, or officially connected to Ninja Zenshin or its operators.
