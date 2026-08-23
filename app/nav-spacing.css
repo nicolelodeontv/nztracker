@@ -5,15 +5,96 @@
   align-items: center !important;
 }
 
-.zNav button {
+/* Keep Settings only; remove the four section shortcut buttons. */
+.zNav button:not(:first-child) {
+  display: none !important;
+}
+
+/* Emoji-style Settings control. */
+.zNav button:first-child {
   display: grid !important;
   place-items: center !important;
   flex: 0 0 auto !important;
   margin: 0 !important;
+  width: 42px !important;
+  height: 42px !important;
+  font-size: 0 !important;
+  line-height: 1 !important;
 }
 
-.zNav button + button {
-  margin-top: 0 !important;
+.zNav button:first-child::after {
+  content: "🛠️";
+  font-size: 19px;
+  line-height: 1;
+  filter: saturate(.9);
+}
+
+/* Prevent table values and labels from colliding. */
+.zHead > *,
+.zRow > *,
+.zMHead > *,
+.zMRow > *,
+.zPodStats > div,
+.zStats > .zCard,
+.zAnalytics > .zCard,
+.zAnalytics > .zPanel {
+  min-width: 0 !important;
+  max-width: 100%;
+}
+
+.zHead > *,
+.zRow > *,
+.zMHead > *,
+.zMRow > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zHead,
+.zRow,
+.zMHead,
+.zMRow {
+  column-gap: 14px !important;
+}
+
+.zRow {
+  line-height: 1.25;
+}
+
+.zClan strong,
+.zName strong,
+.zName small,
+.zPodStats b,
+.zPodStats small,
+.zCard strong,
+.zCard small,
+.zPanel h3,
+.zBurn b,
+.zBurn span,
+.zBurn em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zPodStats b,
+.zPodStats small,
+.zBurn b,
+.zBurn span,
+.zBurn em {
+  white-space: nowrap;
+}
+
+.zSectionHead > div,
+.zHero > div,
+.zActions,
+.zToolbar {
+  min-width: 0;
+}
+
+.zHero p,
+.zSection p {
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 620px) {
@@ -21,5 +102,17 @@
     right: 10px !important;
     top: 10px !important;
     gap: 10px !important;
+  }
+
+  .zNav button:first-child {
+    width: 40px !important;
+    height: 40px !important;
+  }
+
+  .zHead,
+  .zRow,
+  .zMHead,
+  .zMRow {
+    column-gap: 12px !important;
   }
 }
