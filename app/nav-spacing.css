@@ -1,0 +1,25 @@
+.zNav {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  align-items: center !important;
+}
+
+.zNav button {
+  display: grid !important;
+  place-items: center !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+.zNav button + button {
+  margin-top: 0 !important;
+}
+
+@media (max-width: 620px) {
+  .zNav {
+    right: 10px !important;
+    top: 10px !important;
+    gap: 10px !important;
+  }
+}
