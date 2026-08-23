@@ -1,4 +1,6 @@
 import './globals.css';
+import './tracker.css';
+import MemberHistory from './member-history';
 
 export const metadata = {
   title: 'Ninja Zenshin — Live Clan Tracker',
@@ -8,7 +10,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><MemberHistory />{children}</body>
     </html>
   );
 }
