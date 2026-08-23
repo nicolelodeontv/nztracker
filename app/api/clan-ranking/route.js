@@ -2,9 +2,9 @@ import * as cheerio from 'cheerio';
 
 export const revalidate = 0;
 
-const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-// Current Season 2 / Round 2 target used by the Ninja Zenshin reference tracker.
-const SEASON_END = '2026-09-14T00:00:00+08:00';
+// Match the same Clan Ranking endpoint used by the reference tracker.
+const SOURCE = 'https://ninjazenshin.online/clan-ranking';
+const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -33,6 +33,10 @@ export async function GET() {
     const rows = [];
     let season = 'Season 2';
 
+    // Use Ninja Zenshin's actual countdown target instead of a hard-coded date.
+    const countdownEnd = clean($('.clr-cd').attr('data-end') || '');
+    const seasonEnd = countdownEnd || FALLBACK_SEASON_END;
+
     $('table').each((_, table) => {
       const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
       if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) return;
@@ -58,7 +62,13 @@ export async function GET() {
     if (!rows.length) return Response.json({ error: 'Clan ranking table not found' }, { status: 502 });
     rows.sort((a, b) => a.rank - b.rank);
 
-    return Response.json({ season, seasonEndsAt: SEASON_END, rows, fetchedAt: new Date().toISOString(), source: SOURCE });
+    return Response.json({
+      season,
+      seasonEndsAt: seasonEnd,
+      rows,
+      fetchedAt: new Date().toISOString(),
+      source: SOURCE
+    });
   } catch (error) {
     return Response.json({ error: 'Unable to fetch Ninja Zenshin', details: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
