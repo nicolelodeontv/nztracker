@@ -7,7 +7,7 @@ const REFRESH_MS = 3000;
 const END_DEFAULT = '2026-09-14T00:00:00+08:00';
 const HISTORY_KEY = 'nztracker:history:v6';
 const SETTINGS_KEY = 'nztracker:settings:v6';
-const BLEED_KEY = 'nztracker:bleed:v1';
+const BLEED_KEY = 'nztracker:bleed:v2';
 const BLEED_COOLDOWN = 30 * 60 * 1000;
 
 const fmt = (n) => new Intl.NumberFormat('en-US').format(Number(n || 0));
@@ -92,17 +92,51 @@ export default function Home() {
     if (browserAlerts && 'Notification' in window && Notification.permission === 'granted') new Notification(title, { body, tag: 'nztracker' });
   }, [browserAlerts]);
 
-  const sendBleed = useCallback(async (clan, before, current) => {
+  const sendBleed = useCallback(async (clan, before, current, remainingSeconds) => {
     if (!discordAlerts || current >= before) return;
-    const sent = read(BLEED_KEY, {});
+
+    const state = read(BLEED_KEY, {});
     const now = Date.now();
-    if (now - Number(sent[clan] || 0) < BLEED_COOLDOWN) return;
+    const prior = state[clan] || {};
+    const mins = Number.isFinite(Number(remainingSeconds)) && Number(remainingSeconds) > 0
+      ? Math.max(1, Math.ceil(Number(remainingSeconds) / 60))
+      : null;
+
+    let stage = null;
+    if (!prior.detectedAt || now - Number(prior.detectedAt) >= BLEED_COOLDOWN) {
+      stage = 'detected';
+    } else if (mins !== null && mins <= 6 && !prior.sent6m) {
+      stage = '6m';
+    } else if (mins !== null && mins <= 12 && mins > 6 && !prior.sent12m) {
+      stage = '12m';
+    }
+
+    if (!stage) return;
+
     try {
       const response = await fetch('/api/discord/attack-summary', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'bleeding', clan, previousReputation: before, currentReputation: current, reputationLoss: before - current, timestamp: new Date().toISOString() })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'bleeding',
+          stage,
+          clan,
+          previousReputation: before,
+          currentReputation: current,
+          reputationLoss: before - current,
+          remainingSeconds,
+          timestamp: new Date().toISOString()
+        })
       });
-      if (response.ok) { sent[clan] = now; write(BLEED_KEY, sent); }
+
+      if (response.ok) {
+        state[clan] = {
+          detectedAt: prior.detectedAt || now,
+          sent12m: prior.sent12m || stage === '12m' || stage === '6m',
+          sent6m: prior.sent6m || stage === '6m'
+        };
+        write(BLEED_KEY, state);
+      }
     } catch {}
   }, [discordAlerts]);
 
@@ -122,7 +156,12 @@ export default function Home() {
         for (const row of next) {
           const beforeRow = previous.find(r => r.clan === row.clan);
           if (beforeRow && Number(row.reputation || 0) < Number(beforeRow.reputation || 0)) {
-            await sendBleed(row.clan, Number(beforeRow.reputation || 0), Number(row.reputation || 0));
+            await sendBleed(
+              row.clan,
+              Number(beforeRow.reputation || 0),
+              Number(row.reputation || 0),
+              data.countdown?.remainingSeconds
+            );
           }
           if (rankAlerts) {
             const oldRank = oldRanks.get(row.clan);
@@ -232,7 +271,7 @@ export default function Home() {
         <label><span><b>Browser alerts</b><small>Notify when member gains reach the threshold.</small></span><input type="checkbox" checked={browserAlerts} onChange={e => requestAlerts(e.target.checked)} /></label>
         <label><span><b>Rank alerts</b><small>Notify when a clan changes rank.</small></span><input type="checkbox" checked={rankAlerts} onChange={e => setRankAlerts(e.target.checked)} /></label>
         <label><span><b>Gain threshold</b><small>{fmt(threshold)} reputation.</small></span><input className="threshold" type="number" min="1" value={threshold} onChange={e => setThreshold(Number(e.target.value || 1))} /></label>
-        <label><span><b>Discord bleeding alerts</b><small>Send a Discord alert when a clan loses reputation.</small></span><input type="checkbox" checked={discordAlerts} onChange={e => setDiscordAlerts(e.target.checked)} /></label>
+        <label><span><b>Discord Bleeding Reminders</b><small>Send ⚠️/🔴 bleed reminders to Discord when a clan is detected bleeding.</small></span><input type="checkbox" checked={discordAlerts} onChange={e => setDiscordAlerts(e.target.checked)} /></label>
         <button className="refresh-button" onClick={() => { load(); if (selected) loadMembers(selected); }}>↻ Refresh now</button>
       </div>
     </aside>}
