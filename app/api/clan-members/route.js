@@ -8,7 +8,26 @@ function clean(value) {
 }
 
 function toNumber(value) {
-  return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(String(value).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function pick(object, keys) {
+  for (const key of keys) {
+    const value = toNumber(object?.[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function extractStamina(member) {
+  const nested = member?.stats || member?.attributes || member?.status || {};
+  const current = pick(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
+    ?? pick(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
+  const max = pick(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
+    ?? pick(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
+  return { current, max };
 }
 
 export async function GET(request) {
@@ -31,31 +50,31 @@ export async function GET(request) {
     });
 
     const text = await response.text();
-    if (!response.ok) {
-      return Response.json({ error: `Member API returned ${response.status}`, source: target }, { status: 502 });
-    }
+    if (!response.ok) return Response.json({ error: `Member API returned ${response.status}`, source: target }, { status: 502 });
 
     let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      return Response.json({ error: 'Member API did not return JSON.', source: target }, { status: 502 });
-    }
+    try { payload = JSON.parse(text); } catch { return Response.json({ error: 'Member API did not return JSON.', source: target }, { status: 502 }); }
 
     const members = Array.isArray(payload?.members)
-      ? payload.members.map((member) => ({
-          name: clean(member?.name),
-          level: toNumber(member?.level),
-          reputation: toNumber(member?.rep ?? member?.reputation)
-        })).filter((member) => member.name)
+      ? payload.members.map((member) => {
+          const stamina = extractStamina(member);
+          const threshold = stamina.max === null ? null : stamina.max * 0.70;
+          const floor = stamina.max === null ? null : stamina.max * 0.50;
+          return {
+            name: clean(member?.name),
+            level: toNumber(member?.level) ?? 0,
+            reputation: toNumber(member?.rep ?? member?.reputation) ?? 0,
+            stamina: stamina.current,
+            maxStamina: stamina.max,
+            bleedingThreshold: threshold,
+            drainFloor: floor,
+            bleeding: stamina.current !== null && threshold !== null ? stamina.current <= threshold : null
+          };
+        }).filter((member) => member.name)
       : [];
 
     return Response.json({ clanId, members, count: members.length, fetchedAt: new Date().toISOString(), source: target });
   } catch (error) {
-    return Response.json({
-      error: 'Unable to fetch Ninja Zenshin clan members',
-      details: error instanceof Error ? error.message : String(error),
-      source: target
-    }, { status: 502 });
+    return Response.json({ error: 'Unable to fetch Ninja Zenshin clan members', details: error instanceof Error ? error.message : String(error), source: target }, { status: 502 });
   }
 }
