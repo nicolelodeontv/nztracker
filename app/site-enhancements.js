@@ -3,8 +3,8 @@
 import { useEffect } from 'react';
 
 const WATCH_KEY = 'nztracker:watchlist:v1';
-const REP_KEY = 'nztracker:command-rep:v4';
-const FEED_KEY = 'nztracker:live-feed:v2';
+const REP_KEY = 'nztracker:command-rep:v5';
+const FEED_KEY = 'nztracker:live-feed:v3';
 const FEED_LIMIT = 18;
 const REP_WINDOW = 10 * 60 * 1000;
 
@@ -17,6 +17,19 @@ const write = (key, value) => {
 const text = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const num = (value) => Number(String(value ?? '').replace(/[^0-9.-]/g, '')) || 0;
 const previous = new Map();
+
+function cellNum(row, index) {
+  const cell = row?.children?.[index];
+  if (!cell) return 0;
+  const clone = cell.cloneNode(true);
+  clone.querySelectorAll('.last-change,.watch-button,.nz-last-change,.nz-watch').forEach((node) => node.remove());
+  return num(clone.textContent);
+}
+
+function validFeedItem(item) {
+  const delta = Number(item?.delta);
+  return !!item?.clan && Number.isSafeInteger(delta) && Math.abs(delta) <= Number.MAX_SAFE_INTEGER && Number.isFinite(Number(item?.at));
+}
 
 function injectStyles() {
   if (document.querySelector('[data-nz-enhancement-style]')) return;
@@ -51,8 +64,12 @@ function injectStyles() {
   document.head.appendChild(style);
 }
 
-function clanName(row) { return text(row?.children?.[1]?.querySelector('b')?.textContent || row?.children?.[1]?.textContent); }
-function getRows() { return [...document.querySelectorAll('.table-wrap .table-row')]; }
+function clanName(row) {
+  return text(row?.children?.[1]?.querySelector('b')?.textContent || row?.children?.[1]?.textContent);
+}
+function getRows() {
+  return [...document.querySelectorAll('.table-wrap .table-row')];
+}
 
 function cleanLegacy() {
   document.querySelectorAll('.tracker .section').forEach((section) => {
@@ -64,32 +81,43 @@ function cleanLegacy() {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
-  nodes.forEach((node) => { if (text(node.nodeValue).toUpperCase() === '30M GAIN') node.nodeValue = 'GAIN'; });
+  nodes.forEach((node) => {
+    if (text(node.nodeValue).toUpperCase() === '30M GAIN') node.nodeValue = 'GAIN';
+  });
 }
 
 function capture(rows) {
   const state = read(REP_KEY, {});
   const stored = read(FEED_KEY, []);
-  const feed = Array.isArray(stored) ? stored : [];
+  const feed = Array.isArray(stored) ? stored.filter(validFeedItem) : [];
   const now = Date.now();
+
   rows.forEach((row) => {
-    const clan = clanName(row); if (!clan) return;
-    const rep = num(row.children?.[4]?.textContent);
+    const clan = clanName(row);
+    if (!clan) return;
+
+    const rep = cellNum(row, 4);
+    if (!Number.isSafeInteger(rep) || rep < 0) return;
+
     const old = state[clan];
-    if (old && rep !== old.rep) {
-      const delta = rep - old.rep;
-      const event = { clan, delta, at: now };
-      const duplicate = feed[0] && feed[0].clan === clan && Number(feed[0].delta) === delta && now - Number(feed[0].at || 0) < 2000;
-      if (!duplicate) feed.unshift(event);
-      state[clan] = { rep, delta, at: now };
+    if (old && Number.isSafeInteger(Number(old.rep)) && rep !== Number(old.rep)) {
+      const delta = rep - Number(old.rep);
+      if (Number.isSafeInteger(delta)) {
+        const event = { clan, delta, rep, at: now };
+        const duplicate = feed[0] && feed[0].clan === clan && Number(feed[0].delta) === delta && now - Number(feed[0].at || 0) < 2000;
+        if (!duplicate) feed.unshift(event);
+        state[clan] = event;
+      }
     } else if (!old) {
       state[clan] = { rep, delta: 0, at: now };
     } else {
-      state[clan] = { ...old, rep };
+      state[clan] = { ...old, rep: Number.isSafeInteger(rep) ? rep : old.rep };
     }
   });
+
   const recent = feed.filter((item) => now - Number(item?.at || 0) <= 24 * 60 * 60 * 1000).slice(0, FEED_LIMIT);
-  write(REP_KEY, state); write(FEED_KEY, recent);
+  write(REP_KEY, state);
+  write(FEED_KEY, recent);
   return { state, feed: recent };
 }
 
@@ -97,8 +125,9 @@ function applyFilter(view) {
   const rows = getRows();
   const watched = read(WATCH_KEY, []);
   const state = read(REP_KEY, {});
-  const topWar = new Set(rows.map((row) => ({ clan: clanName(row), gain: num(row.children?.[5]?.textContent), rep: num(row.children?.[4]?.textContent) }))
+  const topWar = new Set(rows.map((row) => ({ clan: clanName(row), gain: cellNum(row, 5), rep: cellNum(row, 4) }))
     .sort((a, b) => b.gain - a.gain || b.rep - a.rep).slice(0, 6).map((item) => item.clan));
+
   rows.forEach((row) => {
     const clan = clanName(row);
     const bleeding = Number(state[clan]?.delta || 0) < 0 && Date.now() - Number(state[clan]?.at || 0) <= REP_WINDOW;
@@ -108,10 +137,13 @@ function applyFilter(view) {
 }
 
 function setupCommand(tracker, state, feed) {
-  const hero = tracker.querySelector('.hero'); if (!hero) return;
+  const hero = tracker.querySelector('.hero');
+  if (!hero) return;
   let bar = tracker.querySelector('[data-command-center]');
   if (!bar) {
-    bar = document.createElement('section'); bar.className = 'command-center'; bar.dataset.commandCenter = 'true';
+    bar = document.createElement('section');
+    bar.className = 'command-center';
+    bar.dataset.commandCenter = 'true';
     bar.innerHTML = '<div class="command-tabs"><button class="command-tab active" data-view="all">ALL</button><button class="command-tab" data-view="watch">★ WATCHLIST</button><button class="command-tab" data-view="war">⚔ CLAN WAR</button><button class="command-tab bleed" data-view="bleed">🔴 BLEEDING</button></div><div class="command-status"><span class="command-bleed ok" data-bleed-status>⚪ Bleeding state: unknown</span><span>● LIVE SOURCE</span><span data-recent-changes>Recent: —</span></div>';
     hero.after(bar);
     bar.querySelectorAll('.command-tab').forEach((button) => button.addEventListener('click', () => {
@@ -120,9 +152,14 @@ function setupCommand(tracker, state, feed) {
       applyFilter(button.dataset.view);
     }));
   }
+
   const potential = Object.values(state).filter((item) => Number(item?.delta || 0) < 0 && Date.now() - Number(item?.at || 0) <= REP_WINDOW).length;
   const status = bar.querySelector('[data-bleed-status]');
-  if (status) { status.className = potential ? 'command-bleed' : 'command-bleed ok'; status.textContent = potential ? `🔴 Potential bleed: ${potential}` : '⚪ Bleeding state: unknown'; }
+  if (status) {
+    status.className = potential ? 'command-bleed' : 'command-bleed ok';
+    status.textContent = potential ? `🔴 Potential bleed: ${potential}` : '⚪ Bleeding state: unknown';
+  }
+
   const recent = feed.slice(0, 3).map((item) => `${item.clan} ${item.delta >= 0 ? '+' : '−'}${Math.abs(item.delta).toLocaleString('en-US')}`).join(' · ');
   const recentNode = bar.querySelector('[data-recent-changes]');
   if (recentNode) recentNode.textContent = recent ? `Recent: ${recent}` : 'Recent: —';
@@ -132,15 +169,23 @@ function setupCommand(tracker, state, feed) {
 function addWatchButtons(rows) {
   const watched = read(WATCH_KEY, []);
   rows.forEach((row) => {
-    const clan = clanName(row); const cell = row.children?.[0];
+    const clan = clanName(row);
+    const cell = row.children?.[0];
     if (!clan || !cell || row.dataset.nzWatchReady) return;
     row.dataset.nzWatchReady = 'true';
-    const button = document.createElement('button'); button.className = 'watch-button'; button.type = 'button'; button.title = 'Watch clan'; button.textContent = watched.includes(clan) ? '★' : '☆';
+    const button = document.createElement('button');
+    button.className = 'watch-button';
+    button.type = 'button';
+    button.title = 'Watch clan';
+    button.textContent = watched.includes(clan) ? '★' : '☆';
     button.addEventListener('click', (event) => {
-      event.preventDefault(); event.stopPropagation();
-      const list = read(WATCH_KEY, []); const index = list.indexOf(clan);
+      event.preventDefault();
+      event.stopPropagation();
+      const list = read(WATCH_KEY, []);
+      const index = list.indexOf(clan);
       if (index >= 0) list.splice(index, 1); else list.push(clan);
-      write(WATCH_KEY, list); button.textContent = list.includes(clan) ? '★' : '☆';
+      write(WATCH_KEY, list);
+      button.textContent = list.includes(clan) ? '★' : '☆';
       applyFilter(document.querySelector('.command-tab.active')?.dataset.view || 'all');
     });
     cell.prepend(button);
@@ -149,11 +194,20 @@ function addWatchButtons(rows) {
 
 function addLastChange(rows, state) {
   rows.forEach((row) => {
-    const clan = clanName(row); const cell = row.children?.[4]; if (!clan || !cell) return;
+    const clan = clanName(row);
+    const cell = row.children?.[4];
+    if (!clan || !cell) return;
     let label = cell.querySelector('.last-change');
-    if (!label) { label = document.createElement('span'); label.className = 'last-change'; cell.appendChild(label); }
+    if (!label) {
+      label = document.createElement('span');
+      label.className = 'last-change';
+      cell.appendChild(label);
+    }
     const item = state[clan];
-    if (!item?.at || !item?.delta) { label.textContent = ''; return; }
+    if (!item?.at || !item?.delta) {
+      label.textContent = '';
+      return;
+    }
     const seconds = Math.max(0, Math.floor((Date.now() - Number(item.at)) / 1000));
     label.textContent = `${item.delta >= 0 ? '+' : '−'}${Math.abs(Number(item.delta)).toLocaleString('en-US')} · ${seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds / 60)}m ago`}`;
   });
@@ -161,61 +215,117 @@ function addLastChange(rows, state) {
 
 function ensureFeed() {
   if (document.querySelector('[data-nz-feed]')) return;
-  const section = document.querySelector('.table-wrap')?.closest('.section'); if (!section) return;
-  const feed = document.createElement('section'); feed.className = 'nz-feed'; feed.dataset.nzFeed = 'true';
+  const section = document.querySelector('.table-wrap')?.closest('.section');
+  if (!section) return;
+  const feed = document.createElement('section');
+  feed.className = 'nz-feed';
+  feed.dataset.nzFeed = 'true';
   feed.innerHTML = '<div class="nz-feed-panel"><div class="nz-feed-head"><h3>⚡ LIVE FEED</h3><span>LAST 18 CHANGES</span></div><div class="nz-feed-list"></div></div><div class="nz-feed-panel"><div class="nz-feed-head"><h3>📈 TOP GAINERS</h3><span>LIVE GAIN</span></div><div class="nz-top-list"></div></div>';
   section.before(feed);
 }
 
 function renderFeed(rows, feed) {
-  const root = document.querySelector('[data-nz-feed]'); if (!root) return;
-  const list = root.querySelector('.nz-feed-list'); const top = root.querySelector('.nz-top-list'); if (!list || !top) return;
+  const root = document.querySelector('[data-nz-feed]');
+  if (!root) return;
+  const list = root.querySelector('.nz-feed-list');
+  const top = root.querySelector('.nz-top-list');
+  if (!list || !top) return;
+
   list.textContent = '';
   if (!feed.length) {
-    const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'Waiting for the first reputation change…'; list.appendChild(empty);
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'Waiting for the first reputation change…';
+    list.appendChild(empty);
   } else {
     feed.forEach((event) => {
-      const item = document.createElement('div'); item.className = 'nz-feed-item';
-      const time = document.createElement('span'); time.className = 'nz-feed-time'; time.textContent = new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const clan = document.createElement('span'); clan.className = 'nz-feed-clan'; clan.textContent = event.clan;
-      const value = document.createElement('span'); value.className = `nz-feed-value ${event.delta >= 0 ? 'up' : 'down'}`; value.textContent = `${event.delta >= 0 ? '+' : '−'}${Math.abs(event.delta).toLocaleString('en-US')} REP`;
-      item.append(time, clan, value); list.appendChild(item);
+      const item = document.createElement('div');
+      item.className = 'nz-feed-item';
+      const time = document.createElement('span');
+      time.className = 'nz-feed-time';
+      time.textContent = new Date(event.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const clan = document.createElement('span');
+      clan.className = 'nz-feed-clan';
+      clan.textContent = event.clan;
+      const value = document.createElement('span');
+      value.className = `nz-feed-value ${event.delta >= 0 ? 'up' : 'down'}`;
+      value.textContent = `${event.delta >= 0 ? '+' : '−'}${Math.abs(event.delta).toLocaleString('en-US')} REP`;
+      item.append(time, clan, value);
+      list.appendChild(item);
     });
   }
+
   top.textContent = '';
-  rows.slice().sort((a, b) => num(b.children?.[5]?.textContent) - num(a.children?.[5]?.textContent)).slice(0, 5).forEach((row, index) => {
-    const item = document.createElement('div'); item.className = 'nz-top-item';
-    const rank = document.createElement('span'); rank.className = 'nz-top-rank'; rank.textContent = `#${index + 1}`;
-    const name = document.createElement('span'); name.className = 'nz-top-name'; name.textContent = clanName(row);
-    const gain = document.createElement('span'); gain.className = 'nz-top-gain'; gain.textContent = `+${num(row.children?.[5]?.textContent).toLocaleString('en-US')}`;
-    item.append(rank, name, gain); top.appendChild(item);
+  rows.slice().sort((a, b) => cellNum(b, 5) - cellNum(a, 5)).slice(0, 5).forEach((row, index) => {
+    const item = document.createElement('div');
+    item.className = 'nz-top-item';
+    const rank = document.createElement('span');
+    rank.className = 'nz-top-rank';
+    rank.textContent = `#${index + 1}`;
+    const name = document.createElement('span');
+    name.className = 'nz-top-name';
+    name.textContent = clanName(row);
+    const gain = document.createElement('span');
+    gain.className = 'nz-top-gain';
+    gain.textContent = `+${cellNum(row, 5).toLocaleString('en-US')}`;
+    item.append(rank, name, gain);
+    top.appendChild(item);
   });
 }
 
 function animateGains() {
   document.querySelectorAll('.gain,.total-gain').forEach((node) => {
-    const row = node.closest('.table-row,.member-row,.podium'); const key = `${clanName(row)}:${node.classList.contains('total-gain') ? 'total' : 'gain'}`; const value = num(node.textContent); const old = previous.get(key);
-    previous.set(key, value); if (old === undefined || value <= old) return;
-    node.classList.remove('nz-pop'); void node.offsetWidth; node.classList.add('nz-pop');
-    const parent = node.parentElement; if (!parent) return;
+    const row = node.closest('.table-row,.member-row,.podium');
+    const key = `${clanName(row)}:${node.classList.contains('total-gain') ? 'total' : 'gain'}`;
+    const value = num(node.textContent);
+    const old = previous.get(key);
+    previous.set(key, value);
+    if (old === undefined || value <= old) return;
+    node.classList.remove('nz-pop');
+    void node.offsetWidth;
+    node.classList.add('nz-pop');
+    const parent = node.parentElement;
+    if (!parent) return;
     if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
     parent.querySelector('.nz-rep-float')?.remove();
-    const pop = document.createElement('span'); pop.className = 'nz-rep-float'; pop.textContent = `+${(value - old).toLocaleString('en-US')} REP`; parent.appendChild(pop);
+    const pop = document.createElement('span');
+    pop.className = 'nz-rep-float';
+    pop.textContent = `+${(value - old).toLocaleString('en-US')} REP`;
+    parent.appendChild(pop);
     window.setTimeout(() => pop.remove(), 850);
   });
 }
 
 function enhance() {
-  injectStyles(); const tracker = document.querySelector('.tracker'); const table = tracker?.querySelector('.table-wrap'); if (!tracker || !table) return;
-  cleanLegacy(); const rows = getRows(); if (!rows.length) return;
-  const snapshot = capture(rows); ensureFeed(); setupCommand(tracker, snapshot.state, snapshot.feed); addWatchButtons(rows); addLastChange(rows, snapshot.state); renderFeed(rows, snapshot.feed); animateGains();
+  injectStyles();
+  const tracker = document.querySelector('.tracker');
+  const table = tracker?.querySelector('.table-wrap');
+  if (!tracker || !table) return;
+  cleanLegacy();
+  const rows = getRows();
+  if (!rows.length) return;
+  const snapshot = capture(rows);
+  ensureFeed();
+  setupCommand(tracker, snapshot.state, snapshot.feed);
+  addWatchButtons(rows);
+  addLastChange(rows, snapshot.state);
+  renderFeed(rows, snapshot.feed);
+  animateGains();
 }
 
 export default function SiteEnhancements() {
   useEffect(() => {
-    let frame = 0; const run = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(enhance); };
-    const interval = window.setInterval(run, 1500); run();
-    return () => { clearInterval(interval); cancelAnimationFrame(frame); };
+    let frame = 0;
+    const run = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(enhance);
+    };
+    const interval = window.setInterval(run, 1500);
+    run();
+    return () => {
+      clearInterval(interval);
+      cancelAnimationFrame(frame);
+    };
   }, []);
   return null;
 }
