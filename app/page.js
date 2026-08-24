@@ -1,102 +1,66 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import './tracker.css';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const REFRESH_MS = 3000;
-const HISTORY_SAMPLE_MS = 30 * 1000;
-const END_DEFAULT = '2026-09-14T00:00:00+08:00';
-const HISTORY_KEY = 'nztracker:history:v7';
-const BASELINE_KEY = 'nztracker:baseline:v1';
-const SETTINGS_KEY = 'nztracker:settings:v6';
+const REFRESH_MS = 5000;
+const SETTINGS_KEY = 'nztracker:settings:v7';
+const HISTORY_KEY = 'nztracker:history:v8';
+const DEFAULT_END = '2026-09-14T00:00:00+08:00';
 
-const fmt = (n) => new Intl.NumberFormat('en-US').format(Number(n || 0));
-const time = (v) => v ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
-const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || '') || d; } catch { return d; } };
-const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
-const safeRep = (value) => {
-  const n = Number(value);
-  return Number.isSafeInteger(n) && n >= 0 ? n : 0;
-};
+const fmt = (value) => new Intl.NumberFormat('en-US').format(Number(value || 0));
+const num = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+const clock = (value) => value ? new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 
-let lastClanHistoryWrite = 0;
-const lastMemberHistoryWrite = new Map();
+function read(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) || '') || fallback; } catch { return fallback; }
+}
+function write(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
 
-function saveClanHistory(rows) {
-  const now = Date.now();
-  const current = read(HISTORY_KEY, { clans: [], members: {} });
-  if (now - lastClanHistoryWrite < HISTORY_SAMPLE_MS && current.clans?.length) return current;
-  const snapshot = { at: now, rows: rows.map((r) => ({ clan: r.clan, reputation: safeRep(r.reputation), rank: Number(r.rank || 0) })) };
-  const clans = [...(current.clans || []), snapshot].slice(-2880);
-  const next = { clans, members: current.members || {} };
-  lastClanHistoryWrite = now;
+function rememberSnapshot(rows) {
+  const current = read(HISTORY_KEY, []);
+  const next = [...current, { at: Date.now(), rows: rows.map((r) => ({ clan: r.clan, reputation: num(r.reputation), rank: num(r.rank) })) }].slice(-2880);
   write(HISTORY_KEY, next);
   return next;
 }
 
-function saveMemberHistory(clanId, clan, members) {
-  const current = read(HISTORY_KEY, { clans: [], members: {} });
-  if (!clanId) return current;
-  const now = Date.now();
-  const last = lastMemberHistoryWrite.get(String(clanId)) || 0;
-  if (now - last < HISTORY_SAMPLE_MS && current.members?.[clanId]?.length) return current;
-  const snapshot = { at: now, clan, members: members.map((m) => ({ name: m.name, level: Number(m.level || 0), reputation: safeRep(m.reputation) })) };
-  const existing = current.members?.[clanId] || [];
-  const next = { clans: current.clans || [], members: { ...(current.members || {}), [clanId]: [...existing, snapshot].slice(-2880) } };
-  lastMemberHistoryWrite.set(String(clanId), now);
-  write(HISTORY_KEY, next);
-  return next;
-}
-
-function gain(history, clan, ms) {
-  const samples = (history?.clans || []).filter((x) => x.at >= Date.now() - ms);
+function gain(history, clan, windowMs = 30 * 60 * 1000) {
+  const samples = history.filter((x) => x.at >= Date.now() - windowMs);
   if (samples.length < 2) return 0;
-  const first = samples[0]?.rows?.find((x) => x.clan === clan);
-  const last = samples[samples.length - 1]?.rows?.find((x) => x.clan === clan);
-  if (!first || !last) return 0;
-  return Math.max(0, safeRep(last.reputation) - safeRep(first.reputation));
+  const first = samples.find((x) => x.rows.some((r) => r.clan === clan));
+  const last = [...samples].reverse().find((x) => x.rows.some((r) => r.clan === clan));
+  const a = first?.rows.find((r) => r.clan === clan)?.reputation;
+  const b = last?.rows.find((r) => r.clan === clan)?.reputation;
+  return Math.max(0, num(b) - num(a));
 }
 
-function burn(history, clanId) {
-  const samples = history?.members?.[clanId] || [];
-  if (samples.length < 2) return { top: [], active: 0, total: 0 };
-  const first = samples.find((x) => x.at >= Date.now() - 30 * 60 * 1000) || samples[0];
-  const last = samples[samples.length - 1];
-  const base = new Map((first.members || []).map((m) => [m.name, safeRep(m.reputation)]));
-  const top = (last.members || []).map((m) => ({ ...m, gain: Math.max(0, safeRep(m.reputation) - safeRep(base.get(m.name) || 0)) })).sort((a, b) => b.gain - a.gain);
-  return { top, active: top.filter((x) => x.gain > 0).length, total: top.reduce((sum, member) => sum + member.gain, 0) };
-}
-
-function readBaseline() {
-  try { return JSON.parse(sessionStorage.getItem(BASELINE_KEY) || '') || { season: '', reputation: {} }; } catch { return { season: '', reputation: {} }; }
-}
-
-function writeBaseline(value) {
-  try { sessionStorage.setItem(BASELINE_KEY, JSON.stringify(value)); } catch {}
+function statusCopy(status) {
+  if (status === 'live') return { label: 'LIVE', tone: 'good', detail: 'Source connected' };
+  if (status === 'loading') return { label: 'SYNCING', tone: 'sync', detail: 'Fetching live source' };
+  if (status === 'error') return { label: 'DEGRADED', tone: 'bad', detail: 'Last sync failed' };
+  return { label: 'WAITING', tone: 'neutral', detail: 'Waiting for first sync' };
 }
 
 export default function Home() {
   const [rows, setRows] = useState([]);
-  const rowsRef = useRef([]);
-  const baselineRef = useRef(readBaseline());
-  const inFlight = useRef(false);
-  const [status, setStatus] = useState('connecting');
-  const [updated, setUpdated] = useState(null);
-  const [server, setServer] = useState(null);
+  const [history, setHistory] = useState(() => read(HISTORY_KEY, []));
+  const [status, setStatus] = useState('loading');
+  const [detail, setDetail] = useState('Connecting to Ninja Zenshin…');
+  const [lastSync, setLastSync] = useState(null);
+  const [source, setSource] = useState('ninjazenshin.online');
   const [season, setSeason] = useState('Season 2');
-  const [end, setEnd] = useState(END_DEFAULT);
-  const [history, setHistory] = useState({ clans: [], members: {} });
+  const [seasonEnd, setSeasonEnd] = useState(DEFAULT_END);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
   const [members, setMembers] = useState([]);
   const [memberStatus, setMemberStatus] = useState('idle');
+  const [memberError, setMemberError] = useState('');
   const [memberUpdated, setMemberUpdated] = useState(null);
+  const [memberFilter, setMemberFilter] = useState('all');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [compact, setCompact] = useState(false);
-  const [browserAlerts, setBrowserAlerts] = useState(false);
-  const [rankAlerts, setRankAlerts] = useState(false);
-  const [threshold, setThreshold] = useState(100);
   const [sort, setSort] = useState('reputation');
   const [direction, setDirection] = useState('desc');
 
@@ -104,158 +68,178 @@ export default function Home() {
     const s = read(SETTINGS_KEY, {});
     setAutoRefresh(s.autoRefresh ?? true);
     setCompact(s.compact ?? false);
-    setBrowserAlerts(s.browserAlerts ?? false);
-    setRankAlerts(s.rankAlerts ?? false);
-    setThreshold(Number(s.threshold || 100));
-    setHistory(read(HISTORY_KEY, { clans: [], members: {} }));
   }, []);
 
-  useEffect(() => write(SETTINGS_KEY, { autoRefresh, compact, browserAlerts, rankAlerts, threshold }), [autoRefresh, compact, browserAlerts, rankAlerts, threshold]);
-
-  const notify = useCallback((title, body) => {
-    if (browserAlerts && 'Notification' in window && Notification.permission === 'granted') new Notification(title, { body, tag: 'nztracker' });
-  }, [browserAlerts]);
+  useEffect(() => write(SETTINGS_KEY, { autoRefresh, compact }), [autoRefresh, compact]);
 
   const load = useCallback(async () => {
-    if (inFlight.current) return;
-    inFlight.current = true;
+    setStatus((current) => current === 'live' ? 'loading' : current);
     try {
       const response = await fetch(`/api/clan-ranking?t=${Date.now()}`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      const next = Array.isArray(data.rows) ? data.rows : [];
-      const previous = rowsRef.current;
-      const nextSeason = data.season || 'Season 2';
-      rowsRef.current = next;
-
-      if (baselineRef.current.season !== nextSeason) baselineRef.current = { season: nextSeason, reputation: {} };
-      const baseline = { ...baselineRef.current.reputation };
-      next.forEach((row) => { if (baseline[row.clan] == null) baseline[row.clan] = safeRep(row.reputation); });
-      baselineRef.current = { season: nextSeason, reputation: baseline };
-      writeBaseline(baselineRef.current);
-
-      if (previous.length && rankAlerts) {
-        const oldRanks = new Map(previous.map((r) => [r.clan, Number(r.rank || 0)]));
-        next.forEach((row) => {
-          const oldRank = oldRanks.get(row.clan);
-          if (oldRank && oldRank !== Number(row.rank || 0)) notify('Clan rank changed', `${row.clan}: #${oldRank} → #${row.rank}`);
-        });
-      }
-
-      const nextHistory = saveClanHistory(next);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
+      const nextRows = Array.isArray(data.rows) ? data.rows : [];
+      if (!nextRows.length) throw new Error('The source returned no clan rows.');
+      const nextHistory = rememberSnapshot(nextRows);
+      setRows(nextRows);
       setHistory(nextHistory);
-      setRows(next);
-      setSeason(nextSeason);
-      if (data.seasonEndsAt) setEnd(data.seasonEndsAt);
-      setServer(response.headers.get('date') ? new Date(response.headers.get('date')) : new Date());
-      setUpdated(new Date());
+      setSeason(data.season || 'Season 2');
+      setSeasonEnd(data.seasonEndsAt || DEFAULT_END);
+      setSource(data.source ? new URL(data.source).hostname : 'ninjazenshin.online');
+      setLastSync(new Date(data.fetchedAt || Date.now()));
+      setDetail(`Fetched ${nextRows.length} clans successfully`);
       setStatus('live');
-    } catch {
+    } catch (error) {
       setStatus('error');
-    } finally {
-      inFlight.current = false;
+      setDetail(error instanceof Error ? error.message : 'Unable to reach live source');
     }
-  }, [notify, rankAlerts]);
+  }, []);
 
   const loadMembers = useCallback(async (clan) => {
-    if (!clan?.clanId) { setMembers([]); setMemberStatus('unavailable'); return; }
-    setMemberStatus((current) => current === 'live' ? current : 'loading');
+    if (!clan?.clanId) {
+      setMembers([]);
+      setMemberStatus('error');
+      setMemberError('This clan does not expose a live clanId.');
+      return;
+    }
+    setMemberStatus('loading');
+    setMemberError('');
     try {
       const response = await fetch(`/api/clan-members?clanId=${encodeURIComponent(clan.clanId)}&t=${Date.now()}`, { cache: 'no-store' });
-      if (!response.ok) throw new Error();
-      const data = await response.json();
-      const next = Array.isArray(data.members) ? data.members.map((m) => ({ ...m, gain: Number(m.gain || 0), totalGain: Number(m.totalGain || 0) })) : [];
-      const nextHistory = saveMemberHistory(clan.clanId, clan.clan, next);
-      setHistory(nextHistory);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
+      const next = Array.isArray(data.members) ? data.members : [];
       setMembers(next);
       setMemberUpdated(new Date(data.fetchedAt || Date.now()));
       setMemberStatus('live');
-      const stats = burn(nextHistory, clan.clanId);
-      if (stats.top[0]?.gain >= threshold) notify('Ninja Zenshin gain alert', `${clan.clan}: ${stats.top[0].name} +${fmt(stats.top[0].gain)} rep in 30m`);
-    } catch { setMemberStatus('error'); }
-  }, [notify, threshold]);
+    } catch (error) {
+      setMemberStatus('error');
+      setMemberError(error instanceof Error ? error.message : 'Unable to load live members');
+    }
+  }, []);
 
   useEffect(() => {
     load();
-    if (!autoRefresh) return undefined;
+    if (!autoRefresh) return;
     const timer = setInterval(load, REFRESH_MS);
     return () => clearInterval(timer);
   }, [load, autoRefresh]);
 
   useEffect(() => {
-    if (!selected || !autoRefresh) return undefined;
+    if (!selected || !autoRefresh) return;
     const timer = setInterval(() => loadMembers(selected), REFRESH_MS);
     return () => clearInterval(timer);
   }, [selected, autoRefresh, loadMembers]);
 
-  useEffect(() => {
-    if (!server) return undefined;
-    const timer = setInterval(() => setServer((value) => value ? new Date(value.getTime() + 1000) : value), 1000);
-    return () => clearInterval(timer);
-  }, [server]);
-
-  useEffect(() => {
-    const key = (e) => { if (e.key === 'Escape') { setSettingsOpen(false); setSelected(null); } };
-    window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, []);
-
-  const filtered = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return rows.filter((r) => !q || `${r.clan} ${r.master}`.toLowerCase().includes(q));
-  }, [rows, query]);
+    return [...rows]
+      .filter((row) => !q || `${row.clan} ${row.master}`.toLowerCase().includes(q))
+      .sort((a, b) => {
+        const aValue = sort === 'clan' ? String(a.clan) : num(a[sort]);
+        const bValue = sort === 'clan' ? String(b.clan) : num(b[sort]);
+        const base = typeof aValue === 'string' ? aValue.localeCompare(bValue) : aValue - bValue;
+        return direction === 'asc' ? base : -base;
+      });
+  }, [rows, query, sort, direction]);
 
-  const sortedMembers = useMemo(() => {
-    const list = [...members];
-    const mul = direction === 'asc' ? 1 : -1;
-    return list.sort((a, b) => sort === 'name' ? String(a.name).localeCompare(String(b.name)) * mul : (Number(a[sort] || 0) - Number(b[sort] || 0)) * mul);
-  }, [members, sort, direction]);
+  const activeMembers = rows.reduce((sum, row) => sum + num(row.memberCurrent), 0);
+  const maxMembers = rows.reduce((sum, row) => sum + num(row.memberMax), 0);
+  const rep30 = rows.reduce((sum, row) => sum + gain(history, row.clan), 0);
+  const repRate = rep30 / 30;
+  const top3 = rows.slice().sort((a, b) => num(a.rank) - num(b.rank)).slice(0, 3);
+  const statusInfo = statusCopy(status);
 
-  const totalMembers = rows.reduce((sum, row) => sum + Number(row.memberCurrent || 0), 0);
-  const maxMembers = rows.reduce((sum, row) => sum + Number(row.memberMax || 0), 0);
-  const global30 = rows.reduce((sum, row) => sum + gain(history, row.clan, 30 * 60 * 1000), 0);
-  const rate = global30 / 30;
-  const top3 = rows.slice(0, 3);
-  const selectedStats = selected ? { gain30: gain(history, selected.clan, 30 * 60 * 1000), ...burn(history, selected.clanId) } : null;
+  const memberView = useMemo(() => members.filter((member) => {
+    if (memberFilter === 'low') return member.staminaKnown && member.maxStaminaKnown && member.stamina <= member.maxStamina * 0.5;
+    if (memberFilter === 'recovering') return member.staminaKnown && member.maxStaminaKnown && member.stamina < member.maxStamina;
+    if (memberFilter === 'full') return member.staminaKnown && member.maxStaminaKnown && member.stamina >= member.maxStamina;
+    return true;
+  }), [members, memberFilter]);
+
+  const lowStamina = members.filter((member) => member.staminaKnown && member.maxStaminaKnown && member.stamina <= member.maxStamina * 0.5).length;
+  const knownStamina = members.filter((member) => member.staminaKnown && member.maxStaminaKnown);
+
   const countdown = useMemo(() => {
-    const total = Math.max(0, Math.floor((new Date(end).getTime() - (server ? server.getTime() : Date.now())) / 1000));
-    return [Math.floor(total / 86400), Math.floor((total % 86400) / 3600), Math.floor((total % 3600) / 60), total % 60];
-  }, [end, server]);
+    const seconds = Math.max(0, Math.floor((new Date(seasonEnd).getTime() - Date.now()) / 1000));
+    return [Math.floor(seconds / 86400), Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60];
+  }, [seasonEnd, lastSync, status]);
 
-  const openClan = (clan) => { if (!clan) return; setSelected(clan); setMembers([]); setMemberStatus('loading'); loadMembers(clan); };
-  const sortBy = (key) => { if (sort === key) setDirection((value) => value === 'asc' ? 'desc' : 'asc'); else { setSort(key); setDirection(key === 'name' ? 'asc' : 'desc'); } };
-  const mark = (key) => sort === key ? (direction === 'asc' ? ' ↑' : ' ↓') : '';
-  const requestAlerts = async (enabled) => {
-    if (!enabled) { setBrowserAlerts(false); return; }
-    if (!('Notification' in window)) { setBrowserAlerts(false); return; }
-    setBrowserAlerts((await Notification.requestPermission()) === 'granted');
+  const sortBy = (key) => {
+    if (sort === key) setDirection((value) => value === 'asc' ? 'desc' : 'asc');
+    else { setSort(key); setDirection(key === 'clan' ? 'asc' : 'desc'); }
   };
+  const mark = (key) => sort === key ? (direction === 'asc' ? ' ↑' : ' ↓') : '';
+  const openClan = (clan) => { setSelected(clan); setMembers([]); loadMembers(clan); };
 
   return <main className={`tracker ${compact ? 'compact' : ''}`}>
-    <div className="topbar"><button className="settings-button" onClick={() => setSettingsOpen((value) => !value)} aria-label="Settings" title="Settings">🛠️</button></div>
+    <div className="topbar">
+      <div className="top-status"><span className={`status-dot ${statusInfo.tone}`}></span><b>{statusInfo.label}</b><span>{statusInfo.detail}</span></div>
+      <button className="settings-button" onClick={() => setSettingsOpen((value) => !value)} aria-label="Settings">⚙</button>
+    </div>
 
     {settingsOpen && <aside className="settings-panel">
       <header><div><div className="eyebrow">TRACKER CONFIG</div><h3>Settings</h3></div><button className="close-button" onClick={() => setSettingsOpen(false)}>×</button></header>
       <div className="settings-body">
-        <label><span><b>Auto refresh</b><small>Keep live data updated every 3 seconds.</small></span><input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} /></label>
-        <label><span><b>Compact rows</b><small>Reduce ranking row height.</small></span><input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} /></label>
-        <label><span><b>Browser alerts</b><small>Notify when member gains reach the threshold.</small></span><input type="checkbox" checked={browserAlerts} onChange={(e) => requestAlerts(e.target.checked)} /></label>
-        <label><span><b>Rank alerts</b><small>Notify when a clan changes rank.</small></span><input type="checkbox" checked={rankAlerts} onChange={(e) => setRankAlerts(e.target.checked)} /></label>
-        <label><span><b>Gain threshold</b><small>{fmt(threshold)} reputation.</small></span><input className="threshold" type="number" min="1" value={threshold} onChange={(e) => setThreshold(Number(e.target.value || 1))} /></label>
+        <label><span><b>Auto refresh</b><small>Keep rankings and member data updated every 5 seconds.</small></span><input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} /></label>
+        <label><span><b>Compact rows</b><small>Reduce table density for larger clan lists.</small></span><input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} /></label>
         <button className="refresh-button" onClick={() => { load(); if (selected) loadMembers(selected); }}>↻ Refresh now</button>
       </div>
     </aside>}
 
-    <header className="hero"><div><div className="eyebrow">● NINJA ZENSHIN // LIVE</div><h1>Clan Intelligence</h1><p>Real-time clan ranking, member activity and reputation tracking for <b>{season}</b>.</p></div><div className="hero-actions"><span className={`live-pill ${status === 'error' ? 'offline' : ''}`}>● {status === 'live' ? 'LIVE · SYNCING' : status === 'error' ? 'OFFLINE · RETRYING' : 'CONNECTING'}</span><button onClick={load}>↻ Refresh</button></div></header>
+    <header className="hero">
+      <div><div className="eyebrow">● NINJA ZENSHIN // LIVE TRACKER</div><h1>Clan Intelligence</h1><p>Live clan ranking, member activity, stamina visibility and reputation monitoring for <b>{season}</b>.</p></div>
+      <div className="hero-actions"><div className={`live-pill ${statusInfo.tone}`}>● {statusInfo.label}</div><button onClick={load} disabled={status === 'loading'}>↻ {status === 'loading' ? 'Syncing' : 'Refresh'}</button></div>
+    </header>
 
-    <section className="stats"><div className="card"><div className="eyebrow">TRACKED CLANS</div><strong>{rows.length || '—'}</strong><small>Live global ranking</small></div><div className="card"><div className="eyebrow">ACTIVE MEMBERS</div><strong>{rows.length ? fmt(totalMembers) : '—'}</strong><small>{maxMembers ? `${Math.round(totalMembers / maxMembers * 100)}% capacity` : 'Waiting for source'}</small></div><div className="card"><div className="eyebrow">GLOBAL GAIN / 30M</div><strong>+{fmt(global30)}</strong><small>{fmt(Math.round(rate))} rep / min</small></div><div className="card season"><div><div className="eyebrow">{season}</div><strong>ENDS IN</strong></div><div className="countdown"><div><b>{countdown[0]}</b><small>DAYS</small></div><div><b>{String(countdown[1]).padStart(2, '0')}</b><small>HRS</small></div><div><b>{String(countdown[2]).padStart(2, '0')}</b><small>MINS</small></div><div><b>{String(countdown[3]).padStart(2, '0')}</b><small>SECS</small></div></div></div></section>
+    <section className="stats">
+      <div className="card"><div className="eyebrow">TRACKED CLANS</div><strong>{fmt(rows.length)}</strong><small>{source}</small></div>
+      <div className="card"><div className="eyebrow">ACTIVE MEMBERS</div><strong>{fmt(activeMembers)} / {fmt(maxMembers)}</strong><small>{maxMembers ? `${Math.round((activeMembers / maxMembers) * 100)}% capacity` : 'Waiting for source'}</small></div>
+      <div className="card"><div className="eyebrow">REPUTATION / 30M</div><strong>+{fmt(rep30)}</strong><small>≈ {fmt(Math.round(repRate))} rep/min</small></div>
+      <div className="card season-card"><div><div className="eyebrow">SEASON TIMER</div><strong>{season}</strong><small>Last sync {clock(lastSync)}</small></div><div className="countdown">{countdown.map((value, index) => <div key={index}><b>{String(value).padStart(2, '0')}</b><small>{['DAYS','HOURS','MIN','SEC'][index]}</small></div>)}</div></div>
+    </section>
 
-    <section className="podiums">{top3.map((r, i) => <button className="podium" key={r.clan} onClick={() => openClan(r)}><div className="podium-top"><span className="rank">{i + 1}</span><span className="avatar">{r.clan?.[0] || 'N'}</span><span className="clan-name"><b>{r.clan}</b><small>{r.master || 'Clan Master'}</small></span></div><div className="podium-stats"><span><small>MEMBERS</small><b>{r.memberCurrent}/{r.memberMax}</b></span><span><small>REPUTATION</small><b>{fmt(r.reputation)}</b></span><span><small>GAIN</small><b className="gain">+{fmt(gain(history, r.clan, 30 * 60 * 1000))}</b></span></div></button>)}</section>
+    <section className="connection-banner">
+      <div className={`connection-icon ${statusInfo.tone}`}>{statusInfo.tone === 'good' ? '✓' : statusInfo.tone === 'sync' ? '↻' : statusInfo.tone === 'bad' ? '!' : '•'}</div>
+      <div><b>{statusInfo.tone === 'good' ? 'Live source connected' : statusInfo.tone === 'bad' ? 'Live source needs attention' : 'Live source syncing'}</b><span>{detail}</span></div>
+      <div className="connection-meta"><span>Last successful sync</span><b>{clock(lastSync)}</b></div>
+    </section>
 
-    <section className="section"><div className="toolbar"><input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search clan or master..."/><span className="eyebrow">UPDATED {updated ? time(updated) : 'CONNECTING'}</span></div><div className="table-wrap"><div className="table-head"><span>RANK</span><span>CLAN</span><span>MASTER</span><span>MEMBERS</span><span>REPUTATION</span><span>GAIN</span><span>TOTAL GAIN</span></div>{filtered.map((r) => { const baseline = safeRep(baselineRef.current.reputation?.[r.clan]); const totalGain = Math.max(0, safeRep(r.reputation) - baseline); return <button className="table-row" key={`${r.clan}-${r.rank}`} onClick={() => openClan(r)}><span className="rank">{r.rank}</span><span className="clan-cell"><b>{r.clan}</b><i style={{ width: `${r.memberMax ? Math.min(100, r.memberCurrent / r.memberMax * 100) : 0}%` }} /></span><span className="muted">{r.master || '—'}</span><span>{r.memberCurrent}/{r.memberMax}</span><span>{fmt(r.reputation)}</span><span className="gain">+{fmt(gain(history, r.clan, 30 * 60 * 1000))}</span><span className="total-gain">+{fmt(totalGain)}</span></button>; })}{!filtered.length && <div className="empty">{status === 'error' ? 'Unable to load live clan data.' : 'No clans match your search.'}</div>}</div></section>
+    <section className="podiums">{top3.map((clan, index) => <button className="podium" key={clan.clan} onClick={() => openClan(clan)}>
+      <div className="podium-top"><span className="rank">#{clan.rank}</span><span className="avatar">{index === 0 ? '◆' : index === 1 ? '◇' : '◈'}</span><span className="clan-name"><b>{clan.clan}</b><small>{clan.master || '—'}</small></span></div>
+      <div className="podium-stats"><span><small>REP</small><b>{fmt(clan.reputation)}</b></span><span><small>MEMBERS</small><b>{clan.memberCurrent}/{clan.memberMax}</b></span><span><small>30M GAIN</small><b className="gain">+{fmt(gain(history, clan.clan))}</b></span></div>
+    </button>)}</section>
 
-    {selected && <div className="modal" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}><div className="modal-box"><div className="modal-head"><div><div className="eyebrow">LIVE MEMBERS // STAMINA</div><h2>{selected.clan}</h2><p>Master: {selected.master || '—'} · {selected.memberCurrent}/{selected.memberMax} members</p></div><button className="close-button" onClick={() => setSelected(null)}>×</button></div><div className="modal-body"><div className="member-stats"><div><small>GAIN</small><b>+{fmt(selectedStats?.gain30 || 0)}</b></div><div><small>REP / MIN</small><b>{fmt(Math.round((selectedStats?.gain30 || 0) / 30))}</b></div><div><small>ACTIVE</small><b>{selectedStats?.active || 0}</b></div><div><small>30M TOTAL</small><b>+{fmt(selectedStats?.total || 0)}</b></div></div>{memberStatus === 'loading' && <div className="empty">Fetching live member names, levels, reputation and stamina…</div>}{memberStatus === 'error' && <div className="empty">Unable to fetch live members right now.</div>}{memberStatus === 'live' && !members.length && <div className="empty">No members returned by the source.</div>}{members.length > 0 && <div className="member-table"><div className="member-head"><span>#</span><button onClick={() => sortBy('name')}>MEMBER{mark('name')}</button><button onClick={() => sortBy('level')}>LEVEL{mark('level')}</button><button onClick={() => sortBy('reputation')}>REPUTATION{mark('reputation')}</button><button>STAMINA</button><button onClick={() => sortBy('gain')}>GAIN{mark('gain')}</button><button onClick={() => sortBy('totalGain')}>TOTAL GAIN{mark('totalGain')}</button></div>{sortedMembers.map((m, i) => <div className="member-row" key={`${m.name}-${i}`}><span>{i + 1}</span><b>{m.name}</b><span>{m.level || '—'}</span><span>{fmt(m.reputation)}</span><span className="member-stamina">{m.stamina != null && m.maxStamina != null ? `${fmt(m.stamina)} / ${fmt(m.maxStamina)}` : 'UNKNOWN'}</span><span className="gain">{m.gain > 0 ? `+${fmt(m.gain)}` : '0'}</span><span className="total-gain">{fmt(m.totalGain)}</span></div>)}</div>}</div><div className="modal-foot">{memberStatus === 'live' ? `● LIVE · ${time(memberUpdated)}` : memberStatus === 'loading' ? 'Loading…' : 'Unavailable'} · Press Esc to close</div></div></div>}
+    <section className="section">
+      <div className="section-head"><div><div className="eyebrow">CLAN RANKINGS</div><h2>Live leaderboard</h2></div><span className="section-meta">{filteredRows.length} visible</span></div>
+      <div className="toolbar"><input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search clan or master…" aria-label="Search clans" /><button className="minor-button" onClick={() => setQuery('')}>Clear</button></div>
+      <div className="table-wrap">
+        <div className="table-head"><button onClick={() => sortBy('rank')}>RANK{mark('rank')}</button><button onClick={() => sortBy('clan')}>CLAN{mark('clan')}</button><span>MASTER</span><button onClick={() => sortBy('memberCurrent')}>MEMBERS{mark('memberCurrent')}</button><button onClick={() => sortBy('reputation')}>REPUTATION{mark('reputation')}</button><span>30M GAIN</span><span>STATUS</span></div>
+        {filteredRows.length ? filteredRows.map((row) => <button className="table-row" key={`${row.clan}-${row.rank}`} onClick={() => openClan(row)}>
+          <span className="rank">#{row.rank}</span><span className="clan-cell"><b>{row.clan}</b><i style={{ width: `${Math.min(100, Math.max(8, num(row.reputation) / Math.max(1, num(rows[0]?.reputation)) * 100))}%` }} /></span><span>{row.master || '—'}</span><span>{row.memberCurrent}/{row.memberMax}</span><span>{fmt(row.reputation)}</span><span className="gain">+{fmt(gain(history, row.clan))}</span><span className="row-status"><span className="status-dot good"></span>LIVE</span>
+        </button>) : <div className="empty">{status === 'error' ? 'Live source unavailable. Use Refresh to retry.' : query ? `No clans found for “${query}”.` : 'Loading clan data…'}</div>}
+      </div>
+    </section>
 
-    <footer>Created by <strong>Michol</strong> · <a href="https://discordapp.com/users/396080330702061588" target="_blank" rel="noreferrer">Discord</a></footer>
+    <section className="section stamina-preview">
+      <div className="section-head"><div><div className="eyebrow">STAMINA COMMAND CENTER</div><h2>Live stamina visibility</h2></div><span className={`mini-alert ${lowStamina ? 'warning' : ''}`}>{lowStamina ? `${lowStamina} LOW` : 'NO LOW STAMINA'}</span></div>
+      {!selected ? <div className="empty-panel"><b>Select a clan from the leaderboard</b><span>Live members and stamina details open from any clan row.</span></div> : <div className="stamina-summary"><div><span>CLAN</span><b>{selected.clan}</b></div><div><span>MEMBERS</span><b>{fmt(members.length)}</b></div><div><span>KNOWN STAMINA</span><b>{knownStamina.length}/{members.length}</b></div><div><span>LOW STAMINA</span><b className={lowStamina ? 'warning-text' : ''}>{fmt(lowStamina)}</b></div></div>}
+    </section>
+
+    <footer><span>Source: {source}</span><span>{status === 'live' ? `Updated ${clock(lastSync)}` : detail}</span></footer>
+
+    {selected && <div className="modal" role="dialog" aria-modal="true">
+      <div className="modal-box">
+        <header className="modal-head"><div><div className="eyebrow">LIVE MEMBERS · AMF</div><h2>{selected.clan}</h2><p>{selected.master || 'Clan master unavailable'} · {memberStatus === 'live' ? `updated ${clock(memberUpdated)}` : memberStatus === 'loading' ? 'syncing members…' : 'member source unavailable'}</p></div><button className="close-button" onClick={() => setSelected(null)}>×</button></header>
+        <div className="modal-body">
+          <div className="member-actions"><div className="tabs">{[['all','ALL'],['low','LOW'],['recovering','RECOVERING'],['full','FULL']].map(([key,label]) => <button key={key} className={`enh-tab ${memberFilter === key ? 'active' : ''}`} onClick={() => setMemberFilter(key)}>{label}</button>)}</div><button className="minor-button" onClick={() => loadMembers(selected)}>↻ Sync members</button></div>
+          {memberStatus === 'error' ? <div className="error-panel"><b>Unable to fetch live members right now.</b><span>{memberError}</span><button className="refresh-button" onClick={() => loadMembers(selected)}>Retry member sync</button></div> : <>
+            <div className="member-stats"><div><small>MEMBERS</small><b>{fmt(members.length)}</b></div><div><small>LOW STAMINA</small><b className={lowStamina ? 'warning-text' : ''}>{fmt(lowStamina)}</b></div><div><small>AVG STAMINA</small><b>{knownStamina.length ? `${Math.round(knownStamina.reduce((sum, m) => sum + (m.stamina / Math.max(1, m.maxStamina)) * 100, 0) / knownStamina.length)}%` : 'N/A'}</b></div><div><small>SOURCE</small><b>AMF</b></div></div>
+            <div className="member-table"><div className="member-head"><span>#</span><span>MEMBER</span><span>LVL</span><span>STAMINA</span><span>REP</span><span>GAIN</span></div>{memberView.length ? memberView.map((member, index) => <div className="member-row" key={member.id || member.name}><span className="rank">{index + 1}</span><span><b>{member.name}</b></span><span>{num(member.level)}</span><span className={member.staminaKnown && member.maxStaminaKnown && member.stamina <= member.maxStamina * 0.5 ? 'warning-text' : ''}>{member.staminaKnown && member.maxStaminaKnown ? `${fmt(member.stamina)} / ${fmt(member.maxStamina)}` : 'N/A'}</span><span>{fmt(member.reputation)}</span><span className="gain">+{fmt(member.gain)}</span></div>) : <div className="empty">No members match this filter.</div>}</div>
+          </>}
+        </div>
+        <div className="modal-foot">Live data is read-only · refreshes automatically while Auto refresh is enabled</div>
+      </div>
+    </div>}
   </main>;
 }
