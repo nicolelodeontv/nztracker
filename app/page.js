@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './tracker.css';
+import './war-ops.css';
+import WarOps from './war-ops';
 
 const REFRESH_MS = 3000;
 const HISTORY_SAMPLE_MS = 30 * 1000;
@@ -9,8 +11,6 @@ const END_DEFAULT = '2026-09-14T00:00:00+08:00';
 const HISTORY_KEY = 'nztracker:history:v7';
 const BASELINE_KEY = 'nztracker:baseline:v1';
 const SETTINGS_KEY = 'nztracker:settings:v6';
-const BLEED_KEY = 'nztracker:bleed:v2';
-const BLEED_COOLDOWN = 30 * 60 * 1000;
 
 const fmt = (n) => new Intl.NumberFormat('en-US').format(Number(n || 0));
 const time = (v) => v ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
@@ -28,11 +28,7 @@ function saveClanHistory(rows) {
   const now = Date.now();
   const current = read(HISTORY_KEY, { clans: [], members: {} });
   if (now - lastClanHistoryWrite < HISTORY_SAMPLE_MS && current.clans?.length) return current;
-
-  const snapshot = {
-    at: now,
-    rows: rows.map((r) => ({ clan: r.clan, reputation: safeRep(r.reputation), rank: Number(r.rank || 0) }))
-  };
+  const snapshot = { at: now, rows: rows.map((r) => ({ clan: r.clan, reputation: safeRep(r.reputation), rank: Number(r.rank || 0) })) };
   const clans = [...(current.clans || []), snapshot].slice(-2880);
   const next = { clans, members: current.members || {} };
   lastClanHistoryWrite = now;
@@ -43,26 +39,12 @@ function saveClanHistory(rows) {
 function saveMemberHistory(clanId, clan, members) {
   const current = read(HISTORY_KEY, { clans: [], members: {} });
   if (!clanId) return current;
-
   const now = Date.now();
   const last = lastMemberHistoryWrite.get(String(clanId)) || 0;
   if (now - last < HISTORY_SAMPLE_MS && current.members?.[clanId]?.length) return current;
-
-  const snapshot = {
-    at: now,
-    clan,
-    members: members.map((m) => ({
-      name: m.name,
-      level: Number(m.level || 0),
-      reputation: safeRep(m.reputation)
-    }))
-  };
+  const snapshot = { at: now, clan, members: members.map((m) => ({ name: m.name, level: Number(m.level || 0), reputation: safeRep(m.reputation) })) };
   const existing = current.members?.[clanId] || [];
-  const membersHistory = {
-    ...(current.members || {}),
-    [clanId]: [...existing, snapshot].slice(-2880)
-  };
-  const next = { clans: current.clans || [], members: membersHistory };
+  const next = { clans: current.clans || [], members: { ...(current.members || {}), [clanId]: [...existing, snapshot].slice(-2880) } };
   lastMemberHistoryWrite.set(String(clanId), now);
   write(HISTORY_KEY, next);
   return next;
@@ -83,9 +65,7 @@ function burn(history, clanId) {
   const first = samples.find((x) => x.at >= Date.now() - 30 * 60 * 1000) || samples[0];
   const last = samples[samples.length - 1];
   const base = new Map((first.members || []).map((m) => [m.name, safeRep(m.reputation)]));
-  const top = (last.members || [])
-    .map((m) => ({ ...m, gain: Math.max(0, safeRep(m.reputation) - safeRep(base.get(m.name) || 0)) }))
-    .sort((a, b) => b.gain - a.gain);
+  const top = (last.members || []).map((m) => ({ ...m, gain: Math.max(0, safeRep(m.reputation) - safeRep(base.get(m.name) || 0)) })).sort((a, b) => b.gain - a.gain);
   return { top, active: top.filter((x) => x.gain > 0).length, total: top.reduce((sum, member) => sum + member.gain, 0) };
 }
 
@@ -119,7 +99,6 @@ export default function Home() {
   const [browserAlerts, setBrowserAlerts] = useState(false);
   const [rankAlerts, setRankAlerts] = useState(false);
   const [threshold, setThreshold] = useState(100);
-  const [discordAlerts, setDiscordAlerts] = useState(false);
   const [sort, setSort] = useState('reputation');
   const [direction, setDirection] = useState('desc');
 
@@ -130,55 +109,14 @@ export default function Home() {
     setBrowserAlerts(s.browserAlerts ?? false);
     setRankAlerts(s.rankAlerts ?? false);
     setThreshold(Number(s.threshold || 100));
-    setDiscordAlerts(s.discordAlerts ?? false);
     setHistory(read(HISTORY_KEY, { clans: [], members: {} }));
   }, []);
 
-  useEffect(() => write(SETTINGS_KEY, { autoRefresh, compact, browserAlerts, rankAlerts, threshold, discordAlerts }), [autoRefresh, compact, browserAlerts, rankAlerts, threshold, discordAlerts]);
+  useEffect(() => write(SETTINGS_KEY, { autoRefresh, compact, browserAlerts, rankAlerts, threshold }), [autoRefresh, compact, browserAlerts, rankAlerts, threshold]);
 
   const notify = useCallback((title, body) => {
     if (browserAlerts && 'Notification' in window && Notification.permission === 'granted') new Notification(title, { body, tag: 'nztracker' });
   }, [browserAlerts]);
-
-  const sendBleed = useCallback(async (clan, before, current, remainingSeconds) => {
-    if (!discordAlerts || current >= before) return;
-
-    const state = read(BLEED_KEY, {});
-    const now = Date.now();
-    const prior = state[clan] || {};
-    const mins = Number.isFinite(Number(remainingSeconds)) && Number(remainingSeconds) > 0
-      ? Math.max(1, Math.ceil(Number(remainingSeconds) / 60))
-      : null;
-
-    let stage = null;
-    if (!prior.detectedAt || now - Number(prior.detectedAt) >= BLEED_COOLDOWN) stage = 'detected';
-    else if (mins !== null && mins <= 6 && !prior.sent6m) stage = '6m';
-    else if (mins !== null && mins <= 12 && mins > 6 && !prior.sent12m) stage = '12m';
-    if (!stage) return;
-
-    try {
-      const response = await fetch('/api/discord/attack-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'bleeding', stage, clan,
-          previousReputation: before,
-          currentReputation: current,
-          reputationLoss: before - current,
-          remainingSeconds,
-          timestamp: new Date().toISOString()
-        })
-      });
-      if (response.ok) {
-        state[clan] = {
-          detectedAt: prior.detectedAt || now,
-          sent12m: prior.sent12m || stage === '12m' || stage === '6m',
-          sent6m: prior.sent6m || stage === '6m'
-        };
-        write(BLEED_KEY, state);
-      }
-    } catch {}
-  }, [discordAlerts]);
 
   const load = useCallback(async () => {
     if (inFlight.current) return;
@@ -194,24 +132,16 @@ export default function Home() {
 
       if (baselineRef.current.season !== nextSeason) baselineRef.current = { season: nextSeason, reputation: {} };
       const baseline = { ...baselineRef.current.reputation };
-      next.forEach((row) => {
-        if (baseline[row.clan] == null) baseline[row.clan] = safeRep(row.reputation);
-      });
+      next.forEach((row) => { if (baseline[row.clan] == null) baseline[row.clan] = safeRep(row.reputation); });
       baselineRef.current = { season: nextSeason, reputation: baseline };
       writeBaseline(baselineRef.current);
 
-      if (previous.length) {
+      if (previous.length && rankAlerts) {
         const oldRanks = new Map(previous.map((r) => [r.clan, Number(r.rank || 0)]));
-        for (const row of next) {
-          const beforeRow = previous.find((r) => r.clan === row.clan);
-          if (beforeRow && safeRep(row.reputation) < safeRep(beforeRow.reputation)) {
-            await sendBleed(row.clan, safeRep(beforeRow.reputation), safeRep(row.reputation), data.countdown?.remainingSeconds);
-          }
-          if (rankAlerts) {
-            const oldRank = oldRanks.get(row.clan);
-            if (oldRank && oldRank !== Number(row.rank || 0)) notify('Clan rank changed', `${row.clan}: #${oldRank} → #${row.rank}`);
-          }
-        }
+        next.forEach((row) => {
+          const oldRank = oldRanks.get(row.clan);
+          if (oldRank && oldRank !== Number(row.rank || 0)) notify('Clan rank changed', `${row.clan}: #${oldRank} → #${row.rank}`);
+        });
       }
 
       const nextHistory = saveClanHistory(next);
@@ -227,7 +157,7 @@ export default function Home() {
     } finally {
       inFlight.current = false;
     }
-  }, [notify, rankAlerts, sendBleed]);
+  }, [notify, rankAlerts]);
 
   const loadMembers = useCallback(async (clan) => {
     if (!clan?.clanId) { setMembers([]); setMemberStatus('unavailable'); return; }
@@ -280,9 +210,7 @@ export default function Home() {
   const sortedMembers = useMemo(() => {
     const list = [...members];
     const mul = direction === 'asc' ? 1 : -1;
-    return list.sort((a, b) => sort === 'name'
-      ? String(a.name).localeCompare(String(b.name)) * mul
-      : (Number(a[sort] || 0) - Number(b[sort] || 0)) * mul);
+    return list.sort((a, b) => sort === 'name' ? String(a.name).localeCompare(String(b.name)) * mul : (Number(a[sort] || 0) - Number(b[sort] || 0)) * mul);
   }, [members, sort, direction]);
 
   const totalMembers = rows.reduce((sum, row) => sum + Number(row.memberCurrent || 0), 0);
@@ -296,7 +224,7 @@ export default function Home() {
     return [Math.floor(total / 86400), Math.floor((total % 86400) / 3600), Math.floor((total % 3600) / 60), total % 60];
   }, [end, server]);
 
-  const openClan = (clan) => { setSelected(clan); setMembers([]); setMemberStatus('loading'); loadMembers(clan); };
+  const openClan = (clan) => { if (!clan) return; setSelected(clan); setMembers([]); setMemberStatus('loading'); loadMembers(clan); };
   const sortBy = (key) => { if (sort === key) setDirection((value) => value === 'asc' ? 'desc' : 'asc'); else { setSort(key); setDirection(key === 'name' ? 'asc' : 'desc'); } };
   const mark = (key) => sort === key ? (direction === 'asc' ? ' ↑' : ' ↓') : '';
   const requestAlerts = async (enabled) => {
@@ -316,7 +244,6 @@ export default function Home() {
         <label><span><b>Browser alerts</b><small>Notify when member gains reach the threshold.</small></span><input type="checkbox" checked={browserAlerts} onChange={(e) => requestAlerts(e.target.checked)} /></label>
         <label><span><b>Rank alerts</b><small>Notify when a clan changes rank.</small></span><input type="checkbox" checked={rankAlerts} onChange={(e) => setRankAlerts(e.target.checked)} /></label>
         <label><span><b>Gain threshold</b><small>{fmt(threshold)} reputation.</small></span><input className="threshold" type="number" min="1" value={threshold} onChange={(e) => setThreshold(Number(e.target.value || 1))} /></label>
-        <label><span><b>Discord Bleeding Reminders</b><small>Send ⚠️/🔴 bleed reminders to Discord when a clan is detected bleeding.</small></span><input type="checkbox" checked={discordAlerts} onChange={(e) => setDiscordAlerts(e.target.checked)} /></label>
         <button className="refresh-button" onClick={() => { load(); if (selected) loadMembers(selected); }}>↻ Refresh now</button>
       </div>
     </aside>}
@@ -325,11 +252,13 @@ export default function Home() {
 
     <section className="stats"><div className="card"><div className="eyebrow">TRACKED CLANS</div><strong>{rows.length || '—'}</strong><small>Live global ranking</small></div><div className="card"><div className="eyebrow">ACTIVE MEMBERS</div><strong>{rows.length ? fmt(totalMembers) : '—'}</strong><small>{maxMembers ? `${Math.round(totalMembers / maxMembers * 100)}% capacity` : 'Waiting for source'}</small></div><div className="card"><div className="eyebrow">GLOBAL GAIN / 30M</div><strong>+{fmt(global30)}</strong><small>{fmt(Math.round(rate))} rep / min</small></div><div className="card season"><div><div className="eyebrow">{season}</div><strong>ENDS IN</strong></div><div className="countdown"><div><b>{countdown[0]}</b><small>DAYS</small></div><div><b>{String(countdown[1]).padStart(2, '0')}</b><small>HRS</small></div><div><b>{String(countdown[2]).padStart(2, '0')}</b><small>MINS</small></div><div><b>{String(countdown[3]).padStart(2, '0')}</b><small>SECS</small></div></div></div></section>
 
+    <WarOps rows={rows} server={server} updated={updated} status={status} onOpenClan={openClan} />
+
     <section className="podiums">{top3.map((r, i) => <button className="podium" key={r.clan} onClick={() => openClan(r)}><div className="podium-top"><span className="rank">{i + 1}</span><span className="avatar">{r.clan?.[0] || 'N'}</span><span className="clan-name"><b>{r.clan}</b><small>{r.master || 'Clan Master'}</small></span></div><div className="podium-stats"><span><small>MEMBERS</small><b>{r.memberCurrent}/{r.memberMax}</b></span><span><small>REPUTATION</small><b>{fmt(r.reputation)}</b></span><span><small>GAIN</small><b className="gain">+{fmt(gain(history, r.clan, 30 * 60 * 1000))}</b></span></div></button>)}</section>
 
     <section className="section"><div className="toolbar"><input className="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search clan or master..."/><span className="eyebrow">UPDATED {updated ? time(updated) : 'CONNECTING'}</span></div><div className="table-wrap"><div className="table-head"><span>RANK</span><span>CLAN</span><span>MASTER</span><span>MEMBERS</span><span>REPUTATION</span><span>GAIN</span><span>TOTAL GAIN</span></div>{filtered.map((r) => { const baseline = safeRep(baselineRef.current.reputation?.[r.clan]); const totalGain = Math.max(0, safeRep(r.reputation) - baseline); return <button className="table-row" key={`${r.clan}-${r.rank}`} onClick={() => openClan(r)}><span className="rank">{r.rank}</span><span className="clan-cell"><b>{r.clan}</b><i style={{ width: `${r.memberMax ? Math.min(100, r.memberCurrent / r.memberMax * 100) : 0}%` }} /></span><span className="muted">{r.master || '—'}</span><span>{r.memberCurrent}/{r.memberMax}</span><span>{fmt(r.reputation)}</span><span className="gain">+{fmt(gain(history, r.clan, 30 * 60 * 1000))}</span><span className="total-gain">+{fmt(totalGain)}</span></button>; })}{!filtered.length && <div className="empty">{status === 'error' ? 'Unable to load live clan data.' : 'No clans match your search.'}</div>}</div></section>
 
-    {selected && <div className="modal" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}><div className="modal-box"><div className="modal-head"><div><div className="eyebrow">LIVE MEMBERS // REPUTATION</div><h2>{selected.clan}</h2><p>Master: {selected.master || '—'} · {selected.memberCurrent}/{selected.memberMax} members</p></div><button className="close-button" onClick={() => setSelected(null)}>×</button></div><div className="modal-body"><div className="member-stats"><div><small>GAIN</small><b>+{fmt(selectedStats?.gain30 || 0)}</b></div><div><small>REP / MIN</small><b>{fmt(Math.round((selectedStats?.gain30 || 0) / 30))}</b></div><div><small>1H PROJECTED</small><b>+{fmt(Math.round((selectedStats?.gain30 || 0) * 2))}</b></div><div><small>4H PROJECTED</small><b>+{fmt(Math.round((selectedStats?.gain30 || 0) * 8))}</b></div></div>{memberStatus === 'loading' && <div className="empty">Fetching live member names, levels and reputation…</div>}{memberStatus === 'error' && <div className="empty">Unable to fetch live members right now.</div>}{memberStatus === 'live' && !members.length && <div className="empty">No members returned by the source.</div>}{members.length > 0 && <div className="member-table"><div className="member-head"><span>#</span><button onClick={() => sortBy('name')}>MEMBER{mark('name')}</button><button onClick={() => sortBy('level')}>LEVEL{mark('level')}</button><button onClick={() => sortBy('reputation')}>REPUTATION{mark('reputation')}</button><button onClick={() => sortBy('gain')}>GAIN{mark('gain')}</button><button onClick={() => sortBy('totalGain')}>TOTAL GAIN{mark('totalGain')}</button></div>{sortedMembers.map((m, i) => <div className="member-row" key={`${m.name}-${i}`}><span>{i + 1}</span><b>{m.name}</b><span>{m.level || '—'}</span><span>{fmt(m.reputation)}</span><span className="gain">{m.gain > 0 ? `+${fmt(m.gain)}` : '0'}</span><span className="total-gain">{fmt(m.totalGain)}</span></div>)}</div>}</div><div className="modal-foot">{memberStatus === 'live' ? `● LIVE · ${time(memberUpdated)}` : memberStatus === 'loading' ? 'Loading…' : 'Unavailable'} · Press Esc to close</div></div></div>}
+    {selected && <div className="modal" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}><div className="modal-box"><div className="modal-head"><div><div className="eyebrow">LIVE MEMBERS // STAMINA</div><h2>{selected.clan}</h2><p>Master: {selected.master || '—'} · {selected.memberCurrent}/{selected.memberMax} members</p></div><button className="close-button" onClick={() => setSelected(null)}>×</button></div><div className="modal-body"><div className="member-stats"><div><small>GAIN</small><b>+{fmt(selectedStats?.gain30 || 0)}</b></div><div><small>REP / MIN</small><b>{fmt(Math.round((selectedStats?.gain30 || 0) / 30))}</b></div><div><small>ACTIVE</small><b>{selectedStats?.active || 0}</b></div><div><small>30M TOTAL</small><b>+{fmt(selectedStats?.total || 0)}</b></div></div>{memberStatus === 'loading' && <div className="empty">Fetching live member names, levels, reputation and stamina…</div>}{memberStatus === 'error' && <div className="empty">Unable to fetch live members right now.</div>}{memberStatus === 'live' && !members.length && <div className="empty">No members returned by the source.</div>}{members.length > 0 && <div className="member-table"><div className="member-head"><span>#</span><button onClick={() => sortBy('name')}>MEMBER{mark('name')}</button><button onClick={() => sortBy('level')}>LEVEL{mark('level')}</button><button onClick={() => sortBy('reputation')}>REPUTATION{mark('reputation')}</button><button>STAMINA</button><button onClick={() => sortBy('gain')}>GAIN{mark('gain')}</button><button onClick={() => sortBy('totalGain')}>TOTAL GAIN{mark('totalGain')}</button></div>{sortedMembers.map((m, i) => <div className="member-row" key={`${m.name}-${i}`}><span>{i + 1}</span><b>{m.name}</b><span>{m.level || '—'}</span><span>{fmt(m.reputation)}</span><span className={`member-stamina ${m.bleeding === true ? 'bleed' : m.bleeding === false ? 'healthy' : 'unknown'}`}>{m.stamina != null && m.maxStamina != null ? `${fmt(m.stamina)} / ${fmt(m.maxStamina)}` : 'UNKNOWN'}</span><span className="gain">{m.gain > 0 ? `+${fmt(m.gain)}` : '0'}</span><span className="total-gain">{fmt(m.totalGain)}</span></div>)}</div>}</div><div className="modal-foot">{memberStatus === 'live' ? `● LIVE · ${time(memberUpdated)}` : memberStatus === 'loading' ? 'Loading…' : 'Unavailable'} · Press Esc to close</div></div></div>}
 
     <footer>Created by <strong>Michol</strong> · <a href="https://discordapp.com/users/396080330702061588" target="_blank" rel="noreferrer">Discord</a></footer>
   </main>;
