@@ -1,11 +1,9 @@
-export const revalidate = 0;
+import { ensureSchema } from '../../../lib/db.js';
+
+export const dynamic = 'force-dynamic';
 
 const SITE_ORIGIN = 'https://ninjazenshin.online';
 const MEMBER_API = `${SITE_ORIGIN}/clan-ranking/members`;
-
-// Server-instance history. This gives the live members endpoint a real
-// previous-value comparison instead of expecting the upstream API to return gain.
-const memberHistory = new Map();
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -25,13 +23,86 @@ function pick(object, keys) {
   return null;
 }
 
-function extractStamina(member) {
-  const nested = member?.stats || member?.attributes || member?.status || {};
-  const current = pick(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
-    ?? pick(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
-  const max = pick(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
-    ?? pick(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
-  return { current, max };
+function normalizeMembers(rawMembers, previousMembers = []) {
+  const previous = new Map(previousMembers.map((member) => [clean(member?.name), toNumber(member?.rep ?? member?.reputation) ?? 0]));
+
+  return rawMembers.map((member) => {
+    const name = clean(member?.name);
+    const reputation = toNumber(member?.rep ?? member?.reputation) ?? 0;
+    const nested = member?.stats || member?.attributes || member?.status || {};
+    const stamina = pick(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
+      ?? pick(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
+    const maxStamina = pick(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
+      ?? pick(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
+    const oldRep = previous.get(name);
+    const gain = oldRep == null ? 0 : Math.max(0, reputation - oldRep);
+    const bleedingThreshold = maxStamina === null ? null : maxStamina * 0.70;
+
+    return {
+      name,
+      level: toNumber(member?.level) ?? 0,
+      reputation,
+      gain,
+      totalGain: gain,
+      stamina,
+      maxStamina,
+      bleedingThreshold,
+      drainFloor: maxStamina === null ? null : maxStamina * 0.50,
+      bleeding: stamina !== null && bleedingThreshold !== null ? stamina <= bleedingThreshold : null
+    };
+  }).filter((member) => member.name);
+}
+
+async function fromDatabase(clanId) {
+  const db = await ensureSchema();
+  const result = await db`
+    SELECT fetched_at, members
+    FROM member_snapshots
+    WHERE clan_id = ${clanId}
+    ORDER BY fetched_at DESC
+    LIMIT 2
+  `;
+  if (!result.length) return null;
+
+  const latest = result[0];
+  const previous = result[1]?.members || [];
+  const members = normalizeMembers(latest.members || [], previous);
+
+  return {
+    clanId,
+    members,
+    count: members.length,
+    fetchedAt: new Date(latest.fetched_at).toISOString(),
+    source: `${MEMBER_API}/${encodeURIComponent(clanId)}`,
+    stored: true
+  };
+}
+
+async function fromSource(clanId) {
+  const target = `${MEMBER_API}/${encodeURIComponent(clanId)}`;
+  const response = await fetch(target, {
+    cache: 'no-store',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.0',
+      Accept: 'application/json,text/plain,*/*'
+    }
+  });
+
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Member API returned ${response.status}`);
+
+  let payload;
+  try { payload = JSON.parse(text); } catch { throw new Error('Member API did not return JSON.'); }
+  const members = normalizeMembers(Array.isArray(payload?.members) ? payload.members : []);
+
+  return {
+    clanId,
+    members,
+    count: members.length,
+    fetchedAt: new Date().toISOString(),
+    source: target,
+    stored: false
+  };
 }
 
 export async function GET(request) {
@@ -42,64 +113,20 @@ export async function GET(request) {
     return Response.json({ error: 'A valid Ninja Zenshin clanId is required.' }, { status: 400 });
   }
 
-  const target = `${MEMBER_API}/${encodeURIComponent(clanId)}`;
-
   try {
-    const response = await fetch(target, {
-      cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0',
-        Accept: 'application/json,text/plain,*/*'
-      }
-    });
+    try {
+      const stored = await fromDatabase(clanId);
+      if (stored) return Response.json(stored);
+    } catch (databaseError) {
+      console.warn('Member database unavailable; falling back to live source:', databaseError);
+    }
 
-    const text = await response.text();
-    if (!response.ok) return Response.json({ error: `Member API returned ${response.status}`, source: target }, { status: 502 });
-
-    let payload;
-    try { payload = JSON.parse(text); } catch { return Response.json({ error: 'Member API did not return JSON.', source: target }, { status: 502 }); }
-
-    const now = Date.now();
-    const clanKey = `clan:${clanId}`;
-    const previous = memberHistory.get(clanKey) || { baseline: {}, current: {} };
-
-    const members = Array.isArray(payload?.members)
-      ? payload.members.map((member) => {
-          const name = clean(member?.name);
-          const reputation = toNumber(member?.rep ?? member?.reputation) ?? 0;
-          const stamina = extractStamina(member);
-          const threshold = stamina.max === null ? null : stamina.max * 0.70;
-          const floor = stamina.max === null ? null : stamina.max * 0.50;
-          const oldRep = previous.current[name];
-          const baselineRep = previous.baseline[name] ?? reputation;
-          const gain = Number.isFinite(oldRep) ? Math.max(0, reputation - oldRep) : 0;
-          const totalGain = Math.max(0, reputation - baselineRep);
-
-          return {
-            name,
-            level: toNumber(member?.level) ?? 0,
-            reputation,
-            gain,
-            totalGain,
-            stamina: stamina.current,
-            maxStamina: stamina.max,
-            bleedingThreshold: threshold,
-            drainFloor: floor,
-            bleeding: stamina.current !== null && threshold !== null ? stamina.current <= threshold : null
-          };
-        }).filter((member) => member.name)
-      : [];
-
-    const nextCurrent = {};
-    const nextBaseline = { ...previous.baseline };
-    members.forEach((member) => {
-      nextCurrent[member.name] = member.reputation;
-      if (nextBaseline[member.name] == null) nextBaseline[member.name] = member.reputation;
-    });
-    memberHistory.set(clanKey, { baseline: nextBaseline, current: nextCurrent, at: now });
-
-    return Response.json({ clanId, members, count: members.length, fetchedAt: new Date(now).toISOString(), source: target });
+    return Response.json(await fromSource(clanId));
   } catch (error) {
-    return Response.json({ error: 'Unable to fetch Ninja Zenshin clan members', details: error instanceof Error ? error.message : String(error), source: target }, { status: 502 });
+    return Response.json({
+      error: 'Unable to fetch Ninja Zenshin clan members',
+      details: error instanceof Error ? error.message : String(error),
+      source: `${MEMBER_API}/${encodeURIComponent(clanId)}`
+    }, { status: 502 });
   }
 }
