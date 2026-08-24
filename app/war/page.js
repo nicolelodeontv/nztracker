@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import WarDashboard from '../war-dashboard';
+import WarNextBuild from '../war-next-build';
 import './page.css';
 
 const REFRESH_MS = 3000;
@@ -48,6 +49,7 @@ export default function ClanWarPage() {
         <div className={`war-page-live ${status === 'error' ? 'offline' : ''}`}>● {status === 'live' ? 'LIVE · SYNCING' : status === 'error' ? 'OFFLINE · RETRYING' : 'CONNECTING'}</div>
       </header>
 
+      <WarNextBuild rows={rows} server={server} />
       <WarDashboard rows={rows} server={server} updated={updated} status={status} />
     </main>
   );
