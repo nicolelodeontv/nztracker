@@ -1,3 +1,5 @@
+import { getRewardForDifference } from '../../../clan-war-rules';
+
 export const revalidate = 0;
 
 function clean(value) {
@@ -28,28 +30,48 @@ export async function POST(request) {
   const stage = clean(body?.stage) || 'detected';
   const timestamp = clean(body?.timestamp) || new Date().toISOString();
   const bleeding = type === 'bleeding';
+  const cleared = type === 'bleed_cleared';
+  const rankChange = type === 'rank';
   const mins = minutesLeft(remainingSeconds);
   const urgent = mins !== null && mins <= 6;
+
+  const difference = Number(body?.reputationDifference);
+  const expectedReward = body?.expectedReward ?? (Number.isFinite(difference) ? getRewardForDifference(difference) : null);
 
   const payload = {
     username: 'CHAOS Tracker - Bot',
     embeds: [{
       title: bleeding
         ? `${urgent ? '🔴' : '⚠️'} BLEED! ${clan}${mins !== null ? ` — ~${mins} min` : ''}`
-        : '⚔️ Ninja Zenshin Attack',
+        : cleared
+          ? `🟢 BLEED CLEARED — ${clan}`
+          : rankChange
+            ? `📈 RANK CHANGE — ${clan}`
+            : '⚔️ Ninja Zenshin Attack',
       description: bleeding
-        ? (mins !== null
-            ? `${urgent ? `~${mins} mins left!` : `Approximately ${mins} minutes left in the attack.`} **${clan}** is still bleeding!`
-            : `**${clan}** is still bleeding!`)
-        : `**${clan}** recorded a new attack.`,
-      color: bleeding ? (urgent ? 14423178 : 16753920) : 5556223,
+        ? (mins !== null ? `${urgent ? `~${mins} mins left!` : `Approximately ${mins} minutes left in the attack.`} **${clan}** is still bleeding!` : `**${clan}** is still bleeding!`)
+        : cleared
+          ? `**${clan}** is no longer bleeding. All known members have recovered.`
+          : rankChange
+            ? `**${clan}** changed rank: **${clean(body?.oldRank)} → ${clean(body?.newRank)}**.`
+            : `**${clan}** recorded a new attack.`,
+      color: bleeding ? (urgent ? 14423178 : 16753920) : cleared ? 5763719 : rankChange ? 5556223 : 5556223,
       fields: bleeding ? [
         ...(mins !== null ? [{ name: 'Attack Time Remaining', value: `~${mins} min`, inline: true }] : []),
         { name: 'Reminder', value: stage === '6m' ? '6-minute bleed reminder' : stage === '12m' ? '12-minute bleed reminder' : 'Bleed detected', inline: true },
         { name: 'Detected', value: timestamp, inline: false }
+      ] : cleared ? [
+        { name: 'Cleared At', value: timestamp, inline: true },
+        { name: 'State', value: 'Fully recovered', inline: true }
+      ] : rankChange ? [
+        { name: 'Old Rank', value: clean(body?.oldRank) || '—', inline: true },
+        { name: 'New Rank', value: clean(body?.newRank) || '—', inline: true },
+        { name: 'Time', value: timestamp, inline: false }
       ] : [
         { name: 'Member', value: attacker, inline: true },
         { name: 'Reputation Gain', value: `+${reputationGain.toLocaleString('en-US')}`, inline: true },
+        ...(Number.isFinite(difference) ? [{ name: 'Rep Difference', value: `${difference >= 0 ? '+' : '−'}${Math.abs(difference).toLocaleString('en-US')}`, inline: true }] : []),
+        ...(expectedReward !== null && expectedReward !== undefined ? [{ name: 'Expected Victory Reward', value: `${expectedReward} Rep`, inline: true }] : []),
         { name: 'Time', value: timestamp, inline: false }
       ],
       footer: { text: 'CHAOS Tracker - Bot' }
