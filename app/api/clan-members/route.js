@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
 
 const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
+const LEGACY_MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members';
 const SERVICE = 'ClanService.getMemberList';
 const RESPONSE_TARGET = '/1';
 
@@ -19,12 +20,6 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function encodeUtf16LengthString(value) {
-  const bytes = textEncoder.encode(String(value ?? ''));
-  if (bytes.length > 0xffff) throw new Error('AMF string is too long.');
-  return bytes;
-}
-
 function pushBytes(target, bytes) {
   for (const byte of bytes) target.push(byte);
 }
@@ -38,30 +33,24 @@ function pushU32(target, value) {
 }
 
 function pushUtf(target, value) {
-  const bytes = encodeUtf16LengthString(value);
+  const bytes = textEncoder.encode(String(value ?? ''));
+  if (bytes.length > 0xffff) throw new Error('AMF string is too long.');
   pushU16(target, bytes.length);
   pushBytes(target, bytes);
 }
 
 function buildMemberRequest(clanId) {
   const output = [];
-
-  // AMF message envelope: version 0, zero headers, one body.
   output.push(0x00, 0x00);
   pushU16(output, 0);
   pushU16(output, 1);
-
-  // Body target and response strings are raw UTF-8 with a 16-bit length.
   pushUtf(output, SERVICE);
   pushUtf(output, RESPONSE_TARGET);
   pushU32(output, 0xffffffff);
-
-  // AMF0 strict array with one string argument: [clanId].
   output.push(0x0a);
   pushU32(output, 1);
   output.push(0x02);
   pushUtf(output, clanId);
-
   return new Uint8Array(output);
 }
 
@@ -77,10 +66,7 @@ class Reader {
     if (this.offset + count > this.bytes.byteLength) throw new Error(`Invalid AMF response: truncated at byte ${this.offset}.`);
   }
 
-  u8() {
-    this.ensure(1);
-    return this.view.getUint8(this.offset++);
-  }
+  u8() { this.ensure(1); return this.view.getUint8(this.offset++); }
 
   u16() {
     this.ensure(2);
@@ -103,24 +89,18 @@ class Reader {
     return value;
   }
 
-  bytes(count) {
+  readBytes(count) {
     this.ensure(count);
     const value = this.bytes.slice(this.offset, this.offset + count);
     this.offset += count;
     return value;
   }
 
-  string16() {
-    return textDecoder.decode(this.bytes(this.u16()));
-  }
-
-  string32() {
-    return textDecoder.decode(this.bytes(this.u32()));
-  }
+  string16() { return textDecoder.decode(this.readBytes(this.u16())); }
+  string32() { return textDecoder.decode(this.readBytes(this.u32())); }
 
   amf0() {
     const type = this.u8();
-
     switch (type) {
       case 0x00: return this.f64();
       case 0x01: return this.u8() === 1;
@@ -129,16 +109,9 @@ class Reader {
       case 0x05: return null;
       case 0x06: return null;
       case 0x07: return this.references[this.u16()] ?? null;
-      case 0x08: {
-        this.u32();
-        return this.object();
-      }
+      case 0x08: this.u32(); return this.object();
       case 0x0a: return this.array();
-      case 0x0b: {
-        const timestamp = this.f64();
-        this.u16();
-        return new Date(timestamp).toISOString();
-      }
+      case 0x0b: this.f64(); this.u16(); return null;
       case 0x0c: return this.string32();
       case 0x10: {
         const className = this.string16();
@@ -146,17 +119,14 @@ class Reader {
         if (value && typeof value === 'object') value.__className = className;
         return value;
       }
-      case 0x11:
-        throw new Error('Ninja Zenshin returned AMF3 data; AMF3 fallback is not implemented.');
-      default:
-        throw new Error(`Unsupported AMF0 type 0x${type.toString(16).padStart(2, '0')}.`);
+      case 0x11: throw new Error('Ninja Zenshin returned AMF3 data.');
+      default: throw new Error(`Unsupported AMF0 type 0x${type.toString(16).padStart(2, '0')}.`);
     }
   }
 
   object() {
     const result = {};
     this.references.push(result);
-
     while (true) {
       const keyLength = this.u16();
       if (keyLength === 0) {
@@ -164,10 +134,9 @@ class Reader {
         if (marker === 0x09) break;
         throw new Error(`Invalid AMF object terminator 0x${marker.toString(16)}.`);
       }
-      const key = textDecoder.decode(this.bytes(keyLength));
+      const key = textDecoder.decode(this.readBytes(keyLength));
       result[key] = this.amf0();
     }
-
     return result;
   }
 
@@ -182,9 +151,8 @@ class Reader {
 
 function parseMemberResponse(buffer) {
   const reader = new Reader(buffer);
-
   const version = reader.u8();
-  reader.u8(); // client type / message encoding
+  reader.u8();
   if (version !== 0) throw new Error(`Unsupported AMF message version ${version}.`);
 
   const headerCount = reader.u16();
@@ -206,7 +174,6 @@ function parseMemberResponse(buffer) {
     const data = reader.amf0();
     bodies.push({ target, response, length, data });
   }
-
   return bodies[0]?.data;
 }
 
@@ -241,11 +208,10 @@ function normalizeMembers(rawMembers) {
 }
 
 async function fromAmf(clanId) {
-  const body = buildMemberRequest(clanId);
   const response = await fetch(AMF_ORIGIN, {
     method: 'POST',
     cache: 'no-store',
-    body,
+    body: buildMemberRequest(clanId),
     headers: {
       Accept: '*/*',
       'Cache-Control': 'no-cache',
@@ -265,13 +231,8 @@ async function fromAmf(clanId) {
   if (!bodyData || typeof bodyData !== 'object') throw new Error('AMF response did not contain an object result.');
   if (bodyData.status && String(bodyData.status) !== '1') throw new Error(`Ninja Zenshin member service returned status ${bodyData.status}.`);
 
-  const rawMembers = Array.isArray(bodyData.result)
-    ? bodyData.result
-    : Array.isArray(bodyData.members)
-      ? bodyData.members
-      : [];
+  const rawMembers = Array.isArray(bodyData.result) ? bodyData.result : Array.isArray(bodyData.members) ? bodyData.members : [];
   const members = normalizeMembers(rawMembers);
-
   if (!members.length) throw new Error('AMF member result contained no members.');
 
   return {
@@ -286,6 +247,39 @@ async function fromAmf(clanId) {
   };
 }
 
+async function fromLegacy(clanId) {
+  const target = `${LEGACY_MEMBER_API}/${encodeURIComponent(clanId)}`;
+  const response = await fetch(target, {
+    cache: 'no-store',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
+      Accept: 'application/json,text/plain,text/html,*/*'
+    }
+  });
+  if (!response.ok) throw new Error(`Legacy member source returned HTTP ${response.status}.`);
+  const text = await response.text();
+  let rawMembers = [];
+  try {
+    const payload = JSON.parse(text);
+    rawMembers = Array.isArray(payload?.members) ? payload.members : Array.isArray(payload) ? payload : [];
+  } catch {
+    const match = text.match(/<tr[\s\S]*?<\/tr>/gi) || [];
+    rawMembers = match.map((row) => ({ name: clean(row.replace(/<[^>]+>/g, ' ')) }));
+  }
+  const members = normalizeMembers(rawMembers);
+  if (!members.length) throw new Error('Legacy member source returned no members.');
+  return {
+    clanId,
+    members,
+    count: members.length,
+    fetchedAt: new Date().toISOString(),
+    source: target,
+    service: 'legacy-fallback',
+    stored: false,
+    staminaSource: 'unavailable'
+  };
+}
+
 export async function GET(request) {
   const url = new URL(request.url);
   const clanId = clean(url.searchParams.get('clanId'));
@@ -295,13 +289,19 @@ export async function GET(request) {
   }
 
   try {
-    return Response.json(await fromAmf(clanId), {
-      headers: { 'Cache-Control': 'no-store, max-age=0' }
-    });
+    try {
+      return Response.json(await fromAmf(clanId), { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    } catch (amfError) {
+      console.warn('Game AMF member request failed; using live fallback.', amfError);
+      const fallback = await fromLegacy(clanId);
+      return Response.json({ ...fallback, fallbackReason: amfError instanceof Error ? amfError.message : String(amfError) }, {
+        headers: { 'Cache-Control': 'no-store, max-age=0' }
+      });
+    }
   } catch (error) {
-    console.error('Ninja Zenshin AMF member fetch failed', error);
+    console.error('All Ninja Zenshin member sources failed', error);
     return Response.json({
-      error: 'Unable to fetch Ninja Zenshin clan members from the game service',
+      error: 'Unable to fetch Ninja Zenshin clan members right now',
       details: error instanceof Error ? error.message : String(error),
       clanId,
       source: AMF_ORIGIN,
