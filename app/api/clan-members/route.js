@@ -6,6 +6,7 @@ const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
 const LEGACY_MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members';
 const SERVICE = 'ClanService.getMemberList';
 const RESPONSE_TARGET = '/1';
+const DEFAULT_MAX_STAMINA = 200;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -183,10 +184,12 @@ function normalizeMembers(rawMembers) {
     const nested = source?.stats || source?.attributes || source?.status || {};
     const name = clean(source.name ?? source.username ?? source.player ?? source.character);
     const reputation = toNumber(source.reputation ?? source.rep ?? source.reputation_gain ?? source.points) ?? 0;
-    const stamina = toNumber(source.stamina ?? source.currentStamina ?? source.staminaCurrent ?? source.sta ?? source.current_sta)
+    const staminaValue = toNumber(source.stamina ?? source.currentStamina ?? source.staminaCurrent ?? source.sta ?? source.current_sta)
       ?? toNumber(nested.stamina ?? nested.currentStamina ?? nested.staminaCurrent ?? nested.sta ?? nested.current_sta);
-    const maxStamina = toNumber(source.maxStamina ?? source.staminaMax ?? source.max_stamina ?? source.staminaLimit ?? source.maxSta)
+    const maxStaminaValue = toNumber(source.maxStamina ?? source.staminaMax ?? source.max_stamina ?? source.staminaLimit ?? source.maxSta)
       ?? toNumber(nested.maxStamina ?? nested.staminaMax ?? nested.max_stamina ?? nested.staminaLimit ?? nested.maxSta);
+    const maxStamina = maxStaminaValue ?? DEFAULT_MAX_STAMINA;
+    const stamina = staminaValue ?? maxStamina;
 
     return {
       id: clean(source.id),
@@ -198,11 +201,11 @@ function normalizeMembers(rawMembers) {
       totalGain: 0,
       stamina,
       maxStamina,
-      staminaKnown: stamina !== null,
-      maxStaminaKnown: maxStamina !== null,
-      bleedingThreshold: maxStamina === null ? null : maxStamina * 0.70,
-      drainFloor: maxStamina === null ? null : maxStamina * 0.50,
-      bleeding: stamina !== null && maxStamina !== null ? stamina <= maxStamina * 0.70 : null
+      staminaKnown: staminaValue !== null,
+      maxStaminaKnown: maxStaminaValue !== null,
+      bleedingThreshold: maxStamina * 0.70,
+      drainFloor: maxStamina * 0.50,
+      bleeding: stamina <= maxStamina * 0.70
     };
   }).filter((member) => member.name);
 }
@@ -243,7 +246,7 @@ async function fromAmf(clanId) {
     source: AMF_ORIGIN,
     service: SERVICE,
     stored: false,
-    staminaSource: members.some((member) => member.staminaKnown) ? 'game-amf' : 'unavailable'
+    staminaSource: members.some((member) => member.staminaKnown) ? 'game-amf' : 'default-200'
   };
 }
 
@@ -276,7 +279,7 @@ async function fromLegacy(clanId) {
     source: target,
     service: 'legacy-fallback',
     stored: false,
-    staminaSource: 'unavailable'
+    staminaSource: 'default-200'
   };
 }
 
