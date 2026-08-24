@@ -20,10 +20,16 @@ function installGainStyle() {
       70% { transform: scale(1.05); opacity: 1; }
       100% { transform: scale(1); opacity: 1; text-shadow: none; }
     }
-    .gain.gain-pop { animation: nzGainPop .48s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
-    .total-gain.gain-pop { animation: nzGainPop .48s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
+    .gain.gain-pop, .total-gain.gain-pop { animation: nzGainPop .48s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
   `;
   document.head.appendChild(style);
+}
+
+function removeAttackAnalytics(tracker) {
+  [...tracker.querySelectorAll('.section')].forEach(section => {
+    const heading = text(section.querySelector('h2')?.textContent);
+    if (heading === 'Attack Analytics') section.remove();
+  });
 }
 
 function cleanLabels() {
@@ -40,9 +46,7 @@ function cleanLabels() {
   });
 
   document.querySelectorAll('.enh-war-meta span').forEach((node) => {
-    if (text(node.firstChild?.textContent).toUpperCase() === '30M') {
-      node.firstChild.textContent = 'GAIN ';
-    }
+    if (text(node.firstChild?.textContent).toUpperCase() === '30M') node.firstChild.textContent = 'GAIN ';
   });
 }
 
@@ -61,12 +65,14 @@ function animateGains() {
 
 function enhance() {
   installGainStyle();
-  cleanLabels();
 
   const tracker = document.querySelector('.tracker');
   const hero = tracker?.querySelector('.hero');
   const table = tracker?.querySelector('.table-wrap');
   if (!tracker || !hero || !table) return;
+
+  removeAttackAnalytics(tracker);
+  cleanLabels();
 
   if (!document.querySelector('[data-enhancement-bar]')) {
     const bar = document.createElement('section');
@@ -117,7 +123,7 @@ function enhance() {
 function buildWar(rows) {
   const grid = document.querySelector('[data-war-panel] .enh-war-grid'); if (!grid) return;
   grid.innerHTML = '';
-  rows.map(r => ({ row:r, clan:text(r.children?.[1]?.textContent), rep:num(r.children?.[4]?.textContent), gain:num(r.children?.[5]?.textContent), members:text(r.children?.[3]?.textContent) }))
+  rows.map(r => ({ clan:text(r.children?.[1]?.textContent), rep:num(r.children?.[4]?.textContent), gain:num(r.children?.[5]?.textContent), members:text(r.children?.[3]?.textContent) }))
     .sort((a,b)=>b.gain-a.gain||b.rep-a.rep).slice(0,6).forEach((x,i)=>{
       const card=document.createElement('div'); card.className='enh-war-card';
       card.innerHTML=`<span class="enh-war-rank">#${i+1}</span><b class="enh-war-name"></b><div class="enh-war-meta"><span>REP <b>${x.rep.toLocaleString('en-US')}</b></span><span>GAIN <b>+${x.gain.toLocaleString('en-US')}</b></span><span>MEM <b>${x.members}</b></span></div><small>⚪ BLEEDING STATE: UNKNOWN</small>`;
