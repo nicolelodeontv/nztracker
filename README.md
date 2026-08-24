@@ -1,6 +1,6 @@
 # 🥷 Ninja Zenshin Live Clan Tracker
 
-A live community-built dashboard for monitoring **Ninja Zenshin Clan Ranking** data in a clean, dark gaming interface.
+A community-built live tracker for monitoring **Ninja Zenshin Clan Ranking** data in a compact dark interface focused on fast clan-war monitoring.
 
 **Live site:** https://nztracker.vercel.app/
 
@@ -10,34 +10,41 @@ A live community-built dashboard for monitoring **Ninja Zenshin Clan Ranking** d
 
 ### 🏆 Live Clan Ranking
 
-- Live clan rank, clan name, master, members, reputation, gain, and total gain
-- Automatic background synchronization
-- Search by clan name or master
-- Member-capacity progress bars
-- Top-clan podium view
-- Live/updated/server-time indicators
-- Responsive desktop, tablet, and mobile layout
-- Dark Ninja Command Center visual design
+The main ranking table keeps the core layout simple:
+
+**# · Clan · Master · Members · Reputation · Gain · Total Gain**
+
+Includes:
+
+- Live clan ranking data
+- Clan master and member counts
+- Reputation and gain tracking
+- Search by clan or master
+- Member-capacity indicators
+- Top-clan podium cards
+- Automatic background refresh
+- Live sync status and latest update time
+- Responsive desktop and mobile layout
 
 ### 👥 Live Clan Members
 
 Click a clan to open its live member panel.
 
-The member view can display:
+The member table can show:
 
 - Member name
 - Level
-- Individual reputation
-- Reputation gain
-- Total reputation gain
+- Reputation
+- Gain
+- Total Gain
 - Live member count
 - Last synchronization time
 
-Member data is refreshed while the clan panel is open.
+Member data refreshes while the clan panel is open.
 
 ### ↕️ Member Sorting
 
-The live member table supports sorting by:
+Sort the Live Members table by:
 
 - Member name
 - Level
@@ -45,54 +52,106 @@ The live member table supports sorting by:
 - Gain
 - Total Gain
 
-Click a column header to sort. Click it again to reverse the order.
+### ⇩ CSV Export
+
+Live Members can be exported as CSV for spreadsheet use.
+
+The export contains:
+
+- MEMBER
+- LEVEL
+- REPUTATION
+- GAIN
+- TOTAL GAIN
+
+There is no member import feature in the current version.
+
+### ⭐ Watchlist
+
+Star clans directly from the ranking table to create a personal browser-based watchlist.
+
+Watchlist state is stored locally on the current device and does not require an account.
+
+### ⚔️ Clan War Monitor
+
+The Clan War view highlights clans with the highest recent pressure based on the live ranking feed.
+
+The monitor can show:
+
+- Clan reputation
+- Recent gain
+- Member count
+- Current bleeding-state availability
+
+The tracker intentionally shows the bleeding state as **UNKNOWN** when the source does not expose the underlying stamina data instead of guessing.
+
+### 🩸 Discord Bleeding Reminders
+
+Optional Discord notifications can use the configured webhook to send staged bleeding reminders such as:
+
+```text
+⚠️ BLEED! Shad0w Ninja Clan — ~12 min
+Approximately 12 minutes left in the attack. Shad0w Ninja Clan is still bleeding!
+
+🔴 BLEED! Shad0w Ninja Clan — ~6 min
+~6 mins left! Shad0w Ninja Clan is still bleeding!
+```
+
+Discord alerts use the bot identity:
+
+**CHAOS Tracker - Bot**
+
+Because the current ranking source does not expose authoritative member stamina/bleeding state, the tracker uses available live reputation changes and countdown information for these reminders. It does not claim to directly verify stamina-based bleeding when that data is unavailable.
+
+### 🔔 Browser & Rank Alerts
+
+Optional browser notifications can alert you when:
+
+- A member reaches the configured gain threshold
+- A clan changes rank
 
 ### ⏱️ Season Countdown
 
-The dashboard includes a live season countdown showing:
+The tracker includes a live season countdown showing:
 
 - Days
 - Hours
 - Minutes
 - Seconds
 
-The countdown remains visible as part of the season overview.
-
 ### ⚙️ Settings
 
-The Settings panel provides controls for:
+Settings currently include controls for:
 
 - Automatic live refresh
-- Compact table rows
+- Compact rows
+- Browser alerts
+- Rank alerts
+- Reputation gain threshold
+- Discord bleeding reminders
 
-Settings are kept locally in the browser.
+Settings are stored locally in the browser.
 
-### 📊 Local Tracking & Exports
+## 🎨 Design & Typography
 
-The tracker can maintain local reputation/history information in the browser and supports data export where available.
+The current UI uses a dark, compact command-center style designed for quick scanning during clan wars.
 
-Exports use:
+### Font pairing
 
-- **CSV** for spreadsheets and analysis
-- **JSON** for structured data
+**Space Mono + Plus Jakarta Sans**
 
-## 🎨 Design
+- **Plus Jakarta Sans** — titles, clan names, headings, controls, and general UI text
+- **Space Mono** — ranks, table headers, reputation, gains, countdowns, timestamps, and technical labels
 
-The current interface uses a **dark Ninja Command Center** style designed around readability and fast data scanning.
+The UI uses restrained cyan/green accents, compact spacing, strong table alignment, subtle hover states, and gain animations without excessive visual clutter.
 
-- Dark near-black background
-- Cyan and violet accents
-- Space Grotesk for major headings
-- Manrope for UI text
-- JetBrains Mono for data, timestamps, and statistics
-- Responsive spacing and overflow handling for long clan/member names
-- Subtle hover states and restrained glow effects
+### Gain feedback
 
-The layout intentionally avoids excessive neon effects so large ranking tables remain easy to read.
+When a tracked reputation value increases, the interface provides a small visual gain-pop effect to make live changes noticeable without interrupting the table.
 
 ## 🔄 Live Synchronization
 
-The dashboard retrieves live data through Next.js API routes and refreshes in the background.
+The tracker retrieves live data through Next.js API routes and refreshes in the background.
 
 ```text
 Ninja Zenshin
@@ -108,23 +167,24 @@ Ninja Zenshin
                     │
                     ├── Live ranking
                     ├── Live members
-                    ├── Season countdown
-                    ├── Reputation tracking
-                    └── Responsive UI
+                    ├── Watchlist
+                    ├── Clan War monitor
+                    ├── Discord reminders
+                    └── Season countdown
 ```
 
 Live availability depends on the Ninja Zenshin source and its endpoints being reachable from the deployed environment.
 
 ## 💾 Local Data
 
-Some tracker state is stored in browser `localStorage`.
+Some preferences and watchlist/history state are stored in browser `localStorage`.
 
 This means:
 
 - No account is required
-- No external database is required for local state
-- Data is tied to the browser/device being used
-- Clearing browser site data can remove locally stored information
+- No database is required for local preferences
+- Watchlist/settings are tied to the current browser/device
+- Clearing browser site data can remove locally stored state
 
 ## 🛠️ Tech Stack
 
@@ -133,9 +193,8 @@ This means:
 - JavaScript
 - CSS
 - Vercel
-- JetBrains Mono
-- Space Grotesk
-- Manrope
+- Plus Jakarta Sans
+- Space Mono
 - Browser `localStorage`
 
 ## 🚀 Run Locally
@@ -167,6 +226,12 @@ nicolelodeontv/nztracker
 ```
 
 The production branch is `main`.
+
+For Discord bleeding reminders, configure the server environment variable:
+
+```text
+DISCORD_WEBHOOK_URL
+```
 
 ## 👤 Credit
 
