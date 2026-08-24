@@ -40,9 +40,7 @@ async function collectRanking() {
       const reputation = toNumber(cells[4]);
       const clanId = clean(clanCell.find('[data-clan]').attr('data-clan') || '');
 
-      if (rank > 0 && clan) {
-        rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, clanId: clanId || null });
-      }
+      if (rank > 0 && clan) rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, clanId: clanId || null });
     });
   });
 
@@ -74,7 +72,8 @@ export async function GET(request) {
   const startedAt = new Date();
   const secret = process.env.CRON_SECRET;
   const authorization = request.headers.get('authorization');
-  if (secret && authorization !== `Bearer ${secret}`) {
+
+  if (!secret || authorization !== `Bearer ${secret}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -108,13 +107,7 @@ export async function GET(request) {
       VALUES (${startedAt.toISOString()}, ${finishedAt.toISOString()}, 'success', ${ranking.rows.length}, ${memberCount})
     `;
 
-    return Response.json({
-      ok: true,
-      season: ranking.season,
-      clansSeen: ranking.rows.length,
-      membersSeen: memberCount,
-      fetchedAt: ranking.fetchedAt
-    });
+    return Response.json({ ok: true, season: ranking.season, clansSeen: ranking.rows.length, membersSeen: memberCount, fetchedAt: ranking.fetchedAt });
   } catch (error) {
     try {
       const db = await ensureSchema();
@@ -126,9 +119,6 @@ export async function GET(request) {
       console.error('Unable to record monitor failure:', logError);
     }
 
-    return Response.json({
-      ok: false,
-      error: error instanceof Error ? error.message : String(error)
-    }, { status: 502 });
+    return Response.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 502 });
   }
 }
