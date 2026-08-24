@@ -6,7 +6,7 @@ import {
   getDrainFloor,
   getRecoveryAmount,
   isBleeding
-} from './stamina.js';
+} from './stamina.mjs';
 
 export const CLAN_WAR_RULES = Object.freeze({
   mode: 'Quick Battle',
