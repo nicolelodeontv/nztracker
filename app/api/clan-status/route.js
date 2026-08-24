@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { getBleedingThreshold, getDrainFloor, isMemberBleeding, CLAN_WAR_RULES } from '../../clan-war-rules';
 
 export const revalidate = 0;
 
@@ -95,22 +96,19 @@ export async function GET(request) {
           return [clan, { clan, clanId, state: 'unknown', reason: 'Stamina not exposed by source', memberCount: members.length }];
         }
 
-        // Updated rule:
-        // Drain floor = 50% of Max Stamina.
-        // Bleeding threshold = 70% of Max Stamina.
-        // A clan bleeds when at least 50% of members are at or below their own threshold.
         const evaluated = stamina.map((member) => {
-          const drainFloor = member.max * 0.50;
-          const bleedingThreshold = member.max * 0.70;
+          const drainFloor = getDrainFloor(member.max);
+          const bleedingThreshold = getBleedingThreshold(member.max);
           return {
             ...member,
             drainFloor,
             bleedingThreshold,
-            bleeding: member.current <= bleedingThreshold
+            bleeding: isMemberBleeding(member.current, member.max)
           };
         });
+
         const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
-        const memberThreshold = Math.ceil(evaluated.length / 2);
+        const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
         const bleeding = bleedingMembers >= memberThreshold;
         const fullyRecovered = evaluated.every((member) => member.current >= member.max);
 
@@ -123,6 +121,12 @@ export async function GET(request) {
           memberThreshold,
           fullyRecovered,
           staminaAvailable: true,
+          rules: {
+            bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio,
+            thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio,
+            drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio,
+            drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember
+          },
           members: evaluated
         }];
       } catch (error) {
