@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAffectedTargets, getVictoryResult } from './clan-war-rules';
 import WarRulesPanel from './war-rules-panel';
 
 const WATCH_KEY = 'nztracker:watchlist:v2';
-const EVENT_KEY = 'nztracker:events:v1';
+const EVENT_KEY = 'nztracker:events:v2';
 const SETTINGS_KEY = 'nztracker:settings:v6';
-const BLEED_STAGE_KEY = 'nztracker:bleed-stage:v1';
-const EVENT_LIMIT = 30;
+const BLEED_STAGE_KEY = 'nztracker:bleed-stage:v2';
+const EVENT_LIMIT = 40;
 const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || '') ?? fallback; } catch { return fallback; } };
 const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
@@ -16,16 +16,19 @@ const time = (value) => new Date(value).toLocaleTimeString([], { hour: '2-digit'
 
 function pushEvent(event) {
   const old = read(EVENT_KEY, []);
-  const next = [event, ...old.filter((item) => !(item.clan === event.clan && item.type === event.type && String(item.value) === String(event.value) && Date.now() - Number(item.at || 0) < 2500))].slice(0, EVENT_LIMIT);
+  const duplicate = old.some((item) => item.clan === event.clan && item.type === event.type && String(item.value) === String(event.value) && Date.now() - Number(item.at || 0) < 2500);
+  if (duplicate) return old;
+  const next = [event, ...old].slice(0, EVENT_LIMIT);
   write(EVENT_KEY, next);
   return next;
 }
 
 export default function WarOps({ rows, server, updated, status, onOpenClan }) {
   const [view, setView] = useState('all');
+  const [eventFilter, setEventFilter] = useState('all');
   const [statuses, setStatuses] = useState({});
   const statusesRef = useRef({});
-  const [statusHealth, setStatusHealth] = useState('connecting');
+  const [statusHealth, setStatusHealth] = useState('checking');
   const [statusUpdated, setStatusUpdated] = useState(null);
   const [watchlist, setWatchlist] = useState([]);
   const [events, setEvents] = useState([]);
@@ -47,10 +50,14 @@ export default function WarOps({ rows, server, updated, status, onOpenClan }) {
     return () => clearInterval(timer);
   }, []);
 
-  const sendDiscord = async (payload) => {
+  const sendDiscord = useCallback(async (payload) => {
     if (!discordAlerts) return;
-    try { await fetch('/api/discord/attack-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch {}
-  };
+    try {
+      await fetch('/api/discord/attack-summary', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+    } catch {}
+  }, [discordAlerts]);
 
   useEffect(() => {
     let active = true;
@@ -66,87 +73,95 @@ export default function WarOps({ rows, server, updated, status, onOpenClan }) {
         const nextStatuses = data.statuses || {};
         const previous = statusesRef.current;
         const stageState = read(BLEED_STAGE_KEY, {});
+
         Object.entries(nextStatuses).forEach(([clan, item]) => {
           const oldState = previous[clan]?.state;
           if (oldState && oldState !== item.state) {
-            const eventType = item.state === 'bleeding' ? 'bleed' : item.state === 'healthy' ? 'recovery' : 'status';
-            setEvents(pushEvent({ clan, type: eventType, value: item.state, at: Date.now() }));
+            const eventType = item.state === 'bleeding' ? 'bleed' : oldState === 'bleeding' && item.state === 'healthy' ? 'recovery' : 'status';
+            setEvents((current) => pushEvent({ clan, type: eventType, value: item.state, at: Date.now() }));
             if (item.state === 'bleeding') {
               sendDiscord({ type: 'bleeding', stage: 'detected', clan, timestamp: new Date().toISOString() });
-              stageState[clan] = { state: 'bleeding', detected: true, sent12: false, sent6: false };
+              stageState[clan] = { sent12: false, sent6: false };
             }
             if (oldState === 'bleeding' && item.state === 'healthy') {
               sendDiscord({ type: 'bleed_cleared', clan, timestamp: new Date().toISOString() });
               delete stageState[clan];
             }
           }
-          if (item.state === 'bleeding' && oldState === 'bleeding') {
-            const mins = Number.isFinite(Number(data.remainingSeconds)) && Number(data.remainingSeconds) > 0 ? Math.ceil(Number(data.remainingSeconds) / 60) : null;
-            const prior = stageState[clan] || { state: 'bleeding', detected: true, sent12: false, sent6: false };
-            if (mins === 12 && !prior.sent12) {
+
+          if (item.state === 'bleeding') {
+            const mins = Number.isFinite(Number(data.remainingSeconds)) ? Math.ceil(Number(data.remainingSeconds) / 60) : null;
+            const prior = stageState[clan] || { sent12: false, sent6: false };
+            if (mins !== null && mins <= 12 && mins > 6 && !prior.sent12) {
               sendDiscord({ type: 'bleeding', stage: '12m', clan, remainingSeconds: data.remainingSeconds, timestamp: new Date().toISOString() });
               stageState[clan] = { ...prior, sent12: true };
             }
-            if (mins === 6 && !prior.sent6) {
+            if (mins !== null && mins <= 6 && !prior.sent6) {
               sendDiscord({ type: 'bleeding', stage: '6m', clan, remainingSeconds: data.remainingSeconds, timestamp: new Date().toISOString() });
-              stageState[clan] = { ...prior, sent6: true };
+              stageState[clan] = { ...prior, sent12: true, sent6: true };
             }
           }
         });
+
         write(BLEED_STAGE_KEY, stageState);
         statusesRef.current = nextStatuses;
         setStatuses(nextStatuses);
         setStatusUpdated(new Date(data.fetchedAt || Date.now()));
         setStatusHealth(performance.now() - started > 5000 ? 'slow' : 'ok');
         if (!focusClan) {
-          const firstBleeding = Object.values(nextStatuses).find((item) => item.state === 'bleeding');
-          if (firstBleeding?.clan) setFocusClan(firstBleeding.clan);
+          const first = Object.values(nextStatuses).find((item) => item.state === 'bleeding' || item.state === 'potential-bleeding');
+          if (first?.clan) setFocusClan(first.clan);
         }
       } catch { if (active) setStatusHealth('error'); }
     };
+
     loadStatus();
     const timer = setInterval(loadStatus, 20000);
     return () => { active = false; clearInterval(timer); };
-  }, [rows, focusClan, discordAlerts]);
+  }, [rows, focusClan, sendDiscord]);
 
   useEffect(() => {
     if (!rows.length) return;
-    const stored = read('nztracker:rep-snapshot:v1', {});
+    const stored = read('nztracker:rep-snapshot:v2', {});
+    const ranks = read('nztracker:rank-snapshot:v2', {});
     const nextStored = { ...stored };
-    const rankStored = read('nztracker:rank-snapshot:v1', {});
-    const nextRankStored = { ...rankStored };
+    const nextRanks = { ...ranks };
+
     rows.forEach((row) => {
       const rep = Number(row.reputation || 0);
       const oldRep = Number(stored[row.clan]);
-      if (Number.isFinite(oldRep) && rep !== oldRep) setEvents(pushEvent({ clan: row.clan, type: rep > oldRep ? 'gain' : 'loss', value: rep - oldRep, at: Date.now() }));
+      if (Number.isFinite(oldRep) && rep !== oldRep) setEvents((current) => pushEvent({ clan: row.clan, type: rep > oldRep ? 'gain' : 'loss', value: rep - oldRep, at: Date.now() }));
       const rank = Number(row.rank || 0);
-      const oldRank = Number(rankStored[row.clan]);
-      if (Number.isFinite(oldRank) && oldRank > 0 && rank !== oldRank) setEvents(pushEvent({ clan: row.clan, type: 'rank', value: `#${oldRank} → #${rank}`, at: Date.now() }));
+      const oldRank = Number(ranks[row.clan]);
+      if (Number.isFinite(oldRank) && oldRank > 0 && rank !== oldRank) setEvents((current) => pushEvent({ clan: row.clan, type: 'rank', value: `#${oldRank} → #${rank}`, at: Date.now() }));
       nextStored[row.clan] = rep;
-      nextRankStored[row.clan] = rank;
+      nextRanks[row.clan] = rank;
     });
-    write('nztracker:rep-snapshot:v1', nextStored);
-    write('nztracker:rank-snapshot:v1', nextRankStored);
+    write('nztracker:rep-snapshot:v2', nextStored);
+    write('nztracker:rank-snapshot:v2', nextRanks);
   }, [rows]);
 
   const statusEntries = useMemo(() => rows.map((row) => ({ ...row, status: statuses[row.clan] || { state: 'unknown', reason: 'Stamina source unavailable' } })), [rows, statuses]);
   const bleeding = statusEntries.filter((item) => item.status.state === 'bleeding');
+  const potential = statusEntries.filter((item) => item.status.state === 'potential-bleeding');
   const watched = statusEntries.filter((item) => watchlist.includes(item.clan));
-  const warRows = [...rows].sort((a, b) => Number(b.reputation || 0) - Number(a.reputation || 0)).slice(0, 8);
-  const visibleRows = view === 'watch' ? watched : view === 'war' ? statusEntries.filter((item) => warRows.some((row) => row.clan === item.clan)) : view === 'bleed' ? bleeding : statusEntries;
+  const topPressure = [...statusEntries].sort((a, b) => Number(b.reputation || 0) - Number(a.reputation || 0)).slice(0, 8);
+  const visibleRows = view === 'watch' ? watched : view === 'war' ? topPressure : view === 'bleed' ? bleeding : view === 'potential' ? potential : statusEntries;
 
   const target = statusEntries.find((item) => item.clan === targetClan);
   const own = Number(ownRep || 0);
   const targetRep = Number(target?.reputation || 0);
   const targetState = target?.status?.state || 'unknown';
-  const result = target && ownRep !== '' && targetState !== 'unknown' ? getVictoryResult(own, targetRep, targetState === 'bleeding') : null;
+  const result = target && ownRep !== '' && targetState !== 'unknown' && targetState !== 'potential-bleeding'
+    ? getVictoryResult(own, targetRep, targetState === 'bleeding')
+    : null;
   const drainTargets = getAffectedTargets(partySize);
+  const attackReady = Boolean(result?.won);
 
   const nextRecovery = useMemo(() => {
     const base = server ? new Date(server) : new Date(recoveryTick);
     base.setSeconds(0, 0);
-    const minute = base.getMinutes();
-    base.setMinutes(minute < 30 ? 30 : 60);
+    base.setMinutes(base.getMinutes() < 30 ? 30 : 60);
     return Math.max(0, Math.ceil((base.getTime() - (server ? server.getTime() : recoveryTick)) / 1000));
   }, [server, recoveryTick]);
   const recoveryText = `${String(Math.floor(nextRecovery / 60)).padStart(2, '0')}:${String(nextRecovery % 60).padStart(2, '0')}`;
@@ -161,17 +176,69 @@ export default function WarOps({ rows, server, updated, status, onOpenClan }) {
     setDiscordAlerts(enabled);
     write(SETTINGS_KEY, { ...read(SETTINGS_KEY, {}), discordAlerts: enabled });
   };
-  const statusLabel = (state) => state === 'bleeding' ? '🔴 BLEEDING' : state === 'healthy' ? '🟢 HEALTHY' : '⚪ UNKNOWN';
-  const statusClass = (state) => state === 'bleeding' ? 'bleeding' : state === 'healthy' ? 'healthy' : 'unknown';
-  const open = (clan) => { setFocusClan(clan); onOpenClan?.(rows.find((row) => row.clan === clan)); };
+  const statusLabel = (state) => state === 'bleeding' ? '🔴 BLEEDING' : state === 'potential-bleeding' ? '🟡 POTENTIAL BLEED' : state === 'healthy' ? '🟢 HEALTHY' : '⚪ UNKNOWN';
+  const statusClass = (state) => state === 'bleeding' ? 'bleeding' : state === 'potential-bleeding' ? 'potential' : state === 'healthy' ? 'healthy' : 'unknown';
+  const open = (clan) => { setFocusClan(clan); setTargetClan(clan); onOpenClan?.(rows.find((row) => row.clan === clan)); };
+  const eventTypes = eventFilter === 'all' ? events : events.filter((event) => event.type === eventFilter);
 
   return <section className="war-ops">
-    <div className="war-ops-bar">{[['all','ALL'],['watch',`★ WATCHLIST ${watchlist.length ? `· ${watchlist.length}` : ''}`],['war','⚔ CLAN WAR'],['bleed',`🔴 BLEEDING ${bleeding.length ? `· ${bleeding.length}` : ''}`]].map(([key,label]) => <button key={key} className={`war-ops-tab ${key === 'bleed' ? 'bleed' : ''} ${view === key ? 'active' : ''}`} onClick={() => setView(key)}>{label}</button>)}<span className="war-ops-health">● {statusHealth === 'ok' ? 'STAMINA SOURCE OK' : statusHealth === 'slow' ? 'SOURCE SLOW' : statusHealth === 'error' ? 'STAMINA SOURCE ERROR' : 'CHECKING STAMINA'}</span></div>
-    <div className="war-ops-grid"><div className="war-ops-panel"><div className="war-ops-head"><h3>🔴 BLEEDING NOW</h3><small>{bleeding.length} CLANS</small></div><div className="war-status-list">{bleeding.slice(0,8).map((item)=><button key={item.clan} className="war-status-item" onClick={()=>open(item.clan)}><span><span className="war-status-name">{item.clan}</span><span className="war-status-meta">{item.status.bleedingMembers||0}/{item.status.memberCount||item.memberCurrent||0} members at/below individual 70% threshold</span></span><span className="war-badge bleeding">BLEEDING</span></button>)}{!bleeding.length&&<div className="empty">{statusHealth==='ok'?'No confirmed Bleeding clans.':'Waiting for stamina data.'}</div>}</div><div className="war-data"><span className={statusHealth==='ok'?'ok':'warn'}>● Source: {statusHealth}</span><span>{statusUpdated?`Stamina update ${time(statusUpdated)}`:'No status update yet'}</span></div></div><div className="war-ops-panel"><div className="war-ops-head"><h3>⚡ LIVE EVENT FEED</h3><small>LAST 30 EVENTS</small></div><div className="war-ops-list">{events.slice(0,10).map((event,index)=><div className="war-event" key={`${event.clan}-${event.at}-${index}`}><span className="war-event-time">{time(event.at)}</span><span className="war-event-name">{event.clan}</span><span className={`war-event-value ${event.type==='gain'?'up':event.type==='loss'?'down':event.type==='bleed'?'bleed':event.type==='rank'?'rank':'ready'}`}>{event.type==='gain'?`+${fmt(event.value)} REP`:event.type==='loss'?`−${fmt(Math.abs(event.value))} REP`:event.type==='bleed'?'🔴 BLEED':event.type==='recovery'?'🟢 CLEARED':event.type==='rank'?event.value:'EVENT'}</span></div>)}{!events.length&&<div className="empty">Waiting for the first live event…</div>}</div></div></div>
-    <div className="war-ops-grid"><div className="war-ops-panel"><div className="war-ops-head"><h3>⚔ WAR CALCULATOR</h3><small>VICTORY ONLY</small></div><div className="war-calculator"><div className="war-calc-grid"><div className="war-calc-field"><label>YOUR CLAN REP</label><input inputMode="numeric" value={ownRep} onChange={(e)=>setOwnRep(e.target.value.replace(/[^0-9]/g,''))} placeholder="267419"/></div><div className="war-calc-field"><label>TARGET CLAN</label><select value={targetClan} onChange={(e)=>setTargetClan(e.target.value)}><option value="">Select target…</option>{rows.map((row)=><option key={row.clan} value={row.clan}>{row.clan} · {fmt(row.reputation)}</option>)}</select></div></div><div className="war-calc-field"><label>PARTY MEMBERS</label><div className="war-party">{[0,1,2].map((size)=><button key={size} className={partySize===size?'active':''} onClick={()=>setPartySize(size)}>{size===0?'SOLO':`+${size} PARTY`}</button>)}</div></div><div className="war-result"><div className="war-result-item"><small>REP DIFFERENCE</small><b>{result?`${result.difference>=0?'+':'−'}${fmt(Math.abs(result.difference))}`:'—'}</b></div><div className="war-result-item"><small>RESULT</small><b>{result?(result.won?'✅ WIN':'❌ LOSS'):targetState==='unknown'&&targetClan?'⚪ UNKNOWN':'—'}</b></div><div className="war-result-item"><small>REWARD</small><b>{result?`${result.reputation} REP`:targetState==='unknown'&&targetClan?'UNKNOWN':'—'}</b></div><div className="war-result-item"><small>DRAIN</small><b>{drainTargets} × 10 STA</b></div></div>{targetState==='unknown'&&targetClan&&<div className="member-reason">The source does not expose enough Stamina data to verify Bleeding, so the calculator will not invent a win/loss result.</div>}{result&&targetState!=='bleeding'&&<div className="member-reason">Target is not Bleeding. Quick Battle = loss and 0 Reputation.</div>}{result?.won&&<div className="member-reason">Target is Bleeding. Victory reward follows the current Reputation-difference tier.</div>}</div></div><div className="war-ops-panel"><div className="war-ops-head"><h3>⭐ WATCHLIST</h3><small>{watched.length} WATCHED</small></div><div className="war-status-list">{watched.slice(0,8).map((item)=><div className="war-status-item" key={item.clan}><button className="war-feed-click" onClick={()=>open(item.clan)}><span className="war-status-name">{item.clan}</span><span className="war-status-meta">{statusLabel(item.status.state)} · {item.status.state==='bleeding'?`${item.status.bleedingMembers}/${item.status.memberCount} below threshold`:item.status.reason||'Healthy'}</span></button><button className="war-badge unknown" onClick={()=>toggleWatch(item.clan)}>★ REMOVE</button></div>)}{!watched.length&&<div className="empty">Add clans to your Watchlist from the main ranking.</div>}</div></div></div>
-    <div className="war-ops-panel"><div className="war-ops-head"><h3>🩸 STAMINA BREAKDOWN</h3><small>{focus?focusClan:'SELECT A CLAN'}</small></div>{focus?.staminaAvailable?<div className="war-ops-list">{(focus.members||[]).slice().sort((a,b)=>Number(a.current)-Number(b.current)).map((member)=><div className="war-status-item" key={member.name}><span><span className="war-status-name">{member.name}</span><span className="war-status-meta">Max {fmt(member.max)} · 70% threshold {fmt(member.bleedingThreshold)} · 50% floor {fmt(member.drainFloor)}</span></span><strong className={`member-stamina ${member.bleeding?'bleed':'healthy'}`}>{fmt(member.current)} / {fmt(member.max)}</strong></div>)}</div>:<div className="member-reason">{focus?.reason||'Select a clan from Bleeding Now or Watchlist. If Stamina is not exposed by the source, the state remains UNKNOWN.'}</div>}</div>
-    <div className="war-ops-panel"><div className="war-ops-head"><h3>🛡 DATA HEALTH & RECOVERY</h3><small>{updated?`RANKING ${time(updated)}`:'WAITING'}</small></div><div className="war-data"><span className={status==='live'?'ok':'warn'}>● Ranking API: {status==='live'?'OK':status.toUpperCase()}</span><span className={statusHealth==='ok'?'ok':'warn'}>● Stamina API: {statusHealth.toUpperCase()}</span><label className="war-discord-toggle"><input type="checkbox" checked={discordAlerts} onChange={(e)=>toggleDiscord(e.target.checked)}/> Discord Bleed Lifecycle</label><span>● Watchlist: local</span></div><div className="war-recovery"><span>NEXT STAMINA RECOVERY · SERVER TIME (:00 / :30)</span><b>{recoveryText}</b></div></div>
+    <div className="war-ops-bar">
+      {[['all','ALL'],['watch',`★ WATCHLIST ${watchlist.length ? `· ${watchlist.length}` : ''}`],['war','⚔ CLAN WAR'],['bleed',`🔴 BLEEDING ${bleeding.length ? `· ${bleeding.length}` : ''}`],['potential',`🟡 POTENTIAL ${potential.length ? `· ${potential.length}` : ''}`]].map(([key,label]) => <button key={key} className={`war-ops-tab ${key === 'bleed' ? 'bleed' : key === 'potential' ? 'potential' : ''} ${view === key ? 'active' : ''}`} onClick={() => setView(key)}>{label}</button>)}
+      <span className="war-ops-health">● {statusHealth === 'ok' ? 'STAMINA SOURCE OK' : statusHealth === 'slow' ? 'SOURCE SLOW' : statusHealth === 'error' ? 'STAMINA SOURCE ERROR' : 'CHECKING STAMINA'}</span>
+    </div>
+
+    <div className="war-ops-grid">
+      <div className="war-ops-panel">
+        <div className="war-ops-head"><h3>🔴 BLEEDING NOW</h3><small>{bleeding.length} CONFIRMED</small></div>
+        <div className="war-status-list">
+          {bleeding.slice(0, 8).map((item) => <button key={item.clan} className="war-status-item" onClick={() => open(item.clan)}><span><span className="war-status-name">{item.clan}</span><span className="war-status-meta">{item.status.bleedingMembers}/{item.status.memberCount} members ≤ their 70% Max STA threshold</span></span><span className="war-badge bleeding">BLEEDING</span></button>)}
+          {!bleeding.length && <div className="empty">No confirmed Bleeding clans right now.</div>}
+        </div>
+      </div>
+
+      <div className="war-ops-panel">
+        <div className="war-ops-head"><h3>🟡 POTENTIAL BLEED</h3><small>PARTIAL STAMINA SOURCE</small></div>
+        <div className="war-status-list">
+          {potential.slice(0, 8).map((item) => <button key={item.clan} className="war-status-item" onClick={() => open(item.clan)}><span><span className="war-status-name">{item.clan}</span><span className="war-status-meta">{item.status.knownBleedingMembers || 0} known low-STA members · {item.status.knownStaminaMembers}/{item.status.memberCount} stamina verified</span></span><span className="war-badge potential">POTENTIAL</span></button>)}
+          {!potential.length && <div className="empty">No partial-stamina Bleeding signals detected.</div>}
+        </div>
+      </div>
+    </div>
+
+    <div className="war-ops-grid">
+      <div className="war-ops-panel">
+        <div className="war-ops-head"><div><h3>⚡ LIVE EVENT FEED</h3><small>REP · RANK · BLEED · RECOVERY</small></div><div className="war-event-filters">{[['all','ALL'],['gain','REP'],['rank','RANK'],['bleed','BLEED'],['recovery','RECOVERY']].map(([key,label])=><button key={key} className={eventFilter===key?'active':''} onClick={()=>setEventFilter(key)}>{label}</button>)}</div></div>
+        <div className="war-ops-list">
+          {eventTypes.slice(0, 12).map((event, index) => <div className="war-event" key={`${event.clan}-${event.at}-${index}`}><span className="war-event-time">{time(event.at)}</span><span className="war-event-name">{event.clan}</span><span className={`war-event-value ${event.type==='gain'?'up':event.type==='loss'?'down':event.type==='bleed'?'bleed':event.type==='rank'?'rank':'ready'}`}>{event.type==='gain'?`+${fmt(event.value)} REP`:event.type==='loss'?`−${fmt(Math.abs(event.value))} REP`:event.type==='bleed'?'🔴 BLEED':event.type==='recovery'?'🟢 CLEARED':event.type==='rank'?event.value:'STATUS'}</span></div>)}
+          {!eventTypes.length && <div className="empty">No matching events yet.</div>}
+        </div>
+      </div>
+
+      <div className="war-ops-panel">
+        <div className="war-ops-head"><h3>★ WATCHLIST</h3><small>{watched.length} WATCHED</small></div>
+        <div className="war-status-list">{watched.slice(0, 8).map((item)=><div className="war-status-item" key={item.clan}><button className="war-feed-click" onClick={()=>open(item.clan)}><span className="war-status-name">{item.clan}</span><span className="war-status-meta">{statusLabel(item.status.state)} · {item.status.state==='bleeding'?`${item.status.bleedingMembers}/${item.status.memberCount} low`:item.status.state==='potential-bleeding'?`${item.status.knownStaminaMembers}/${item.status.memberCount} verified`:'Status available'}</span></button><button className="war-badge unknown" onClick={()=>toggleWatch(item.clan)}>★ REMOVE</button></div>)}{!watched.length&&<div className="empty">Use ☆ Watch in the clan table to add a clan.</div>}</div>
+      </div>
+    </div>
+
+    <div className="war-ops-panel">
+      <div className="war-ops-head"><div><h3>⚔ ATTACK DECISION</h3><small>QUICK BATTLE</small></div>{target && <span className={`war-decision ${attackReady?'ready':targetState==='unknown'||targetState==='potential-bleeding'?'unknown':'blocked'}`}>{attackReady?'✅ ATTACK READY':targetState==='unknown'||targetState==='potential-bleeding'?'⚪ NEEDS STAMINA':'⛔ DO NOT ATTACK'}</span>}</div>
+      <div className="war-calculator">
+        <div className="war-calc-grid"><div className="war-calc-field"><label>YOUR CLAN REP</label><input inputMode="numeric" value={ownRep} onChange={(e)=>setOwnRep(e.target.value.replace(/[^0-9]/g,''))} placeholder="267419"/></div><div className="war-calc-field"><label>TARGET CLAN</label><select value={targetClan} onChange={(e)=>setTargetClan(e.target.value)}><option value="">Select target…</option>{rows.map((row)=><option key={row.clan} value={row.clan}>{row.clan} · {fmt(row.reputation)}</option>)}</select></div></div>
+        <div className="war-calc-field"><label>PARTY SIZE</label><div className="war-party">{[0,1,2].map((size)=><button key={size} className={partySize===size?'active':''} onClick={()=>setPartySize(size)}>{size===0?'SOLO':`+${size} PARTY`}</button>)}</div></div>
+        <div className="war-result"><div className="war-result-item"><small>REP DIFFERENCE</small><b>{result?`${result.difference>=0?'+':'−'}${fmt(Math.abs(result.difference))}`:'—'}</b></div><div className={`war-result-item ${attackReady?'win':targetState==='healthy'?'lose':''}`}><small>RESULT</small><b>{result?(result.won?'✅ WIN':'❌ LOSS'):targetState==='potential-bleeding'?'🟡 POTENTIAL':targetState==='unknown'&&targetClan?'⚪ UNKNOWN':'—'}</b></div><div className="war-result-item"><small>REWARD</small><b>{result?`${result.reputation} REP`:targetState==='healthy'&&targetClan?'0 REP':targetClan?'UNKNOWN':'—'}</b></div><div className="war-result-item"><small>DRAIN</small><b>{drainTargets} × 10 STA</b></div></div>
+        {targetState==='healthy'&&targetClan&&<div className="member-reason">⛔ Do not attack: target is not Bleeding. Quick Battle loses and awards 0 Reputation.</div>}
+        {targetState==='potential-bleeding'&&<div className="member-reason">🟡 Potential Bleeding is not enough to guarantee victory. Wait for full stamina verification.</div>}
+        {targetState==='unknown'&&targetClan&&<div className="member-reason">⚪ Stamina data is unavailable. The tracker will not invent an attack result.</div>}
+        {attackReady&&<div className="member-reason">✅ Attack ready: target confirmed Bleeding. Expected reward follows the Reputation-difference tier.</div>}
+      </div>
+    </div>
+
+    <div className="war-ops-panel"><div className="war-ops-head"><h3>🩸 STAMINA BREAKDOWN</h3><small>{focus?focusClan:'SELECT A CLAN'}</small></div>{focus?.staminaAvailable?<div className="war-ops-list">{(focus.members||[]).slice().sort((a,b)=>Number(a.current)-Number(b.current)).map((member)=><div className="war-status-item" key={member.name}><span><span className="war-status-name">{member.name}</span><span className="war-status-meta">Max {fmt(member.max)} · 70% threshold {fmt(member.bleedingThreshold)} · 50% floor {fmt(member.drainFloor)}</span></span><strong className={`member-stamina ${member.bleeding?'bleed':'healthy'}`}>{fmt(member.current)} / {fmt(member.max)}</strong></div>)}</div>:<div className="member-reason">{focus?.reason||'Select a clan. Full stamina data is required for confirmed Bleeding.'}</div>}</div>
+
+    <div className="war-ops-panel"><div className="war-ops-head"><div><h3>🛡 DATA HEALTH</h3><small>{statusUpdated?`Stamina ${time(statusUpdated)}`:'Waiting for stamina source'}</small></div><span className={`war-health-badge ${statusHealth}`}>{statusHealth.toUpperCase()}</span></div><div className="war-data"><span className={status==='live'?'ok':'warn'}>● Ranking: {status==='live'?'OK':status.toUpperCase()}</span><span className={statusHealth==='ok'?'ok':'warn'}>● Stamina: {statusHealth.toUpperCase()}</span><label className="war-discord-toggle"><input type="checkbox" checked={discordAlerts} onChange={(e)=>toggleDiscord(e.target.checked)}/> Discord Bleed Lifecycle</label><span>● Watchlist: local</span></div><div className="war-recovery"><span>NEXT STAMINA RECOVERY · SERVER TIME (:00 / :30)</span><b>{recoveryText}</b></div></div>
+
     <WarRulesPanel />
-    {view!=='all'&&<div className="mobile-clan-list">{visibleRows.slice(0,8).map((item)=><button key={item.clan} className="mobile-clan-card" onClick={()=>open(item.clan)}><div className="mobile-clan-top"><span><span className="mobile-clan-name">#{item.rank} {item.clan}</span><span className="mobile-clan-sub">{item.master||'Clan Master'}</span></span><span className={`war-badge ${statusClass(item.status.state)}`}>{statusLabel(item.status.state)}</span></div><div className="mobile-clan-stats"><span className="mobile-clan-stat"><small>MEMBERS</small><b>{item.memberCurrent}/{item.memberMax}</b></span><span className="mobile-clan-stat"><small>REPUTATION</small><b>{fmt(item.reputation)}</b></span><span className="mobile-clan-stat"><small>STATUS</small><b>{statusLabel(item.status.state)}</b></span></div></button>)}</div>}
+
+    {view!=='all'&&<div className="mobile-clan-list">{visibleRows.slice(0,10).map((item)=><button key={item.clan} className="mobile-clan-card" onClick={()=>open(item.clan)}><div className="mobile-clan-top"><span><span className="mobile-clan-name">#{item.rank} {item.clan}</span><span className="mobile-clan-sub">{item.master||'Clan Master'}</span></span><span className={`war-badge ${statusClass(item.status.state)}`}>{statusLabel(item.status.state)}</span></div><div className="mobile-clan-stats"><span className="mobile-clan-stat"><small>MEMBERS</small><b>{item.memberCurrent}/{item.memberMax}</b></span><span className="mobile-clan-stat"><small>REPUTATION</small><b>{fmt(item.reputation)}</b></span><span className="mobile-clan-stat"><small>STATUS</small><b>{statusLabel(item.status.state)}</b></span></div></button>)}</div>}
   </section>;
 }
