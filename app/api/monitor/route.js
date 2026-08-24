@@ -1,10 +1,10 @@
 import * as cheerio from 'cheerio';
-import { ensureSchema } from '../../../lib/db.js';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const SOURCE = 'https://ninjazenshin.online/clan-ranking';
+const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
+const MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members';
 
 function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
 function toNumber(value) { return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0; }
@@ -13,7 +13,7 @@ async function collectRanking() {
   const response = await fetch(SOURCE, {
     cache: 'no-store',
     headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.0',
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
       Accept: 'text/html,application/xhtml+xml'
     }
   });
@@ -32,8 +32,8 @@ async function collectRanking() {
       const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
       if (cells.length < 5) return;
 
-      const clanCell = $(tr).find('td').eq(1);
       const rank = toNumber(cells[0]);
+      const clanCell = $(tr).find('td').eq(1);
       const clan = clean(clanCell.text());
       const master = cells[2];
       const [memberCurrent, memberMax] = (cells[3] || '0/0').split('/').map(toNumber);
@@ -53,72 +53,59 @@ async function collectRanking() {
   return { season, rows, fetchedAt: new Date().toISOString(), source: SOURCE };
 }
 
-async function collectMembers(clanId) {
-  const target = `https://ninjazenshin.online/clan-ranking/members/${encodeURIComponent(clanId)}`;
-  const response = await fetch(target, {
+async function countMembers(clanId) {
+  if (!clanId) return 0;
+
+  const response = await fetch(`${MEMBER_API}/${encodeURIComponent(clanId)}`, {
     cache: 'no-store',
     headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.0',
-      Accept: 'application/json,text/plain,*/*'
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
+      Accept: 'application/json,text/plain,text/html,*/*'
     }
   });
-  if (!response.ok) throw new Error(`Member API returned ${response.status} for ${clanId}`);
+  if (!response.ok) return 0;
 
-  const payload = await response.json();
-  return Array.isArray(payload?.members) ? payload.members : [];
+  const text = await response.text();
+  try {
+    const payload = JSON.parse(text);
+    return Array.isArray(payload?.members) ? payload.members.length : Array.isArray(payload) ? payload.length : 0;
+  } catch {
+    const $ = cheerio.load(text);
+    return $('table tbody tr').length;
+  }
 }
 
-export async function GET(request) {
+export async function GET() {
   const startedAt = new Date();
-  const secret = process.env.CRON_SECRET;
-  const authorization = request.headers.get('authorization');
-
-  if (!secret || authorization !== `Bearer ${secret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
-  }
 
   try {
-    const db = await ensureSchema();
     const ranking = await collectRanking();
-    let memberCount = 0;
+    const withIds = ranking.rows.filter((clan) => clan.clanId);
+    const results = await Promise.allSettled(withIds.map((clan) => countMembers(clan.clanId)));
+    const membersSeen = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value : 0), 0);
+    const memberErrors = results.filter((result) => result.status === 'rejected').length;
 
-    await db`
-      INSERT INTO clan_snapshots (season, fetched_at, source, rows)
-      VALUES (${ranking.season}, ${ranking.fetchedAt}, ${ranking.source}, ${JSON.stringify(ranking.rows)})
-    `;
-
-    for (const clan of ranking.rows) {
-      if (!clan.clanId) continue;
-      try {
-        const members = await collectMembers(clan.clanId);
-        memberCount += members.length;
-        await db`
-          INSERT INTO member_snapshots (clan_id, clan_name, season, fetched_at, members)
-          VALUES (${clan.clanId}, ${clan.clan}, ${ranking.season}, ${ranking.fetchedAt}, ${JSON.stringify(members)})
-        `;
-      } catch (memberError) {
-        console.error(`Member collection failed for ${clan.clanId}:`, memberError);
-      }
-    }
-
-    const finishedAt = new Date();
-    await db`
-      INSERT INTO monitor_runs (started_at, finished_at, status, clans_seen, members_seen)
-      VALUES (${startedAt.toISOString()}, ${finishedAt.toISOString()}, 'success', ${ranking.rows.length}, ${memberCount})
-    `;
-
-    return Response.json({ ok: true, season: ranking.season, clansSeen: ranking.rows.length, membersSeen: memberCount, fetchedAt: ranking.fetchedAt });
+    return Response.json({
+      ok: true,
+      mode: 'live-no-database',
+      season: ranking.season,
+      clansSeen: ranking.rows.length,
+      clansWithMemberEndpoints: withIds.length,
+      membersSeen,
+      memberErrors,
+      fetchedAt: ranking.fetchedAt,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      source: ranking.source
+    }, {
+      headers: { 'Cache-Control': 'no-store, max-age=0' }
+    });
   } catch (error) {
-    try {
-      const db = await ensureSchema();
-      await db`
-        INSERT INTO monitor_runs (started_at, finished_at, status, clans_seen, members_seen, error)
-        VALUES (${startedAt.toISOString()}, ${new Date().toISOString()}, 'error', 0, 0, ${error instanceof Error ? error.message : String(error)})
-      `;
-    } catch (logError) {
-      console.error('Unable to record monitor failure:', logError);
-    }
-
-    return Response.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return Response.json({
+      ok: false,
+      mode: 'live-no-database',
+      error: error instanceof Error ? error.message : String(error),
+      finishedAt: new Date().toISOString()
+    }, { status: 502 });
   }
 }
