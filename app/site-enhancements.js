@@ -7,20 +7,17 @@ const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || '[]') 
 const write = (v) => { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch {} };
 const text = (v) => String(v || '').replace(/\s+/g, ' ').trim();
 const num = (v) => Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0;
-const previousGain = new WeakMap();
+const previousGain = new Map();
 
 function installGainStyle() {
   if (document.querySelector('[data-gain-pop-style]')) return;
   const style = document.createElement('style');
   style.dataset.gainPopStyle = 'true';
   style.textContent = `
-    @keyframes nzGainPop {
-      0% { transform: scale(1); opacity: .82; text-shadow: none; }
-      35% { transform: scale(1.16); opacity: 1; text-shadow: 0 0 12px rgba(93,229,173,.48); }
-      70% { transform: scale(1.05); opacity: 1; }
-      100% { transform: scale(1); opacity: 1; text-shadow: none; }
-    }
-    .gain.gain-pop, .total-gain.gain-pop { animation: nzGainPop .48s cubic-bezier(.2,.8,.2,1); transform-origin: left center; }
+    .gain.gain-pop, .total-gain.gain-pop { animation: nzGainPop .5s cubic-bezier(.2,.8,.2,1); transform-origin:left center; }
+    .nz-gain-float { position:absolute; left:0; top:-4px; z-index:50; pointer-events:none; color:#5de5ad; font:700 .72rem 'Space Mono',monospace; letter-spacing:-.02em; text-shadow:0 0 11px rgba(93,229,173,.48); white-space:nowrap; animation:nzGainFloat .82s cubic-bezier(.2,.75,.25,1) forwards; }
+    @keyframes nzGainPop { 0%{transform:scale(1);opacity:.86} 35%{transform:scale(1.18);opacity:1;text-shadow:0 0 12px rgba(93,229,173,.5)} 70%{transform:scale(1.06);opacity:1} 100%{transform:scale(1);opacity:1;text-shadow:none} }
+    @keyframes nzGainFloat { 0%{transform:translateY(4px) scale(.9);opacity:0} 18%{transform:translateY(0) scale(1);opacity:1} 100%{transform:translateY(-24px) scale(1.03);opacity:0} }
   `;
   document.head.appendChild(style);
 }
@@ -50,16 +47,37 @@ function cleanLabels() {
   });
 }
 
+function gainKey(node) {
+  const row = node.closest('.table-row, .member-row, .podium');
+  if (!row) return `${node.className}:${node.textContent}`;
+  const member = text(row.querySelector('.member-row b')?.textContent);
+  const clan = text(row.querySelector('.clan-cell b, .clan-name b')?.textContent);
+  return `${member || clan || text(row.textContent).slice(0,80)}:${node.classList.contains('total-gain') ? 'total' : 'gain'}`;
+}
+
 function animateGains() {
   document.querySelectorAll('.gain, .total-gain').forEach((node) => {
     const value = num(node.textContent);
-    const old = previousGain.get(node);
-    previousGain.set(node, value);
+    const key = gainKey(node);
+    const old = previousGain.get(key);
+    previousGain.set(key, value);
     if (old === undefined || value <= old) return;
+
     node.classList.remove('gain-pop');
     void node.offsetWidth;
     node.classList.add('gain-pop');
-    window.setTimeout(() => node.classList.remove('gain-pop'), 520);
+    window.setTimeout(() => node.classList.remove('gain-pop'), 540);
+
+    const host = node.parentElement;
+    if (!host) return;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+
+    host.querySelectorAll('.nz-gain-float').forEach((el) => el.remove());
+    const pop = document.createElement('span');
+    pop.className = 'nz-gain-float';
+    pop.textContent = `+${(value - old).toLocaleString('en-US')}`;
+    host.appendChild(pop);
+    window.setTimeout(() => pop.remove(), 850);
   });
 }
 
@@ -116,6 +134,7 @@ function enhance() {
     panel.innerHTML = '<div class="section-head"><div><div class="eyebrow">CLAN WAR MONITOR</div><h2>Clan War</h2><p>Recent pressure from the live ranking feed.</p></div></div><div class="enh-war-grid"></div>';
     table.closest('.section')?.before(panel);
   }
+
   buildWar(rows);
   animateGains();
 }
@@ -142,7 +161,7 @@ export default function SiteEnhancements(){
   useEffect(()=>{
     let frame=0; const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(enhance);};
     const observer=new MutationObserver(schedule); observer.observe(document.body,{childList:true,subtree:true,characterData:true});
-    const timer=setInterval(schedule,1500); schedule();
+    const timer=setInterval(schedule,1200); schedule();
     return()=>{observer.disconnect();clearInterval(timer);cancelAnimationFrame(frame);};
   },[]);
   return null;
