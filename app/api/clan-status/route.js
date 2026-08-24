@@ -10,16 +10,12 @@ const CACHE_TTL = 20_000;
 
 const cache = new Map();
 
-function clean(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
-}
-
+function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
 function toNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(String(value).replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) ? n : null;
 }
-
 function pickNumber(object, keys) {
   for (const key of keys) {
     const value = toNumber(object?.[key]);
@@ -27,34 +23,30 @@ function pickNumber(object, keys) {
   }
   return null;
 }
-
 function extractStamina(member) {
   const nested = member?.stats || member?.attributes || member?.status || {};
-  const current = pickNumber(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
-    ?? pickNumber(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
-  const max = pickNumber(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
-    ?? pickNumber(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
+  const current = pickNumber(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']) ?? pickNumber(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
+  const max = pickNumber(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']) ?? pickNumber(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
   return { current, max };
 }
-
+function extractCountdown($) {
+  const root = $('.clr-cd').first();
+  if (!root.length) return null;
+  const days = toNumber(root.find('[data-d]').first().text());
+  const hours = toNumber(root.find('[data-h]').first().text());
+  const minutes = toNumber(root.find('[data-m]').first().text());
+  const seconds = toNumber(root.find('[data-s]').first().text());
+  if (![days, hours, minutes, seconds].every((value) => Number.isFinite(value))) return null;
+  return { days, hours, minutes, seconds, remainingSeconds: days * 86400 + hours * 3600 + minutes * 60 + seconds };
+}
 async function fetchJson(url) {
-  const response = await fetch(url, {
-    cache: 'no-store',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0',
-      Accept: 'application/json,text/plain,*/*'
-    }
-  });
+  const response = await fetch(url, { cache: 'no-store', headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0', Accept: 'application/json,text/plain,*/*' } });
   const text = await response.text();
   if (!response.ok) throw new Error(`Source returned ${response.status}`);
   try { return JSON.parse(text); } catch { throw new Error('Source did not return JSON'); }
 }
-
 async function loadSourceRows() {
-  const response = await fetch(RANKING_URL, {
-    cache: 'no-store',
-    headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0', Accept: 'text/html,application/xhtml+xml' }
-  });
+  const response = await fetch(RANKING_URL, { cache: 'no-store', headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0', Accept: 'text/html,application/xhtml+xml' } });
   if (!response.ok) throw new Error(`Ranking source returned ${response.status}`);
   const html = await response.text();
   const $ = cheerio.load(html);
@@ -69,49 +61,38 @@ async function loadSourceRows() {
       if (clan && clanId) map.set(clan, clanId);
     });
   });
-  return map;
+  return { map, countdown: extractCountdown($) };
 }
 
 export async function GET(request) {
   const url = new URL(request.url);
   const clans = [...new Set((url.searchParams.get('clans') || '').split(',').map(clean).filter(Boolean))].slice(0, 25);
   if (!clans.length) return Response.json({ error: 'Provide at least one clan name.' }, { status: 400 });
-
   const key = clans.join('|');
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL) return Response.json(cached.data);
 
   try {
-    const ids = await loadSourceRows();
+    const source = await loadSourceRows();
     const results = await Promise.all(clans.map(async (clan) => {
-      const clanId = ids.get(clan);
+      const clanId = source.map.get(clan);
       if (!clanId) return [clan, { clan, state: 'unknown', reason: 'Clan ID unavailable' }];
-
       try {
-        const payload = await fetchJson(`${MEMBER_URL}/${encodeURIComponent(clanId)}`);
+        const payload = await fetchJson(`${MEMBER_API}/${encodeURIComponent(clanId)}`);
         const members = Array.isArray(payload?.members) ? payload.members : [];
         const stamina = members.map((member) => ({ name: clean(member?.name), ...extractStamina(member) }));
         const known = stamina.filter((member) => member.current !== null && member.max !== null).length;
-        if (!members.length || known !== members.length) {
-          return [clan, { clan, clanId, state: 'unknown', reason: 'Stamina not exposed by source', memberCount: members.length }];
-        }
-
-        const evaluated = stamina.map((member) => {
-          const drainFloor = getDrainFloor(member.max);
-          const bleedingThreshold = getBleedingThreshold(member.max);
-          return {
-            ...member,
-            drainFloor,
-            bleedingThreshold,
-            bleeding: isMemberBleeding(member.current, member.max)
-          };
-        });
-
+        if (!members.length || known !== members.length) return [clan, { clan, clanId, state: 'unknown', reason: 'Stamina not exposed by source', memberCount: members.length }];
+        const evaluated = stamina.map((member) => ({
+          ...member,
+          drainFloor: getDrainFloor(member.max),
+          bleedingThreshold: getBleedingThreshold(member.max),
+          bleeding: isMemberBleeding(member.current, member.max)
+        }));
         const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
         const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
         const bleeding = bleedingMembers >= memberThreshold;
         const fullyRecovered = evaluated.every((member) => member.current >= member.max);
-
         return [clan, {
           clan,
           clanId,
@@ -134,7 +115,13 @@ export async function GET(request) {
       }
     }));
 
-    const data = { fetchedAt: new Date().toISOString(), source: RANKING_URL, statuses: Object.fromEntries(results) };
+    const data = {
+      fetchedAt: new Date().toISOString(),
+      source: RANKING_URL,
+      countdown: source.countdown,
+      remainingSeconds: source.countdown?.remainingSeconds ?? null,
+      statuses: Object.fromEntries(results)
+    };
     cache.set(key, { at: Date.now(), data });
     return Response.json(data);
   } catch (error) {
