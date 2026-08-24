@@ -81,14 +81,45 @@ export async function GET(request) {
         const payload = await fetchJson(`${MEMBER_API}/${encodeURIComponent(clanId)}`);
         const members = Array.isArray(payload?.members) ? payload.members : [];
         const stamina = members.map((member) => ({ name: clean(member?.name), ...extractStamina(member) }));
-        const known = stamina.filter((member) => member.current !== null && member.max !== null).length;
-        if (!members.length || known !== members.length) return [clan, { clan, clanId, state: 'unknown', reason: 'Stamina not exposed by source', memberCount: members.length }];
-        const evaluated = stamina.map((member) => ({ ...member, drainFloor: getDrainFloor(member.max), bleedingThreshold: getBleedingThreshold(member.max), bleeding: isMemberBleeding(member.current, member.max) }));
-        const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
-        const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
-        const bleeding = bleedingMembers >= memberThreshold;
-        const fullyRecovered = evaluated.every((member) => member.current >= member.max);
-        return [clan, { clan, clanId, state: bleeding ? 'bleeding' : 'healthy', memberCount: evaluated.length, bleedingMembers, memberThreshold, fullyRecovered, staminaAvailable: true, rules: { bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio, thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio, drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio, drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember }, members: evaluated }];
+        const knownMembers = stamina.filter((member) => member.current !== null && member.max !== null);
+        if (!members.length) return [clan, { clan, state: 'unknown', reason: 'No member data returned by source', memberCount: 0, staminaAvailable: false }];
+
+        const evaluatedKnown = knownMembers.map((member) => ({
+          ...member,
+          drainFloor: getDrainFloor(member.max),
+          bleedingThreshold: getBleedingThreshold(member.max),
+          bleeding: isMemberBleeding(member.current, member.max)
+        }));
+        const bleedingMembers = evaluatedKnown.filter((member) => member.bleeding).length;
+        const memberThreshold = Math.ceil(members.length * CLAN_WAR_RULES.bleedingMemberRatio);
+        const knownRatio = knownMembers.length / members.length;
+
+        if (knownMembers.length === members.length) {
+          const bleeding = bleedingMembers >= memberThreshold;
+          const fullyRecovered = evaluatedKnown.every((member) => member.current >= member.max);
+          return [clan, {
+            clan, clanId, state: bleeding ? 'bleeding' : 'healthy', memberCount: members.length,
+            bleedingMembers, memberThreshold, fullyRecovered, staminaAvailable: true,
+            knownStaminaMembers: knownMembers.length, knownStaminaRatio: 1,
+            rules: { bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio, thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio, drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio, drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember },
+            members: evaluatedKnown
+          }];
+        }
+
+        if (knownMembers.length > 0 && bleedingMembers > 0) {
+          return [clan, {
+            clan, clanId, state: 'potential-bleeding', reason: `Partial stamina data: ${knownMembers.length}/${members.length} members verified`,
+            memberCount: members.length, knownStaminaMembers: knownMembers.length, knownStaminaRatio: knownRatio,
+            knownBleedingMembers: bleedingMembers, memberThreshold, staminaAvailable: false, members: evaluatedKnown,
+            rules: { bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio, thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio, drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio }
+          }];
+        }
+
+        return [clan, {
+          clan, clanId, state: 'unknown', reason: `Stamina unavailable for ${members.length - knownMembers.length}/${members.length} members`,
+          memberCount: members.length, knownStaminaMembers: knownMembers.length, knownStaminaRatio: knownRatio,
+          staminaAvailable: false, members: evaluatedKnown
+        }];
       } catch (error) {
         return [clan, { clan, clanId, state: 'unknown', reason: error instanceof Error ? error.message : 'Member status unavailable' }];
       }
