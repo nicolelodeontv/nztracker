@@ -1,76 +1,46 @@
-import * as cheerio from 'cheerio';
-import { getBleedingThreshold, getDrainFloor, isMemberBleeding, CLAN_WAR_RULES } from '../../clan-war-rules';
+import { getBleedingThreshold, getDrainFloor, getMaxStamina, getCurrentStamina, isBleeding } from '../../lib/stamina.mjs';
+import { CLAN_WAR_RULES } from '../../lib/game-rules.mjs';
+import { parseRankingHtml } from '../../lib/source-parser.mjs';
 
 export const revalidate = 0;
 
-const SITE_ORIGIN = 'https://ninjazenshin.online';
-const RANKING_URL = `${SITE_ORIGIN}/clan-ranking`;
-const MEMBER_API = `${SITE_ORIGIN}/clan-ranking/members`;
+const RANKING_URL = 'https://ninjazenshin.online/?panel=clan-ranking';
+const MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members';
 const CACHE_TTL = 20_000;
-const DEFAULT_MAX_STAMINA = 200;
-
 const cache = new Map();
 
-function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
-function toNumber(value) {
-  if (value === null || value === undefined || value === '') return null;
-  const n = Number(String(value).replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) ? n : null;
-}
-function pickNumber(object, keys) {
-  for (const key of keys) {
-    const value = toNumber(object?.[key]);
-    if (value !== null) return value;
-  }
-  return null;
-}
-function extractStamina(member) {
-  const nested = member?.stats || member?.attributes || member?.status || {};
-  const currentValue = pickNumber(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']) ?? pickNumber(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
-  const maxValue = pickNumber(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']) ?? pickNumber(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
-  const max = maxValue ?? DEFAULT_MAX_STAMINA;
-  const current = currentValue ?? max;
-  return { current: Math.max(0, Math.min(current, max)), max };
-}
-function extractCountdown($) {
-  const root = $('.clr-cd').first();
-  if (!root.length) return null;
-  const days = toNumber(root.find('[data-d]').first().text());
-  const hours = toNumber(root.find('[data-h]').first().text());
-  const minutes = toNumber(root.find('[data-m]').first().text());
-  const seconds = toNumber(root.find('[data-s]').first().text());
-  if (![days, hours, minutes, seconds].every((value) => Number.isFinite(value))) return null;
-  return { days, hours, minutes, seconds, remainingSeconds: days * 86400 + hours * 3600 + minutes * 60 + seconds };
-}
+const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
 async function fetchJson(url) {
-  const response = await fetch(url, { cache: 'no-store', headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0', Accept: 'application/json,text/plain,*/*' } });
+  const response = await fetch(url, {
+    cache: 'no-store',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.3',
+      Accept: 'application/json,text/plain,*/*'
+    }
+  });
   const text = await response.text();
-  if (!response.ok) throw new Error(`Source returned ${response.status}`);
+  if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   try { return JSON.parse(text); } catch { throw new Error('Source did not return JSON'); }
 }
+
 async function loadSourceRows() {
-  const response = await fetch(RANKING_URL, { cache: 'no-store', headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/1.0', Accept: 'text/html,application/xhtml+xml' } });
-  if (!response.ok) throw new Error(`Ranking source returned ${response.status}`);
-  const html = await response.text();
-  const $ = cheerio.load(html);
-  const map = new Map();
-  $('table').each((_, table) => {
-    const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
-    if (!headers.includes('clan') || !headers.includes('members') || !headers.includes('reputation')) return;
-    $(table).find('tbody tr').each((__, tr) => {
-      const clanCell = $(tr).find('td').eq(1);
-      const clan = clean(clanCell.text());
-      const clanId = clean(clanCell.find('[data-clan]').attr('data-clan') || '');
-      if (clan && clanId) map.set(clan, clanId);
-    });
+  const response = await fetch(RANKING_URL, {
+    cache: 'no-store',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.3',
+      Accept: 'text/html,application/xhtml+xml'
+    }
   });
-  return { map, countdown: extractCountdown($) };
+  if (!response.ok) throw new Error(`Ranking source returned HTTP ${response.status}`);
+  return parseRankingHtml(await response.text());
 }
 
 export async function GET(request) {
   const url = new URL(request.url);
   const clans = [...new Set((url.searchParams.get('clans') || '').split(',').map(clean).filter(Boolean))].slice(0, 25);
   if (!clans.length) return Response.json({ error: 'Provide at least one clan name.' }, { status: 400 });
+
   const key = clans.join('|');
   const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CACHE_TTL) return Response.json(cached.data);
@@ -78,45 +48,73 @@ export async function GET(request) {
   try {
     const source = await loadSourceRows();
     const results = await Promise.all(clans.map(async (clan) => {
-      const clanId = source.map.get(clan);
+      const sourceRow = source.rows.find((row) => row.clan === clan);
+      const clanId = sourceRow?.clanId;
       if (!clanId) return [clan, { clan, state: 'unknown', reason: 'Clan ID unavailable' }];
+
       try {
         const payload = await fetchJson(`${MEMBER_API}/${encodeURIComponent(clanId)}`);
         const members = Array.isArray(payload?.members) ? payload.members : [];
-        const stamina = members.map((member) => ({ name: clean(member?.name), ...extractStamina(member) }));
         if (!members.length) return [clan, { clan, state: 'unknown', reason: 'No member data returned by source', memberCount: 0, staminaAvailable: false }];
 
-        const evaluatedKnown = stamina.map((member) => ({
-          ...member,
-          drainFloor: getDrainFloor(member.max),
-          bleedingThreshold: getBleedingThreshold(member.max),
-          bleeding: isMemberBleeding(member.current, member.max)
-        }));
-        const bleedingMembers = evaluatedKnown.filter((member) => member.bleeding).length;
-        const memberThreshold = Math.ceil(members.length * CLAN_WAR_RULES.bleedingMemberRatio);
-        const knownStaminaMembers = stamina.length;
-        const knownRatio = 1;
+        const evaluated = members.map((member) => {
+          const max = getMaxStamina(member);
+          const current = getCurrentStamina({ ...member, maxStamina: max });
+          return {
+            name: clean(member?.name),
+            current,
+            max,
+            drainFloor: getDrainFloor(max),
+            bleedingThreshold: getBleedingThreshold(max),
+            bleeding: isBleeding({ ...member, stamina: current, maxStamina: max })
+          };
+        }).filter((member) => member.name);
 
-        const bleeding = bleedingMembers >= memberThreshold;
-        const fullyRecovered = evaluatedKnown.every((member) => member.current >= member.max);
+        const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
+        const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
+        const bleeding = evaluated.length > 0 && bleedingMembers >= memberThreshold;
+        const fullyRecovered = evaluated.length > 0 && evaluated.every((member) => member.current >= member.max);
+        const knownStaminaMembers = evaluated.filter((member) => Number.isFinite(Number(members.find((sourceMember) => clean(sourceMember?.name) === member.name)?.stamina))).length;
+
         return [clan, {
-          clan, clanId, state: bleeding ? 'bleeding' : 'healthy', memberCount: members.length,
-          bleedingMembers, memberThreshold, fullyRecovered, staminaAvailable: true,
-          knownStaminaMembers, knownStaminaRatio: knownRatio,
-          maxStamina: DEFAULT_MAX_STAMINA,
-          staminaSource: 'live-or-default-200',
-          rules: { bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio, thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio, drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio, drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember },
-          members: evaluatedKnown
+          clan,
+          clanId,
+          state: bleeding ? 'bleeding' : 'healthy',
+          memberCount: evaluated.length,
+          bleedingMembers,
+          memberThreshold,
+          fullyRecovered,
+          staminaAvailable: evaluated.length > 0,
+          knownStaminaMembers,
+          knownStaminaRatio: evaluated.length ? knownStaminaMembers / evaluated.length : 0,
+          maxStamina: CLAN_WAR_RULES.maxStamina,
+          staminaSource: knownStaminaMembers > 0 ? 'live-or-default-200' : 'default-200',
+          rules: {
+            bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio,
+            thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio,
+            drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio,
+            drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember
+          },
+          members: evaluated
         }];
       } catch (error) {
         return [clan, { clan, clanId, state: 'unknown', reason: error instanceof Error ? error.message : 'Member status unavailable' }];
       }
     }));
 
-    const data = { fetchedAt: new Date().toISOString(), source: RANKING_URL, countdown: source.countdown, remainingSeconds: source.countdown?.remainingSeconds ?? null, statuses: Object.fromEntries(results) };
+    const data = {
+      fetchedAt: new Date().toISOString(),
+      source: RANKING_URL,
+      countdown: source.countdown,
+      remainingSeconds: source.countdown?.remainingSeconds ?? null,
+      statuses: Object.fromEntries(results)
+    };
     cache.set(key, { at: Date.now(), data });
-    return Response.json(data);
+    return Response.json(data, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
-    return Response.json({ error: 'Unable to determine clan stamina status.', details: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return Response.json({
+      error: 'Unable to determine clan stamina status.',
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 502 });
   }
 }
