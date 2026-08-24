@@ -32,7 +32,7 @@ export async function POST(request) {
   const urgent = mins !== null && mins <= 6;
 
   const payload = {
-    username: 'CW Tracker - Bot',
+    username: 'CHAOS Tracker - Bot',
     embeds: [{
       title: bleeding
         ? `${urgent ? '🔴' : '⚠️'} BLEED! ${clan}${mins !== null ? ` — ~${mins} min` : ''}`
@@ -52,7 +52,7 @@ export async function POST(request) {
         { name: 'Reputation Gain', value: `+${reputationGain.toLocaleString('en-US')}`, inline: true },
         { name: 'Time', value: timestamp, inline: false }
       ],
-      footer: { text: 'CW Tracker - Bot' }
+      footer: { text: 'CHAOS Tracker - Bot' }
     }]
   };
 
