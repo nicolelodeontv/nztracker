@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import './war-stamina-monitor.css';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
 
