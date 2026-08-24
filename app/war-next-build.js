@@ -1,26 +1,37 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getVictoryResult } from './clan-war-rules';
+import { getVictoryResult, CLAN_WAR_RULES } from './clan-war-rules';
 import './war-next-build.css';
 
 const HISTORY_KEY = 'nztracker:war-history:v1';
-const SETTINGS_KEY = 'nztracker:settings:v6';
+const ATTACK_STAMINA_KEY = 'nztracker:attack-stamina:v1';
+const DEFAULT_MAX_STAMINA = 200;
+const ATTACK_STAMINA_COST = CLAN_WAR_RULES.attackerLeaderCost;
+const DEFAULT_ATTACK_STAMINA = 190;
 const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || '') ?? fallback; } catch { return fallback; } };
 const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+const clampStamina = (value) => Math.max(0, Math.min(DEFAULT_MAX_STAMINA, Number(value) || 0));
 const slug = (name) => encodeURIComponent(String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
 
 export default function WarNextBuild({ rows, server }) {
   const [statuses, setStatuses] = useState({});
   const [ownRep, setOwnRep] = useState('');
   const [party, setParty] = useState(0);
+  const [attackStamina, setAttackStamina] = useState(DEFAULT_ATTACK_STAMINA);
   const [discordHealth, setDiscordHealth] = useState('checking');
   const [discordMessage, setDiscordMessage] = useState('');
   const [history, setHistory] = useState([]);
   const [selected, setSelected] = useState('');
 
-  useEffect(() => setHistory(read(HISTORY_KEY, []).slice(0, 30)), []);
+  useEffect(() => {
+    setHistory(read(HISTORY_KEY, []).slice(0, 30));
+    const stored = Number(read(ATTACK_STAMINA_KEY, DEFAULT_ATTACK_STAMINA));
+    setAttackStamina(clampStamina(Number.isFinite(stored) ? stored : DEFAULT_ATTACK_STAMINA));
+  }, []);
+
+  useEffect(() => write(ATTACK_STAMINA_KEY, attackStamina), [attackStamina]);
 
   useEffect(() => {
     if (!rows.length) return;
@@ -62,11 +73,24 @@ export default function WarNextBuild({ rows, server }) {
 
   const recordAttack = (success) => {
     if (!selectedRow) return;
-    const item = { at: Date.now(), clan: selectedRow.clan, result: success ? 'ready' : 'blocked', reward: selectedResult?.reputation ?? 0, difference: selectedResult?.difference ?? null, party };
+    const item = {
+      at: Date.now(),
+      clan: selectedRow.clan,
+      result: success ? 'ready' : 'blocked',
+      reward: selectedResult?.reputation ?? 0,
+      difference: selectedResult?.difference ?? null,
+      party,
+      staminaBefore: attackStamina,
+      staminaCost: success ? ATTACK_STAMINA_COST : 0,
+      staminaAfter: success ? clampStamina(attackStamina - ATTACK_STAMINA_COST) : attackStamina
+    };
+    if (success) setAttackStamina((value) => clampStamina(value - ATTACK_STAMINA_COST));
     const next = [item, ...history].slice(0, 30);
     setHistory(next);
     write(HISTORY_KEY, next);
   };
+
+  const resetAttackStamina = () => setAttackStamina(DEFAULT_MAX_STAMINA);
 
   const confidence = (row) => {
     const known = Number(row.status.knownStaminaMembers || 0);
@@ -77,12 +101,27 @@ export default function WarNextBuild({ rows, server }) {
   };
 
   const bestRow = best[0];
+  const attackPercent = Math.round((attackStamina / DEFAULT_MAX_STAMINA) * 100);
 
   return <section className="war-next-build">
     <div className="next-grid">
       <section className="next-panel recommendation">
         <div className="next-head"><div><small>WAR ASSISTANT</small><h2>⚔ Recommended Attack</h2></div><span>best confirmed target</span></div>
         <div className="next-controls"><label>Your Clan Reputation<input value={ownRep} onChange={(e) => setOwnRep(e.target.value.replace(/[^0-9]/g, ''))} placeholder="267419" /></label><div><small>PARTY</small><div className="next-party">{[0,1,2].map((n)=><button className={party===n?'active':''} key={n} onClick={()=>setParty(n)}>{n===0?'SOLO':`+${n}`}</button>)}</div></div></div>
+
+        <div className="attack-stamina-card">
+          <div>
+            <small>YOUR ATTACK STAMINA</small>
+            <strong>{attackStamina} / {DEFAULT_MAX_STAMINA}</strong>
+            <span>{attackPercent}% · {ATTACK_STAMINA_COST} stamina per attack</span>
+          </div>
+          <div className="attack-stamina-meter"><i style={{ width: `${attackPercent}%` }} /></div>
+          <div className="attack-stamina-actions">
+            <button onClick={resetAttackStamina}>Reset to 200</button>
+            <button onClick={() => setAttackStamina((value) => clampStamina(value - ATTACK_STAMINA_COST))} disabled={attackStamina < ATTACK_STAMINA_COST}>−{ATTACK_STAMINA_COST} Attack</button>
+          </div>
+        </div>
+
         {bestRow ? <div className="recommended-card"><div className="recommended-title"><span>#1</span><b>{bestRow.clan}</b><strong>{bestRow.reward == null ? 'ENTER REP' : `+${bestRow.reward} REP`}</strong></div><div className="recommended-meta"><span>🔴 BLEEDING</span><span>{confidence(bestRow).pct}% stamina verified</span><span>{bestRow.status.bleedingMembers || 0}/{bestRow.status.memberCount || 0} below threshold</span></div><div className="recommended-actions"><button onClick={()=>{setSelected(bestRow.clan);recordAttack(true);}}>Use Recommended Target</button><a href={`/clan/${slug(bestRow.clan)}`}>Open Clan</a></div></div> : <div className="next-empty">No confirmed Bleeding target available. The assistant will not recommend a target with partial or unknown stamina.</div>}
       </section>
 
@@ -101,7 +140,7 @@ export default function WarNextBuild({ rows, server }) {
 
       <section className="next-panel">
         <div className="next-head"><div><small>ATTACK HISTORY</small><h2>Recent Decisions</h2></div><span>stored locally</span></div>
-        <div className="history-list">{history.slice(0, 8).map((item, i)=><div className="history-row" key={`${item.at}-${i}`}><span>{new Date(item.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span><b>{item.clan}</b><em className={item.result}>{item.result==='ready'?`READY · +${fmt(item.reward)} REP`:'BLOCKED'}</em></div>)}{!history.length&&<div className="next-empty">No attack decisions recorded yet.</div>}</div>
+        <div className="history-list">{history.slice(0, 8).map((item, i)=><div className="history-row" key={`${item.at}-${i}`}><span>{new Date(item.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span><b>{item.clan}</b><em className={item.result}>{item.result==='ready'?`READY · +${fmt(item.reward)} REP · ${item.staminaAfter}/${DEFAULT_MAX_STAMINA}`:'BLOCKED'}</em></div>)}{!history.length&&<div className="next-empty">No attack decisions recorded yet.</div>}</div>
       </section>
     </div>
   </section>;
