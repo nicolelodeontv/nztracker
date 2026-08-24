@@ -6,8 +6,7 @@ const items = [
   { href: '#members', label: 'Members', icon: '♟' },
   { href: '#war', label: 'Clan War', icon: '⚔' },
   { href: '#stamina', label: 'Stamina', icon: '◈' },
-  { href: '#rules', label: 'Quick Rules', icon: '◇' },
-  { href: '#settings', label: 'Settings', icon: '⚙' }
+  { href: '#rules', label: 'Quick Rules', icon: '◇' }
 ];
 
 const navStyle = { position: 'sticky', top: 8, zIndex: 1000, width: 'min(1500px, calc(100% - 28px))', minHeight: 58, margin: '8px auto 12px', padding: '7px 10px', display: 'flex', alignItems: 'center', gap: 12, border: '1px solid #26313d', borderRadius: 12, background: '#080f17', boxShadow: '0 12px 35px rgba(0,0,0,.28)', boxSizing: 'border-box' };
