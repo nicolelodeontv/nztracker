@@ -1,4 +1,4 @@
-import { AMFClient, ENCODING } from '@jadbalout/nodeamf';
+import { AMFMessage, Stream, ENCODING } from '@jadbalout/nodeamf';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -54,11 +54,38 @@ function normalizeMembers(rawMembers) {
 }
 
 async function fromAmf(clanId) {
-  const client = new AMFClient(AMF_ORIGIN, ENCODING.AMF0);
-  const packet = await client.sendRequest('ClanService.getMemberList', [clanId]);
-  const body = packet?.bodies?.[0]?.data;
+  const request = new AMFMessage(ENCODING.AMF0);
+  request.addBody({
+    target: 'ClanService.getMemberList',
+    response: '/1/onResult',
+    data: [clanId]
+  });
 
-  if (!body) throw new Error('Ninja Zenshin AMF response was empty.');
+  const stream = new Stream();
+  request.serialize(stream);
+
+  const response = await fetch(AMF_ORIGIN, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-amf',
+      'Accept': '*/*',
+      'Origin': 'https://ninjazenshin.online',
+      'Referer': 'https://ninjazenshin.online/'
+    },
+    cache: 'no-store',
+    body: stream.buffer
+  });
+
+  if (!response.ok) throw new Error(`Ninja Zenshin AMF returned HTTP ${response.status}.`);
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length) throw new Error('Ninja Zenshin AMF response was empty.');
+
+  const result = new AMFMessage(ENCODING.AMF0);
+  result.deserialize(new Stream(bytes));
+  const body = result.bodies?.[0]?.data;
+
+  if (!body || typeof body !== 'object') throw new Error('Ninja Zenshin AMF response could not be decoded.');
   if (body.status && String(body.status) !== '1') {
     throw new Error(`Ninja Zenshin member service returned status ${body.status}.`);
   }
