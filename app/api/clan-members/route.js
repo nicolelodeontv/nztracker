@@ -1,9 +1,9 @@
-import * as cheerio from 'cheerio';
+import { AMFClient, ENCODING } from '@jadbalout/nodeamf';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 20;
 
-const SITE_ORIGIN = 'https://ninjazenshin.online';
-const MEMBER_API = `${SITE_ORIGIN}/clan-ranking/members`;
+const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
 
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -24,104 +24,85 @@ function pick(object, keys) {
 }
 
 function normalizeMembers(rawMembers) {
-  return rawMembers.map((member) => {
-    const name = clean(member?.name ?? member?.username ?? member?.player ?? member?.character);
-    const reputation = toNumber(member?.rep ?? member?.reputation ?? member?.points) ?? 0;
-    const nested = member?.stats || member?.attributes || member?.status || {};
-    const stamina = pick(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
+  return (Array.isArray(rawMembers) ? rawMembers : []).map((member) => {
+    const source = member && typeof member === 'object' ? member : {};
+    const nested = source?.stats || source?.attributes || source?.status || {};
+    const name = clean(source.name ?? source.username ?? source.player ?? source.character);
+    const reputation = toNumber(source.reputation ?? source.rep ?? source.reputation_gain ?? source.points) ?? 0;
+    const stamina = pick(source, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
       ?? pick(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
-    const maxStamina = pick(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
+    const maxStamina = pick(source, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
       ?? pick(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
-    const bleedingThreshold = maxStamina === null ? null : maxStamina * 0.70;
 
     return {
+      id: clean(source.id),
       name,
-      level: toNumber(member?.level) ?? 0,
+      level: toNumber(source.level) ?? 0,
       reputation,
+      reputationGain: toNumber(source.reputation_gain) ?? null,
       gain: 0,
       totalGain: 0,
       stamina,
       maxStamina,
-      bleedingThreshold,
+      staminaKnown: stamina !== null,
+      maxStaminaKnown: maxStamina !== null,
+      bleedingThreshold: maxStamina === null ? null : maxStamina * 0.70,
       drainFloor: maxStamina === null ? null : maxStamina * 0.50,
-      bleeding: stamina !== null && bleedingThreshold !== null ? stamina <= bleedingThreshold : null
+      bleeding: stamina !== null && maxStamina !== null ? stamina <= maxStamina * 0.70 : null
     };
   }).filter((member) => member.name);
 }
 
-function parseMemberHtml(text, clanId) {
-  const $ = cheerio.load(text);
-  const candidates = [];
+async function fromAmf(clanId) {
+  const client = new AMFClient(AMF_ORIGIN, ENCODING.AMF0);
+  const packet = await client.sendRequest('ClanService.getMemberList', [clanId]);
+  const body = packet?.bodies?.[0]?.data;
 
-  $('table').each((_, table) => {
-    const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
-    if (!headers.some((h) => /member|name|player/.test(h))) return;
+  if (!body) throw new Error('Ninja Zenshin AMF response was empty.');
+  if (body.status && String(body.status) !== '1') {
+    throw new Error(`Ninja Zenshin member service returned status ${body.status}.`);
+  }
 
-    $(table).find('tbody tr').each((__, tr) => {
-      const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
-      if (cells.length) candidates.push({ name: cells[0], level: cells[1], reputation: cells[2] });
-    });
-  });
+  const rawMembers = Array.isArray(body.result)
+    ? body.result
+    : Array.isArray(body.members)
+      ? body.members
+      : [];
+
+  const members = normalizeMembers(rawMembers);
+  if (!members.length) throw new Error('Ninja Zenshin AMF member list contained no members.');
 
   return {
     clanId,
-    members: normalizeMembers(candidates),
-    count: candidates.length,
+    members,
+    count: members.length,
     fetchedAt: new Date().toISOString(),
-    source: `${MEMBER_API}/${encodeURIComponent(clanId)}`,
-    stored: false
+    source: AMF_ORIGIN,
+    service: 'ClanService.getMemberList',
+    stored: false,
+    staminaSource: members.some((member) => member.staminaKnown) ? 'game-amf' : 'unavailable'
   };
-}
-
-async function fromSource(clanId) {
-  const target = `${MEMBER_API}/${encodeURIComponent(clanId)}`;
-  const response = await fetch(target, {
-    cache: 'no-store',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
-      Accept: 'application/json,text/plain,text/html,*/*'
-    }
-  });
-
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Member source returned ${response.status}`);
-
-  try {
-    const payload = JSON.parse(text);
-    const raw = Array.isArray(payload?.members) ? payload.members : Array.isArray(payload) ? payload : [];
-    const members = normalizeMembers(raw);
-    return {
-      clanId,
-      members,
-      count: members.length,
-      fetchedAt: new Date().toISOString(),
-      source: target,
-      stored: false
-    };
-  } catch {
-    const parsed = parseMemberHtml(text, clanId);
-    if (!parsed.count) throw new Error('Member source did not return a supported JSON or table response.');
-    return parsed;
-  }
 }
 
 export async function GET(request) {
   const url = new URL(request.url);
   const clanId = clean(url.searchParams.get('clanId'));
 
-  if (!/^\d+$/.test(clanId)) {
+  if (!clanId || !/^[a-zA-Z0-9_-]+$/.test(clanId)) {
     return Response.json({ error: 'A valid Ninja Zenshin clanId is required.' }, { status: 400 });
   }
 
   try {
-    return Response.json(await fromSource(clanId), {
+    return Response.json(await fromAmf(clanId), {
       headers: { 'Cache-Control': 'no-store, max-age=0' }
     });
   } catch (error) {
     return Response.json({
-      error: 'Unable to fetch Ninja Zenshin clan members',
+      error: 'Unable to fetch Ninja Zenshin clan members from the game service',
       details: error instanceof Error ? error.message : String(error),
-      source: `${MEMBER_API}/${encodeURIComponent(clanId)}`
+      clanId,
+      source: AMF_ORIGIN,
+      service: 'ClanService.getMemberList'
     }, { status: 502 });
   }
 }
