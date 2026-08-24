@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import WarDashboard from '../war-dashboard';
 import WarNextBuild from '../war-next-build';
+import WarStaminaMonitor from '../war-stamina-monitor';
 import './page.css';
 
 const REFRESH_MS = 3000;
@@ -44,13 +45,14 @@ export default function ClanWarPage() {
         <div>
           <div className="eyebrow">⚔ CLAN WAR // LIVE</div>
           <h1>Battle Monitor</h1>
-          <p>Target selection, attack readiness, Bleeding verification, recovery timing and Discord alerts.</p>
+          <p>Target selection, stamina verification, attack readiness, recovery timing and Discord alerts.</p>
         </div>
         <div className={`war-page-live ${status === 'error' ? 'offline' : ''}`}>● {status === 'live' ? 'LIVE · SYNCING' : status === 'error' ? 'OFFLINE · RETRYING' : 'CONNECTING'}</div>
       </header>
 
       <WarNextBuild rows={rows} server={server} />
       <WarDashboard rows={rows} server={server} updated={updated} status={status} />
+      <WarStaminaMonitor rows={rows} />
     </main>
   );
 }
