@@ -4,10 +4,6 @@ import { useEffect } from 'react';
 
 const STORAGE_KEY = 'nztracker:imported-members:v1';
 
-function safeName(value) {
-  return String(value || 'clan').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'clan';
-}
-
 function normalizeHeader(value) {
   return String(value || '')
     .trim()
@@ -31,9 +27,10 @@ function parseDelimited(text) {
     if (char === delimiter && !quoted) { row.push(cell.trim()); cell = ''; continue; }
     if ((char === '\n' || char === '\r') && !quoted) {
       if (char === '\r' && next === '\n') i += 1;
-      row.push(cell.trim()); cell = '';
+      row.push(cell.trim());
       if (row.some(value => value !== '')) rows.push(row);
       row = [];
+      cell = '';
       continue;
     }
     cell += char;
@@ -43,14 +40,14 @@ function parseDelimited(text) {
   return rows;
 }
 
-function num(value) {
+function numberValue(value) {
   const cleaned = String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, '');
   return Number(cleaned || 0);
 }
 
 function parseMembers(text) {
   const rows = parseDelimited(text.replace(/^\ufeff/, ''));
-  if (rows.length < 2) throw new Error('The Google Sheets file is empty.');
+  if (rows.length < 2) throw new Error('The Google Sheets CSV is empty.');
 
   const headers = rows[0].map(normalizeHeader);
   const find = (...names) => names.map(normalizeHeader).map(name => headers.indexOf(name)).find(index => index >= 0) ?? -1;
@@ -64,10 +61,10 @@ function parseMembers(text) {
 
   return rows.slice(1).map(row => ({
     name: row[nameIndex]?.trim(),
-    level: levelIndex >= 0 ? num(row[levelIndex]) : 0,
-    reputation: reputationIndex >= 0 ? num(row[reputationIndex]) : 0,
-    gain: gainIndex >= 0 ? num(row[gainIndex]) : 0,
-    totalGain: totalGainIndex >= 0 ? num(row[totalGainIndex]) : 0
+    level: levelIndex >= 0 ? numberValue(row[levelIndex]) : 0,
+    reputation: reputationIndex >= 0 ? numberValue(row[reputationIndex]) : 0,
+    gain: gainIndex >= 0 ? numberValue(row[gainIndex]) : 0,
+    totalGain: totalGainIndex >= 0 ? numberValue(row[totalGainIndex]) : 0
   })).filter(member => member.name);
 }
 
@@ -80,6 +77,7 @@ function writeImported(value) {
 }
 
 function renderRows(members, table) {
+  table.querySelectorAll(':scope > .member-row').forEach(row => row.remove());
   let container = table.querySelector('[data-imported-body]');
   if (!container) {
     container = document.createElement('div');
@@ -87,6 +85,7 @@ function renderRows(members, table) {
     table.appendChild(container);
   }
   container.innerHTML = '';
+
   members.forEach((member, index) => {
     const row = document.createElement('div');
     row.className = 'member-row';
