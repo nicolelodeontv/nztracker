@@ -5,7 +5,7 @@ export const revalidate = 0;
 
 const SITE_ORIGIN = 'https://ninjazenshin.online';
 const RANKING_URL = `${SITE_ORIGIN}/clan-ranking`;
-const MEMBER_URL = `${SITE_ORIGIN}/clan-ranking/members`;
+const MEMBER_API = `${SITE_ORIGIN}/clan-ranking/members`;
 const CACHE_TTL = 20_000;
 
 const cache = new Map();
@@ -83,45 +83,18 @@ export async function GET(request) {
         const stamina = members.map((member) => ({ name: clean(member?.name), ...extractStamina(member) }));
         const known = stamina.filter((member) => member.current !== null && member.max !== null).length;
         if (!members.length || known !== members.length) return [clan, { clan, clanId, state: 'unknown', reason: 'Stamina not exposed by source', memberCount: members.length }];
-        const evaluated = stamina.map((member) => ({
-          ...member,
-          drainFloor: getDrainFloor(member.max),
-          bleedingThreshold: getBleedingThreshold(member.max),
-          bleeding: isMemberBleeding(member.current, member.max)
-        }));
+        const evaluated = stamina.map((member) => ({ ...member, drainFloor: getDrainFloor(member.max), bleedingThreshold: getBleedingThreshold(member.max), bleeding: isMemberBleeding(member.current, member.max) }));
         const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
         const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
         const bleeding = bleedingMembers >= memberThreshold;
         const fullyRecovered = evaluated.every((member) => member.current >= member.max);
-        return [clan, {
-          clan,
-          clanId,
-          state: bleeding ? 'bleeding' : 'healthy',
-          memberCount: evaluated.length,
-          bleedingMembers,
-          memberThreshold,
-          fullyRecovered,
-          staminaAvailable: true,
-          rules: {
-            bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio,
-            thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio,
-            drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio,
-            drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember
-          },
-          members: evaluated
-        }];
+        return [clan, { clan, clanId, state: bleeding ? 'bleeding' : 'healthy', memberCount: evaluated.length, bleedingMembers, memberThreshold, fullyRecovered, staminaAvailable: true, rules: { bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio, thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio, drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio, drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember }, members: evaluated }];
       } catch (error) {
         return [clan, { clan, clanId, state: 'unknown', reason: error instanceof Error ? error.message : 'Member status unavailable' }];
       }
     }));
 
-    const data = {
-      fetchedAt: new Date().toISOString(),
-      source: RANKING_URL,
-      countdown: source.countdown,
-      remainingSeconds: source.countdown?.remainingSeconds ?? null,
-      statuses: Object.fromEntries(results)
-    };
+    const data = { fetchedAt: new Date().toISOString(), source: RANKING_URL, countdown: source.countdown, remainingSeconds: source.countdown?.remainingSeconds ?? null, statuses: Object.fromEntries(results) };
     cache.set(key, { at: Date.now(), data });
     return Response.json(data);
   } catch (error) {
