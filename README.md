@@ -26,50 +26,31 @@ Includes ranking data, member counts, reputation/gain tracking, search, watchlis
 
 Click a clan to open its member panel. The member table can show member name, level, reputation, Stamina when exposed by the source, Maximum Stamina, Bleeding threshold, drain floor, Gain, Total Gain, and synchronization time.
 
-### 💾 Server-Side Monitoring — v1.2
+### ⚡ Live-Only Monitoring
 
-The tracker now has a **Neon Postgres persistence layer** and a server-side monitoring endpoint. Scheduled collection stores clan rankings, member snapshots, and monitor-run status so gain history no longer depends only on a browser tab remaining open.
+The tracker now runs **without Neon, Postgres, or any other database**. Ranking and member information is requested directly from Ninja Zenshin through the Next.js API routes.
 
 ```text
 Ninja Zenshin
      │
-     ├── Clan Ranking ─────────┐
+     ├── Clan Ranking ────────┐
      └── Clan Members ────────┤
                               ▼
-                     /api/monitor
-                              │
-                              ▼
-                       Neon Postgres
-                    ┌─────────┼─────────┐
-                    │         │         │
-              clan snapshots  │  monitor runs
-                    │         │
-                    └── member snapshots
-                              │
-                              ▼
                      Next.js API routes
-                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+              /api/clan-ranking  /api/clan-members
+                    │                   │
+                    └─────────┬─────────┘
                               ▼
-                       Tracker UI
+                         Tracker UI
 ```
 
-The ranking and member APIs prefer the latest stored snapshot and automatically fall back to the live Ninja Zenshin source when the database has no data or is unavailable.
+Browser `localStorage` continues to handle watchlists, preferences, and local history used for gain calculations. Nothing is persisted to a server database.
 
-### ⏱️ Scheduled Collection
+### ⏱️ Scheduled Monitor
 
-Vercel production Cron invokes `/api/monitor` automatically. The current repository is configured for a **daily schedule** because the connected Vercel account is on the Hobby plan; Vercel currently limits Hobby cron jobs to once per day, while higher plans support more frequent schedules. citeturn2search0turn2search4
-
-For the intended near-real-time monitoring cadence, move the project to a Vercel plan that supports more frequent Cron Jobs or use an external scheduler to invoke `/api/monitor`.
-
-### 🔐 Environment Variables
-
-```text
-DATABASE_URL
-CRON_SECRET
-DISCORD_WEBHOOK_URL
-```
-
-`DATABASE_URL` points to the Neon Postgres database. `CRON_SECRET` protects the scheduled monitoring endpoint using the Authorization header pattern recommended by Vercel. citeturn1search0turn2search0
+Vercel production Cron invokes `/api/monitor` automatically on its configured schedule. The monitor is now a **live-only health/data check**: it fetches the current clan ranking and attempts to count live clan members, then returns a JSON result. It does not require `CRON_SECRET` or a database.
 
 ### ⇩ CSV Export
 
@@ -103,11 +84,11 @@ The UI uses a dark command-center style with the **Space Mono + Plus Jakarta San
 
 ## 🔄 Live Synchronization
 
-Live data is retrieved through Next.js API routes. Server-side monitoring now persists snapshots in Neon, while the UI continues to receive a live-compatible API response.
+Live data is retrieved directly through the Next.js API routes. The ranking and member endpoints use `cache: 'no-store'` so the tracker can request fresh source data during refreshes.
 
 ## 💾 Local Data
 
-Preferences, watchlist state, and UI settings continue to use browser `localStorage`. Historical clan/member monitoring is now persisted server-side when Neon is configured.
+Preferences, watchlist state, and UI settings continue to use browser `localStorage`. Local browser history is used for reputation gain calculations.
 
 ## 🛠️ Tech Stack
 
@@ -116,8 +97,7 @@ Preferences, watchlist state, and UI settings continue to use browser `localStor
 - JavaScript
 - CSS
 - Vercel
-- Neon Postgres
-- `@neondatabase/serverless`
+- Cheerio
 - Plus Jakarta Sans
 - Space Mono
 - Browser `localStorage`
@@ -128,8 +108,6 @@ Preferences, watchlist state, and UI settings continue to use browser `localStor
 npm install
 npm run dev
 ```
-
-Set `DATABASE_URL` and `CRON_SECRET` in `.env.local` when testing server-side monitoring.
 
 Open `http://localhost:3000`.
 
@@ -153,13 +131,6 @@ nicolelodeontv/nztracker
 ```
 
 Production branch: `main`
-
-Required environment variables for server-side monitoring:
-
-```text
-DATABASE_URL
-CRON_SECRET
-```
 
 Discord:
 
