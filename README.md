@@ -16,15 +16,60 @@ A community-built live tracker for monitoring **Ninja Zenshin Clan Ranking** dat
 
 ### 🏆 Clan Intelligence
 
-The main ranking workspace focuses on fast live monitoring:
+The main ranking workspace focuses on fast monitoring:
 
 **# · Clan · Master · Members · Reputation · Gain · Total Gain**
 
-Includes live ranking data, member counts, reputation/gain tracking, search, watchlist, background refresh, sync status, gain-pop feedback, and responsive desktop/mobile layouts.
+Includes ranking data, member counts, reputation/gain tracking, search, watchlist, background refresh, sync status, gain-pop feedback, and responsive desktop/mobile layouts.
 
 ### 👥 Live Clan Members
 
-Click a clan to open its live member panel. The member table can show member name, level, reputation, Stamina when exposed by the source, Maximum Stamina, Bleeding threshold, drain floor, Gain, Total Gain, and synchronization time.
+Click a clan to open its member panel. The member table can show member name, level, reputation, Stamina when exposed by the source, Maximum Stamina, Bleeding threshold, drain floor, Gain, Total Gain, and synchronization time.
+
+### 💾 Server-Side Monitoring — v1.2
+
+The tracker now has a **Neon Postgres persistence layer** and a server-side monitoring endpoint. Scheduled collection stores clan rankings, member snapshots, and monitor-run status so gain history no longer depends only on a browser tab remaining open.
+
+```text
+Ninja Zenshin
+     │
+     ├── Clan Ranking ─────────┐
+     └── Clan Members ────────┤
+                              ▼
+                     /api/monitor
+                              │
+                              ▼
+                       Neon Postgres
+                    ┌─────────┼─────────┐
+                    │         │         │
+              clan snapshots  │  monitor runs
+                    │         │
+                    └── member snapshots
+                              │
+                              ▼
+                     Next.js API routes
+                              │
+                              ▼
+                       Tracker UI
+```
+
+The ranking and member APIs prefer the latest stored snapshot and automatically fall back to the live Ninja Zenshin source when the database has no data or is unavailable.
+
+### ⏱️ Scheduled Collection
+
+Vercel production Cron invokes `/api/monitor` automatically. The current repository is configured for a **daily schedule** because the connected Vercel account is on the Hobby plan; Vercel currently limits Hobby cron jobs to once per day, while higher plans support more frequent schedules. citeturn2search0turn2search4
+
+For the intended near-real-time monitoring cadence, move the project to a Vercel plan that supports more frequent Cron Jobs or use an external scheduler to invoke `/api/monitor`.
+
+### 🔐 Environment Variables
+
+```text
+DATABASE_URL
+CRON_SECRET
+DISCORD_WEBHOOK_URL
+```
+
+`DATABASE_URL` points to the Neon Postgres database. `CRON_SECRET` protects the scheduled monitoring endpoint using the Authorization header pattern recommended by Vercel. citeturn1search0turn2search0
 
 ### ⇩ CSV Export
 
@@ -44,46 +89,13 @@ The tracker does **not** invent a Bleeding state when authoritative Stamina data
 - **Drain floor:** 50% of Maximum Stamina
 - **Clan Bleeding:** at least 50% of members are at or below their individual threshold
 
-| Maximum Stamina | Drain Floor | Bleeding Threshold |
-|---:|---:|---:|
-| 100 | 50 | 70 |
-| 150 | 75 | 105 |
-| 200 | 100 | 140 |
-
-Partial Stamina coverage is shown as **Potential Bleed** rather than confirmed Bleeding.
-
 ### ⚔️ Reputation Rewards
 
-| Reputation Difference | Victory Reward |
-|---:|---:|
-| ≥ +20,000 | 30 Rep |
-| ≥ +10,000 | 25 Rep |
-| ≥ +2,000 | 20 Rep |
-| ±2,000 | 15 Rep |
-| ≥ -10,000 | 12 Rep |
-| ≥ -20,000 | 9 Rep |
-| ≥ -30,000 | 6 Rep |
-| ≥ -40,000 | 4 Rep |
-| ≥ -50,000 | 2 Rep |
-| < -50,000 | 1 Rep |
-
-A non-Bleeding Quick Battle target produces **0 Reputation**.
+The Battle Monitor calculates victory rewards from the configured reputation-difference rules.
 
 ### 🩸 CHAOS Tracker - Bot
 
-Discord notifications use **CHAOS Tracker - Bot** and can send staged Clan War alerts such as Bleed Detected, ~12-minute reminder, ~6-minute reminder, and Bleed Cleared. The Battle Monitor also provides webhook health status, Test Alert, and duplicate-protection logic.
-
-Configure the server environment variable:
-
-```text
-DISCORD_WEBHOOK_URL
-```
-
-### 📜 Clan War Rules
-
-**https://nztracker-eight.vercel.app/rules**
-
-The rules page covers Quick Battle rules, Bleeding, Stamina drain, attacker Stamina, recovery, and reputation rewards.
+Discord notifications use **CHAOS Tracker - Bot** and can send staged Clan War alerts. The Battle Monitor also provides webhook health status, Test Alert, and duplicate-protection logic.
 
 ## 🎨 Design & Typography
 
@@ -91,31 +103,11 @@ The UI uses a dark command-center style with the **Space Mono + Plus Jakarta San
 
 ## 🔄 Live Synchronization
 
-Live data is retrieved through Next.js API routes and refreshed in the background.
-
-```text
-Ninja Zenshin
-     │
-     ├── Clan Ranking
-     │      └── /api/clan-ranking
-     │
-     └── Clan Members
-            └── /api/clan-members
-                    │
-                    ▼
-             Next.js Tracker
-                    │
-                    ├── Clan Intelligence
-                    ├── Live Members
-                    ├── Watchlist
-                    ├── Clan War / Battle Monitor
-                    ├── Discord alerts
-                    └── Season countdown
-```
+Live data is retrieved through Next.js API routes. Server-side monitoring now persists snapshots in Neon, while the UI continues to receive a live-compatible API response.
 
 ## 💾 Local Data
 
-Preferences, watchlist state, event history, and monitoring snapshots use browser `localStorage`. No account is required for these local features.
+Preferences, watchlist state, and UI settings continue to use browser `localStorage`. Historical clan/member monitoring is now persisted server-side when Neon is configured.
 
 ## 🛠️ Tech Stack
 
@@ -124,6 +116,8 @@ Preferences, watchlist state, event history, and monitoring snapshots use browse
 - JavaScript
 - CSS
 - Vercel
+- Neon Postgres
+- `@neondatabase/serverless`
 - Plus Jakarta Sans
 - Space Mono
 - Browser `localStorage`
@@ -134,6 +128,8 @@ Preferences, watchlist state, event history, and monitoring snapshots use browse
 npm install
 npm run dev
 ```
+
+Set `DATABASE_URL` and `CRON_SECRET` in `.env.local` when testing server-side monitoring.
 
 Open `http://localhost:3000`.
 
@@ -158,13 +154,18 @@ nicolelodeontv/nztracker
 
 Production branch: `main`
 
-Discord environment variable:
+Required environment variables for server-side monitoring:
+
+```text
+DATABASE_URL
+CRON_SECRET
+```
+
+Discord:
 
 ```text
 DISCORD_WEBHOOK_URL
 ```
-
-A GitHub Actions build check runs `npm ci` and `npm run build` on pushes and pull requests.
 
 ## 👤 Credit
 
