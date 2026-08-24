@@ -1,10 +1,10 @@
 import * as cheerio from 'cheerio';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-const MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members';
 
 function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
 function toNumber(value) { return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0; }
@@ -13,7 +13,7 @@ async function collectRanking() {
   const response = await fetch(SOURCE, {
     cache: 'no-store',
     headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.2',
       Accept: 'text/html,application/xhtml+xml'
     }
   });
@@ -53,46 +53,52 @@ async function collectRanking() {
   return { season, rows, fetchedAt: new Date().toISOString(), source: SOURCE };
 }
 
-async function countMembers(clanId) {
-  if (!clanId) return 0;
+async function countMembers(clanId, requestUrl) {
+  if (!clanId) return { count: 0, source: 'none' };
 
-  const response = await fetch(`${MEMBER_API}/${encodeURIComponent(clanId)}`, {
+  const target = new URL('/api/clan-members', requestUrl);
+  target.searchParams.set('clanId', clanId);
+  target.searchParams.set('monitor', '1');
+
+  const response = await fetch(target, {
     cache: 'no-store',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
-      Accept: 'application/json,text/plain,text/html,*/*'
-    }
+    headers: { Accept: 'application/json' }
   });
-  if (!response.ok) return 0;
+  if (!response.ok) throw new Error(`Member route returned HTTP ${response.status} for ${clanId}`);
 
-  const text = await response.text();
-  try {
-    const payload = JSON.parse(text);
-    return Array.isArray(payload?.members) ? payload.members.length : Array.isArray(payload) ? payload.length : 0;
-  } catch {
-    const $ = cheerio.load(text);
-    return $('table tbody tr').length;
-  }
+  const payload = await response.json();
+  return {
+    count: Number(payload?.count || 0),
+    source: payload?.staminaSource || payload?.service || 'unknown'
+  };
 }
 
-export async function GET() {
+export async function GET(request) {
   const startedAt = new Date();
 
   try {
     const ranking = await collectRanking();
     const withIds = ranking.rows.filter((clan) => clan.clanId);
-    const results = await Promise.allSettled(withIds.map((clan) => countMembers(clan.clanId)));
-    const membersSeen = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value : 0), 0);
+    const results = await Promise.allSettled(withIds.map((clan) => countMembers(clan.clanId, request.url)));
+    const membersSeen = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value.count : 0), 0);
     const memberErrors = results.filter((result) => result.status === 'rejected').length;
+    const sourceCounts = {};
+
+    results.forEach((result) => {
+      if (result.status !== 'fulfilled') return;
+      const source = result.value.source || 'unknown';
+      sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+    });
 
     return Response.json({
       ok: true,
       mode: 'live-no-database',
       season: ranking.season,
       clansSeen: ranking.rows.length,
-      clansWithMemberEndpoints: withIds.length,
+      clansWithMemberData: withIds.length - memberErrors,
       membersSeen,
       memberErrors,
+      memberSources: sourceCounts,
       fetchedAt: ranking.fetchedAt,
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
