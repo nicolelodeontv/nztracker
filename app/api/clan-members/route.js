@@ -1,4 +1,4 @@
-import { ensureSchema } from '../../../lib/db.js';
+import * as cheerio from 'cheerio';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,27 +23,23 @@ function pick(object, keys) {
   return null;
 }
 
-function normalizeMembers(rawMembers, previousMembers = []) {
-  const previous = new Map(previousMembers.map((member) => [clean(member?.name), toNumber(member?.rep ?? member?.reputation) ?? 0]));
-
+function normalizeMembers(rawMembers) {
   return rawMembers.map((member) => {
-    const name = clean(member?.name);
-    const reputation = toNumber(member?.rep ?? member?.reputation) ?? 0;
+    const name = clean(member?.name ?? member?.username ?? member?.player ?? member?.character);
+    const reputation = toNumber(member?.rep ?? member?.reputation ?? member?.points) ?? 0;
     const nested = member?.stats || member?.attributes || member?.status || {};
     const stamina = pick(member, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta'])
       ?? pick(nested, ['stamina', 'currentStamina', 'staminaCurrent', 'sta', 'current_sta']);
     const maxStamina = pick(member, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta'])
       ?? pick(nested, ['maxStamina', 'staminaMax', 'max_stamina', 'staminaLimit', 'maxSta']);
-    const oldRep = previous.get(name);
-    const gain = oldRep == null ? 0 : Math.max(0, reputation - oldRep);
     const bleedingThreshold = maxStamina === null ? null : maxStamina * 0.70;
 
     return {
       name,
       level: toNumber(member?.level) ?? 0,
       reputation,
-      gain,
-      totalGain: gain,
+      gain: 0,
+      totalGain: 0,
       stamina,
       maxStamina,
       bleedingThreshold,
@@ -53,28 +49,27 @@ function normalizeMembers(rawMembers, previousMembers = []) {
   }).filter((member) => member.name);
 }
 
-async function fromDatabase(clanId) {
-  const db = await ensureSchema();
-  const result = await db`
-    SELECT fetched_at, members
-    FROM member_snapshots
-    WHERE clan_id = ${clanId}
-    ORDER BY fetched_at DESC
-    LIMIT 2
-  `;
-  if (!result.length) return null;
+function parseMemberHtml(text, clanId) {
+  const $ = cheerio.load(text);
+  const candidates = [];
 
-  const latest = result[0];
-  const previous = result[1]?.members || [];
-  const members = normalizeMembers(latest.members || [], previous);
+  $('table').each((_, table) => {
+    const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
+    if (!headers.some((h) => /member|name|player/.test(h))) return;
+
+    $(table).find('tbody tr').each((__, tr) => {
+      const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
+      if (cells.length) candidates.push({ name: cells[0], level: cells[1], reputation: cells[2] });
+    });
+  });
 
   return {
     clanId,
-    members,
-    count: members.length,
-    fetchedAt: new Date(latest.fetched_at).toISOString(),
+    members: normalizeMembers(candidates),
+    count: candidates.length,
+    fetchedAt: new Date().toISOString(),
     source: `${MEMBER_API}/${encodeURIComponent(clanId)}`,
-    stored: true
+    stored: false
   };
 }
 
@@ -83,26 +78,31 @@ async function fromSource(clanId) {
   const response = await fetch(target, {
     cache: 'no-store',
     headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.0',
-      Accept: 'application/json,text/plain,*/*'
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
+      Accept: 'application/json,text/plain,text/html,*/*'
     }
   });
 
   const text = await response.text();
-  if (!response.ok) throw new Error(`Member API returned ${response.status}`);
+  if (!response.ok) throw new Error(`Member source returned ${response.status}`);
 
-  let payload;
-  try { payload = JSON.parse(text); } catch { throw new Error('Member API did not return JSON.'); }
-  const members = normalizeMembers(Array.isArray(payload?.members) ? payload.members : []);
-
-  return {
-    clanId,
-    members,
-    count: members.length,
-    fetchedAt: new Date().toISOString(),
-    source: target,
-    stored: false
-  };
+  try {
+    const payload = JSON.parse(text);
+    const raw = Array.isArray(payload?.members) ? payload.members : Array.isArray(payload) ? payload : [];
+    const members = normalizeMembers(raw);
+    return {
+      clanId,
+      members,
+      count: members.length,
+      fetchedAt: new Date().toISOString(),
+      source: target,
+      stored: false
+    };
+  } catch {
+    const parsed = parseMemberHtml(text, clanId);
+    if (!parsed.count) throw new Error('Member source did not return a supported JSON or table response.');
+    return parsed;
+  }
 }
 
 export async function GET(request) {
@@ -114,14 +114,9 @@ export async function GET(request) {
   }
 
   try {
-    try {
-      const stored = await fromDatabase(clanId);
-      if (stored) return Response.json(stored);
-    } catch (databaseError) {
-      console.warn('Member database unavailable; falling back to live source:', databaseError);
-    }
-
-    return Response.json(await fromSource(clanId));
+    return Response.json(await fromSource(clanId), {
+      headers: { 'Cache-Control': 'no-store, max-age=0' }
+    });
   } catch (error) {
     return Response.json({
       error: 'Unable to fetch Ninja Zenshin clan members',
