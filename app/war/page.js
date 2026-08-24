@@ -1,9 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import WarOps from '../war-ops';
-import '../tracker.css';
-import '../war-ops.css';
+import WarDashboard from '../war-dashboard';
 import './page.css';
 
 const REFRESH_MS = 3000;
@@ -45,12 +43,12 @@ export default function ClanWarPage() {
         <div>
           <div className="eyebrow">⚔ CLAN WAR // LIVE</div>
           <h1>Battle Monitor</h1>
-          <p>Bleeding detection, attack readiness, reputation rewards, recovery timing and Discord lifecycle alerts.</p>
+          <p>Target selection, attack readiness, Bleeding verification, recovery timing and Discord alerts.</p>
         </div>
         <div className={`war-page-live ${status === 'error' ? 'offline' : ''}`}>● {status === 'live' ? 'LIVE · SYNCING' : status === 'error' ? 'OFFLINE · RETRYING' : 'CONNECTING'}</div>
       </header>
 
-      <WarOps rows={rows} server={server} updated={updated} status={status} />
+      <WarDashboard rows={rows} server={server} updated={updated} status={status} />
     </main>
   );
 }
