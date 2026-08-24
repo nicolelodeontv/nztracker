@@ -3,6 +3,10 @@ export const revalidate = 0;
 const SITE_ORIGIN = 'https://ninjazenshin.online';
 const MEMBER_API = `${SITE_ORIGIN}/clan-ranking/members`;
 
+// Server-instance history. This gives the live members endpoint a real
+// previous-value comparison instead of expecting the upstream API to return gain.
+const memberHistory = new Map();
+
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -55,15 +59,28 @@ export async function GET(request) {
     let payload;
     try { payload = JSON.parse(text); } catch { return Response.json({ error: 'Member API did not return JSON.', source: target }, { status: 502 }); }
 
+    const now = Date.now();
+    const clanKey = `clan:${clanId}`;
+    const previous = memberHistory.get(clanKey) || { baseline: {}, current: {} };
+
     const members = Array.isArray(payload?.members)
       ? payload.members.map((member) => {
+          const name = clean(member?.name);
+          const reputation = toNumber(member?.rep ?? member?.reputation) ?? 0;
           const stamina = extractStamina(member);
           const threshold = stamina.max === null ? null : stamina.max * 0.70;
           const floor = stamina.max === null ? null : stamina.max * 0.50;
+          const oldRep = previous.current[name];
+          const baselineRep = previous.baseline[name] ?? reputation;
+          const gain = Number.isFinite(oldRep) ? Math.max(0, reputation - oldRep) : 0;
+          const totalGain = Math.max(0, reputation - baselineRep);
+
           return {
-            name: clean(member?.name),
+            name,
             level: toNumber(member?.level) ?? 0,
-            reputation: toNumber(member?.rep ?? member?.reputation) ?? 0,
+            reputation,
+            gain,
+            totalGain,
             stamina: stamina.current,
             maxStamina: stamina.max,
             bleedingThreshold: threshold,
@@ -73,7 +90,15 @@ export async function GET(request) {
         }).filter((member) => member.name)
       : [];
 
-    return Response.json({ clanId, members, count: members.length, fetchedAt: new Date().toISOString(), source: target });
+    const nextCurrent = {};
+    const nextBaseline = { ...previous.baseline };
+    members.forEach((member) => {
+      nextCurrent[member.name] = member.reputation;
+      if (nextBaseline[member.name] == null) nextBaseline[member.name] = member.reputation;
+    });
+    memberHistory.set(clanKey, { baseline: nextBaseline, current: nextCurrent, at: now });
+
+    return Response.json({ clanId, members, count: members.length, fetchedAt: new Date(now).toISOString(), source: target });
   } catch (error) {
     return Response.json({ error: 'Unable to fetch Ninja Zenshin clan members', details: error instanceof Error ? error.message : String(error), source: target }, { status: 502 });
   }
