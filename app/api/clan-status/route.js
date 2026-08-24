@@ -90,25 +90,40 @@ export async function GET(request) {
         const payload = await fetchJson(`${MEMBER_URL}/${encodeURIComponent(clanId)}`);
         const members = Array.isArray(payload?.members) ? payload.members : [];
         const stamina = members.map((member) => ({ name: clean(member?.name), ...extractStamina(member) }));
-        const known = stamina.filter((member) => member.current !== null).length;
-        const maxKnown = stamina.filter((member) => member.current !== null && member.max !== null).length;
+        const known = stamina.filter((member) => member.current !== null && member.max !== null).length;
         if (!members.length || known !== members.length) {
           return [clan, { clan, clanId, state: 'unknown', reason: 'Stamina not exposed by source', memberCount: members.length }];
         }
 
-        const below70 = stamina.filter((member) => member.current <= 70).length;
-        const threshold = Math.ceil(members.length / 2);
-        const bleeding = below70 >= threshold;
-        const fullyRecovered = maxKnown === members.length && stamina.every((member) => member.current >= member.max);
+        // Updated rule:
+        // Drain floor = 50% of Max Stamina.
+        // Bleeding threshold = 70% of Max Stamina.
+        // A clan bleeds when at least 50% of members are at or below their own threshold.
+        const evaluated = stamina.map((member) => {
+          const drainFloor = member.max * 0.50;
+          const bleedingThreshold = member.max * 0.70;
+          return {
+            ...member,
+            drainFloor,
+            bleedingThreshold,
+            bleeding: member.current <= bleedingThreshold
+          };
+        });
+        const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
+        const memberThreshold = Math.ceil(evaluated.length / 2);
+        const bleeding = bleedingMembers >= memberThreshold;
+        const fullyRecovered = evaluated.every((member) => member.current >= member.max);
+
         return [clan, {
           clan,
           clanId,
           state: bleeding ? 'bleeding' : 'healthy',
-          memberCount: members.length,
-          below70,
-          threshold,
+          memberCount: evaluated.length,
+          bleedingMembers,
+          memberThreshold,
           fullyRecovered,
-          staminaAvailable: true
+          staminaAvailable: true,
+          members: evaluated
         }];
       } catch (error) {
         return [clan, { clan, clanId, state: 'unknown', reason: error instanceof Error ? error.message : 'Member status unavailable' }];
