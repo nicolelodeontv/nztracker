@@ -1,20 +1,15 @@
 import './globals.css';
-import MemberExport from './member-export';
-import AppNav from './app-nav';
+import './tracker.css';
 
 export const metadata = {
-  title: 'Ninja Zenshin — Live Clan Tracker',
-  description: 'Live Ninja Zenshin clan ranking tracker.'
+  title: 'NINJA ZENSHIN — Clan Ranking',
+  description: 'Unofficial Ninja Zenshin clan ranking tracker.'
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>
-        <MemberExport />
-        <AppNav />
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
