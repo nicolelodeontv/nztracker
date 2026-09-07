@@ -1,128 +1,195 @@
-# 🥷 Ninja Zenshin Live Clan Tracker
+# 🥷 Ninja Zenshin Clan Tracker
 
-A community-built live tracker for monitoring **Ninja Zenshin Clan Ranking** data in a compact dark interface focused on fast clan-war monitoring.
+A community-built live tracker for monitoring **Ninja Zenshin Clan Ranking** data in a compact dark interface focused on fast, reliable clan monitoring.
 
-**Live site:** https://nztracker-eight.vercel.app/
-
-**Clan Intelligence:** https://nztracker-eight.vercel.app/
-
-**Clan War / Battle Monitor:** https://nztracker-eight.vercel.app/war
-
-**Clan War Rules:** https://nztracker-eight.vercel.app/rules
+**Live site:** https://nztracker.vercel.app/
 
 **Source:** https://ninjazenshin.online/?panel=clan-ranking
 
 ## ✨ Features
 
-### 🏆 Clan Intelligence
+### 🏆 Live Clan Ranking
 
-The main ranking workspace focuses on fast monitoring:
+The main workspace displays the current clan ranking in a compact table:
 
 **# · Clan · Master · Members · Reputation · Gain · Total Gain**
 
-Includes ranking data, member counts, reputation/gain tracking, search, watchlist, background refresh, sync status, gain-pop feedback, and responsive desktop/mobile layouts.
+The tracker refreshes ranking data automatically and keeps the interface focused on the information needed for quick clan monitoring.
 
 ### 👥 Live Clan Members
 
-Click a clan to open its member panel. The member table can show member name, level, reputation, Stamina when exposed by the source, Maximum Stamina, Bleeding threshold, drain floor, Gain, Total Gain, and synchronization time.
+Click a clan name to open its live member panel.
 
-### ⚡ Live-Only Monitoring
+Member data includes:
 
-The tracker now runs **without Neon, Postgres, or any other database**. Ranking and member information is requested directly from Ninja Zenshin through the Next.js API routes.
+**# · Member · Lv · Rep · Gain · Total Gain**
+
+Member information is refreshed while the member panel is open. The tracker uses the live Ninja Zenshin source first and falls back to the AMF member service when necessary.
+
+### 📈 Gain & Total Gain Tracking
+
+The browser keeps local reputation history so the tracker can calculate:
+
+- Reputation gain between refreshes
+- Total accumulated gain during the current browser session/history window
+- Per-member gain and total gain when member history is available locally
+
+No server database is required for these calculations.
+
+### 🔄 Automatic Live Refresh
+
+- Clan ranking refresh: every 3 seconds
+- Selected clan members refresh: every 3 seconds while the member panel is open
+- Live source requests use fresh, uncached data
+- Server time and season countdown are displayed in the tracker
+
+### ⇩ CSV Export
+
+The Live Members panel includes an **Export** action for the currently displayed member list.
+
+Export columns:
+
+**# · Member · Lv · Rep · Gain · Total Gain**
+
+The CSV is generated directly in the browser and includes a UTF-8 BOM for spreadsheet compatibility.
+
+### 🌓 Compact Dark UI
+
+The interface is designed as a compact monitoring tool rather than a large dashboard, with responsive behavior for desktop and mobile screens.
+
+Current visual system includes:
+
+- Dark command-center styling
+- Compact ranking and member tables
+- Responsive mobile layout
+- Lightweight UI with minimal navigation
+- Custom Ninja Zenshin favicon
+- Geist / Geist Mono typography
+
+### 💾 Browser-Only Local State
+
+The tracker does **not** use Neon, Postgres, or another application database.
+
+Browser `localStorage` is used for local preferences and reputation history used by gain calculations. Live clan and member data is requested from the source through the Next.js API routes.
+
+## 🧩 Data Flow
 
 ```text
 Ninja Zenshin
      │
-     ├── Clan Ranking ────────┐
-     └── Clan Members ────────┤
-                              ▼
-                     Next.js API routes
-                    ┌─────────┴─────────┐
-                    │                   │
-              /api/clan-ranking  /api/clan-members
-                    │                   │
-                    └─────────┬─────────┘
-                              ▼
-                         Tracker UI
+     ├── Clan Ranking ───────────────┐
+     │                              │
+     └── Clan Members ──────────────┤
+                                    ▼
+                           Next.js API routes
+                          ┌─────────┴─────────┐
+                          │                   │
+                   /api/clan-ranking   /api/clan-members
+                          │                   │
+                          └─────────┬─────────┘
+                                    ▼
+                                Tracker UI
+                                    │
+                                    ▼
+                              Browser storage
 ```
 
-Browser `localStorage` continues to handle watchlists, preferences, and local history used for gain calculations. Nothing is persisted to a server database.
+### Clan Ranking API
 
-### ⏱️ Scheduled Monitor
+`/api/clan-ranking` retrieves and parses the live Ninja Zenshin clan ranking source.
 
-Vercel production Cron invokes `/api/monitor` automatically on its configured schedule. The monitor is now a **live-only health/data check**: it fetches the current clan ranking and attempts to count live clan members, then returns a JSON result. It does not require `CRON_SECRET` or a database.
+### Clan Members API
 
-### ⇩ CSV Export
+`/api/clan-members` retrieves live clan member data, using the live ranking/member source as the primary path and the AMF service as a fallback.
 
-Live Members can be exported as CSV containing **MEMBER, LEVEL, REPUTATION, GAIN, TOTAL GAIN**.
+### Monitor API
 
-### ⚔️ Clan War / Battle Monitor
+`/api/monitor` performs a scheduled live health/data check in Vercel production.
 
-**https://nztracker-eight.vercel.app/war**
-
-The dedicated Battle Monitor separates Clan War decision-making from the ranking workspace and includes confirmed Bleeding, Potential Bleed, Unknown Stamina state, Best Targets, Attack Ready / Do Not Attack decisions, party-size drain calculation, reputation reward calculation, live event feed, watchlist monitoring, recovery countdown, data health, and Discord Test Alert/configuration status.
-
-The tracker does **not** invent a Bleeding state when authoritative Stamina data is unavailable.
-
-### 🩸 Stamina-Based Bleeding
-
-- **Bleeding threshold:** 70% of Maximum Stamina
-- **Drain floor:** 50% of Maximum Stamina
-- **Clan Bleeding:** at least 50% of members are at or below their individual threshold
-
-### ⚔️ Reputation Rewards
-
-The Battle Monitor calculates victory rewards from the configured reputation-difference rules.
-
-### 🩸 CHAOS Tracker - Bot
-
-Discord notifications use **CHAOS Tracker - Bot** and can send staged Clan War alerts. The Battle Monitor also provides webhook health status, Test Alert, and duplicate-protection logic.
-
-## 🎨 Design & Typography
-
-The UI uses a dark command-center style with the **Space Mono + Plus Jakarta Sans** pairing. Clan Intelligence and Clan War share the same wide layout system, spacing, dark panels, responsive behavior, and typography.
-
-## 🔄 Live Synchronization
-
-Live data is retrieved directly through the Next.js API routes. The ranking and member endpoints use `cache: 'no-store'` so the tracker can request fresh source data during refreshes.
-
-## 💾 Local Data
-
-Preferences, watchlist state, and UI settings continue to use browser `localStorage`. Local browser history is used for reputation gain calculations.
+Vercel Cron is configured to invoke it daily.
 
 ## 🛠️ Tech Stack
 
-- Next.js
-- React
+- Next.js 16
+- React 19
 - JavaScript
 - CSS
-- Vercel
 - Cheerio
-- Plus Jakarta Sans
-- Space Mono
+- Vercel
+- Node.js 24.x
 - Browser `localStorage`
+- Geist / Geist Mono
+
+## 📁 Project Structure
+
+```text
+app/
+├── api/
+│   ├── clan-members/
+│   ├── clan-ranking/
+│   └── monitor/
+├── lib/
+│   ├── game-rules.mjs
+│   ├── source-parser.mjs
+│   └── stamina.mjs
+├── globals.css
+├── layout.js
+├── page.js
+├── tracker.css
+└── ui-fixes.css
+
+.github/
+└── workflows/
+    └── build.yml
+
+vercel.json
+package.json
+README.md
+```
 
 ## 🚀 Run Locally
+
+Requirements:
+
+- Node.js 24.x
+- npm
+
+Install dependencies and start the development server:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open:
 
-Battle Monitor: `http://localhost:3000/war`
+```text
+http://localhost:3000
+```
 
-Rules: `http://localhost:3000/rules`
+## ✅ Tests
+
+Run the Node test suite:
+
+```bash
+npm test
+```
 
 ## 📦 Production Build
 
+Create a production build:
+
 ```bash
 npm run build
+```
+
+Start the production server:
+
+```bash
 npm start
 ```
 
-## ☁️ Deploy to Vercel
+## ☁️ Vercel Deployment
 
 Repository:
 
@@ -130,13 +197,38 @@ Repository:
 nicolelodeontv/nztracker
 ```
 
-Production branch: `main`
+Production branch:
 
-Discord:
+```text
+main
+```
+
+The project is configured for Next.js deployment on Vercel.
+
+### Scheduled Cron
+
+`vercel.json` configures:
+
+```text
+/api/monitor
+0 0 * * *
+```
+
+## 🔐 Environment Variables
+
+The main live tracker does not require a database connection or database environment variables.
+
+Discord-related functionality, when enabled by the deployment, can use:
 
 ```text
 DISCORD_WEBHOOK_URL
 ```
+
+## ⚠️ Live Data Notes
+
+Ninja Zenshin source availability can change independently of this tracker. The application includes fallback handling for member data and avoids treating unavailable authoritative stamina information as confirmed live stamina.
+
+The tracker should therefore be treated as a monitoring aid rather than an official game data service.
 
 ## 👤 Credit
 
