@@ -53,7 +53,6 @@ export default function Home() {
   const previousMemberRepRef = useRef({});
   const totalMemberGainRef = useRef({});
   const selectedClanRef = useRef(null);
-  const firstRankingLoadRef = useRef(true);
   const rankingRequestRef = useRef(false);
   const memberRequestRef = useRef(false);
 
@@ -152,7 +151,6 @@ export default function Home() {
         return { ...row, gain, totalGain: totals[id] };
       });
 
-      firstRankingLoadRef.current = false;
       setClans(nextRows);
       setSeason(data.season || 'Season 2');
       setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
@@ -161,12 +159,9 @@ export default function Home() {
       setError('');
 
       const activeClan = selectedClanRef.current;
-      const updatedSelected = activeClan
-        ? nextRows.find((row) => row.clanId === activeClan.clanId)
-        : null;
-      if (updatedSelected) setSelectedClan(updatedSelected);
-      if (updatedSelected) {
-        void refreshClanMembers(updatedSelected);
+      if (activeClan) {
+        const updatedSelected = nextRows.find((row) => row.clanId === activeClan.clanId);
+        if (updatedSelected) setSelectedClan(updatedSelected);
       }
     } catch (err) {
       setStatus('error');
@@ -174,7 +169,7 @@ export default function Home() {
     } finally {
       rankingRequestRef.current = false;
     }
-  }, [refreshClanMembers]);
+  }, []);
 
   useEffect(() => {
     void loadRanking();
@@ -194,12 +189,13 @@ export default function Home() {
   }, [refreshClanMembers]);
 
   useEffect(() => {
-    if (!modalOpen || !selectedClan?.clanId) return;
+    const clan = selectedClanRef.current;
+    if (!modalOpen || !clan?.clanId) return;
     const timer = setInterval(() => {
-      void refreshClanMembers(selectedClanRef.current || selectedClan);
+      void refreshClanMembers(selectedClanRef.current);
     }, REFRESH_MS);
     return () => clearInterval(timer);
-  }, [modalOpen, selectedClan, refreshClanMembers]);
+  }, [modalOpen, selectedClan?.clanId, refreshClanMembers]);
 
   const closeModal = useCallback(() => {
     setModalOpen(false);
