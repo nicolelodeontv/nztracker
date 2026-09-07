@@ -1,55 +1,71 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import './tracker.css';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const REFRESH_MS = 3000;
 const SOUND_KEY = 'nztracker:sound-enabled';
 const RANKING_API = '/api/clan-ranking';
 const MEMBERS_API = '/api/clan-members';
+const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
 const fmt = (value) => Number(value || 0).toLocaleString('en-US');
 const cleanNumber = (value) => Number(String(value ?? '').replace(/[^0-9.-]/g, '')) || 0;
+const pad = (value) => String(value).padStart(2, '0');
 
-function pad(value) {
-  return String(value).padStart(2, '0');
+function getServerTime(now) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Singapore',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(new Date(now));
 }
 
-function countdownFrom(endDate, now) {
+function getCountdown(endDate, now) {
   const end = new Date(endDate || 0).getTime();
-  const diff = Number.isFinite(end) ? Math.max(0, end - now) : 0;
-  const seconds = Math.floor(diff / 1000);
+  if (!Number.isFinite(end)) return { days: 0, hours: 0, minutes: 0, seconds: 0 };
+  const diff = Math.max(0, end - now);
+  const totalSeconds = Math.floor(diff / 1000);
   return {
-    days: Math.floor(seconds / 86400),
-    hours: Math.floor(seconds / 3600) % 24,
-    minutes: Math.floor(seconds / 60) % 60,
-    seconds: seconds % 60,
+    days: Math.floor(totalSeconds / 86400),
+    hours: Math.floor(totalSeconds / 3600) % 24,
+    minutes: Math.floor(totalSeconds / 60) % 60,
+    seconds: totalSeconds % 60,
   };
 }
 
 export default function Home() {
   const [clans, setClans] = useState([]);
   const [season, setSeason] = useState('Season 2');
-  const [seasonEnd, setSeasonEnd] = useState('2026-09-14T00:00:00+08:00');
+  const [seasonEnd, setSeasonEnd] = useState(FALLBACK_SEASON_END);
   const [serverNow, setServerNow] = useState(Date.now());
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [lastSync, setLastSync] = useState(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [previousReputation, setPreviousReputation] = useState({});
-  const [totalGainReputation, setTotalGainReputation] = useState({});
-  const [memberCache, setMemberCache] = useState({});
-  const [previousMemberRep, setPreviousMemberRep] = useState({});
-  const [totalMemberGain, setTotalMemberGain] = useState({});
   const [selectedClan, setSelectedClan] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [memberLoading, setMemberLoading] = useState(false);
   const [memberError, setMemberError] = useState('');
+  const [memberData, setMemberData] = useState(null);
+
+  const previousReputationRef = useRef({});
+  const totalGainReputationRef = useRef({});
+  const previousMemberRepRef = useRef({});
+  const totalMemberGainRef = useRef({});
+  const soundEnabledRef = useRef(true);
+  const selectedClanRef = useRef(null);
+  const firstRankingLoadRef = useRef(true);
+  const rankingRequestRef = useRef(false);
+  const memberRequestRef = useRef(false);
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(SOUND_KEY);
-      if (stored !== null) setSoundEnabled(stored !== 'false');
+      const enabled = stored !== 'false';
+      soundEnabledRef.current = enabled;
+      setSoundEnabled(enabled);
     } catch {}
   }, []);
 
@@ -58,124 +74,166 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    selectedClanRef.current = selectedClan;
+  }, [selectedClan]);
+
   const playGainSound = useCallback(() => {
-    if (!soundEnabled || typeof window === 'undefined') return;
+    if (!soundEnabledRef.current || typeof window === 'undefined') return;
     try {
       const audio = new Audio('/beep.mp3');
       audio.volume = 0.8;
-      audio.play().catch(() => {});
+      void audio.play().catch(() => {});
     } catch {}
-  }, [soundEnabled]);
+  }, []);
 
-  const refreshClanMembers = useCallback(async (clanId) => {
-    if (!clanId) return;
+  const refreshClanMembers = useCallback(async (clan, { showLoading = false } = {}) => {
+    const clanId = clan?.clanId;
+    if (!clanId || memberRequestRef.current) return;
+
+    memberRequestRef.current = true;
+    if (showLoading) setMemberLoading(true);
+
     try {
-      const response = await fetch(`${MEMBERS_API}?clanId=${encodeURIComponent(clanId)}&t=${Date.now()}`, { cache: 'no-store' });
-      if (!response.ok) return;
-      const data = await response.json();
-      const members = Array.isArray(data.members) ? data.members : [];
-      const nextMembers = members.map((member) => {
-        const name = String(member.name || '').trim();
-        const level = member.level ?? 0;
-        const rep = cleanNumber(member.reputation ?? member.rep);
-        const key = `${clanId}_${name.normalize('NFC')}_${level}`;
-        const oldRep = previousMemberRep[key];
-        let gain = oldRep === undefined ? 0 : rep - oldRep;
-        if (!Number.isFinite(gain) || gain < 0) gain = 0;
-        const nextTotal = (totalMemberGain[key] || 0) + gain;
-        return { ...member, name, rep, gain, totalGain: nextTotal };
-      });
+      const response = await fetch(
+        `${MEMBERS_API}?clanId=${encodeURIComponent(clanId)}&t=${Date.now()}`,
+        { cache: 'no-store', headers: { Accept: 'application/json' } },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.details || data.error || `HTTP ${response.status}`);
+      }
 
-      const nextPrev = { ...previousMemberRep };
-      const nextTotals = { ...totalMemberGain };
-      nextMembers.forEach((member) => {
-        const key = `${clanId}_${member.name.normalize('NFC')}_${member.level ?? 0}`;
-        nextPrev[key] = member.rep;
-        nextTotals[key] = member.totalGain;
-      });
-      setPreviousMemberRep(nextPrev);
-      setTotalMemberGain(nextTotals);
-      setMemberCache((current) => ({
-        ...current,
-        [clanId]: {
-          name: data.name || selectedClan?.clan,
-          reputation: data.reputation ?? selectedClan?.reputation ?? 0,
+      const rawMembers = Array.isArray(data.members) ? data.members : [];
+      const nextMembers = rawMembers
+        .map((member) => {
+          const name = String(member?.name || '').trim();
+          const level = cleanNumber(member?.level);
+          const rep = cleanNumber(member?.reputation ?? member?.rep);
+          const key = `${clanId}_${name.normalize('NFC')}_${level}`;
+          const previous = previousMemberRepRef.current[key];
+          let gain = previous === undefined ? 0 : rep - previous;
+          if (!Number.isFinite(gain) || gain < 0) gain = 0;
+          const total = (totalMemberGainRef.current[key] || 0) + gain;
+          previousMemberRepRef.current[key] = rep;
+          totalMemberGainRef.current[key] = total;
+          return { ...member, name, level, rep, gain, totalGain: total };
+        })
+        .filter((member) => member.name)
+        .sort((a, b) => b.rep - a.rep);
+
+      const activeClan = selectedClanRef.current;
+      if (activeClan?.clanId === clanId) {
+        setMemberData({
+          clanId,
+          name: data.name || activeClan.clan,
+          reputation: cleanNumber(data.reputation ?? activeClan.reputation),
           members: nextMembers,
           fetchedAt: data.fetchedAt || new Date().toISOString(),
-        },
-      }));
-    } catch {}
-  }, [previousMemberRep, totalMemberGain, selectedClan]);
+        });
+        setMemberError('');
+      }
+    } catch (err) {
+      if (selectedClanRef.current?.clanId === clanId) {
+        setMemberError(err instanceof Error ? err.message : 'Unable to load members');
+      }
+    } finally {
+      memberRequestRef.current = false;
+      if (showLoading) setMemberLoading(false);
+    }
+  }, []);
 
   const loadRanking = useCallback(async () => {
+    if (rankingRequestRef.current) return;
+    rankingRequestRef.current = true;
+
     try {
       setStatus((current) => current === 'live' ? 'live' : 'loading');
-      const response = await fetch(`${RANKING_API}?t=${Date.now()}`, { cache: 'no-store' });
+
+      const response = await fetch(`${RANKING_API}?t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+      });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
+      if (!response.ok) {
+        throw new Error(data.details || data.error || `HTTP ${response.status}`);
+      }
 
       const rows = Array.isArray(data.rows) ? data.rows : [];
-      const nextPrev = { ...previousReputation };
-      const nextTotals = { ...totalGainReputation };
-
+      const previous = previousReputationRef.current;
+      const totals = totalGainReputationRef.current;
       const nextRows = rows.map((row) => {
         const id = String(row.clanId || row.clan || row.rank);
-        const currentRep = cleanNumber(row.reputation);
-        const oldRep = previousReputation[id];
-        let gain = oldRep === undefined ? 0 : currentRep - oldRep;
+        const reputation = cleanNumber(row.reputation);
+        const oldRep = previous[id];
+        let gain = oldRep === undefined ? 0 : reputation - oldRep;
         if (!Number.isFinite(gain) || gain < 0) gain = 0;
-        if (gain > 0) playGainSound();
-        nextPrev[id] = currentRep;
-        nextTotals[id] = (nextTotals[id] || 0) + gain;
-        return { ...row, gain, totalGain: nextTotals[id] };
+        if (gain > 0 && !firstRankingLoadRef.current) playGainSound();
+        previous[id] = reputation;
+        totals[id] = (totals[id] || 0) + gain;
+        return { ...row, gain, totalGain: totals[id] };
       });
 
-      setPreviousReputation(nextPrev);
-      setTotalGainReputation(nextTotals);
+      firstRankingLoadRef.current = false;
       setClans(nextRows);
       setSeason(data.season || 'Season 2');
-      setSeasonEnd(data.seasonEndsAt || '2026-09-14T00:00:00+08:00');
+      setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
       setLastSync(new Date(data.fetchedAt || Date.now()));
       setStatus('live');
       setError('');
 
-      await Promise.all(nextRows.map((row) => refreshClanMembers(row.clanId)));
+      const activeClan = selectedClanRef.current;
+      const updatedSelected = activeClan
+        ? nextRows.find((row) => row.clanId === activeClan.clanId)
+        : null;
+      if (updatedSelected) setSelectedClan(updatedSelected);
+      if (updatedSelected) {
+        void refreshClanMembers(updatedSelected);
+      }
     } catch (err) {
       setStatus('error');
       setError(err instanceof Error ? err.message : 'Failed to load clan ranking');
+    } finally {
+      rankingRequestRef.current = false;
     }
-  }, [playGainSound, previousReputation, totalGainReputation, refreshClanMembers]);
+  }, [playGainSound, refreshClanMembers]);
 
   useEffect(() => {
-    loadRanking();
-    const timer = setInterval(loadRanking, REFRESH_MS);
+    void loadRanking();
+    const timer = setInterval(() => void loadRanking(), REFRESH_MS);
     return () => clearInterval(timer);
   }, [loadRanking]);
 
-  const countdown = useMemo(() => countdownFrom(seasonEnd, serverNow), [seasonEnd, serverNow]);
+  const countdown = useMemo(() => getCountdown(seasonEnd, serverNow), [seasonEnd, serverNow]);
 
-  const openClanModal = async (clan) => {
+  const openClanModal = useCallback(async (clan) => {
+    selectedClanRef.current = clan;
     setSelectedClan(clan);
     setModalOpen(true);
     setMemberError('');
-    setMemberLoading(true);
-    try {
-      await refreshClanMembers(clan.clanId);
-    } catch (err) {
-      setMemberError(err instanceof Error ? err.message : 'Unable to load members');
-    } finally {
-      setMemberLoading(false);
-    }
-  };
+    setMemberData(null);
+    await refreshClanMembers(clan, { showLoading: true });
+  }, [refreshClanMembers]);
 
   useEffect(() => {
     if (!modalOpen || !selectedClan?.clanId) return;
-    const timer = setInterval(() => refreshClanMembers(selectedClan.clanId), REFRESH_MS);
+    const timer = setInterval(() => {
+      void refreshClanMembers(selectedClanRef.current || selectedClan);
+    }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [modalOpen, selectedClan, refreshClanMembers]);
 
-  const selectedData = selectedClan ? memberCache[selectedClan.clanId] : null;
-  const members = selectedData?.members || [];
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setMemberLoading(false);
+    setMemberError('');
+    selectedClanRef.current = null;
+    setSelectedClan(null);
+    setMemberData(null);
+  }, []);
+
+  const currentMembers = memberData?.members || [];
+  const serverTime = getServerTime(serverNow);
 
   return (
     <div className="site-wrapper">
@@ -188,23 +246,17 @@ export default function Home() {
           <div className="server-time-left">
             <div className={`server-time-dot ${status}`} />
             <span className="server-time-label">Server Time</span>
-            <span className="server-time-value">
-              {new Intl.DateTimeFormat('en-GB', {
-                timeZone: 'Asia/Singapore',
-                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-              }).format(new Date(serverNow))} SGT
-            </span>
+            <span className="server-time-value">{serverTime} SGT</span>
           </div>
           <button
             type="button"
             id="soundToggle"
             className={`sound-btn ${soundEnabled ? '' : 'off'}`}
             onClick={() => {
-              setSoundEnabled((current) => {
-                const next = !current;
-                try { localStorage.setItem(SOUND_KEY, String(next)); } catch {}
-                return next;
-              });
+              const next = !soundEnabledRef.current;
+              soundEnabledRef.current = next;
+              setSoundEnabled(next);
+              try { localStorage.setItem(SOUND_KEY, String(next)); } catch {}
             }}
           >
             {soundEnabled ? '🔊 Sound ON' : '🔇 Sound OFF'}
@@ -218,7 +270,7 @@ export default function Home() {
             <div className="card-heading">
               <div>
                 <h1>Clan Ranking</h1>
-                <div className="clr-season" id="clrSeason">{season}</div>
+                <div className="clr-season">{season}</div>
               </div>
               <div className="sync-state">
                 <span className={`sync-dot ${status}`} />
@@ -235,12 +287,14 @@ export default function Home() {
 
             <div className="ranking-status-row">
               <span>{lastSync ? `Last updated ${lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Connecting to live ranking…'}</span>
-              <button type="button" onClick={loadRanking} disabled={status === 'loading'}>↻ Refresh</button>
+              <button type="button" onClick={() => void loadRanking()} disabled={status === 'loading'}>↻ Refresh</button>
             </div>
 
             <div id="clrTableWrap">
               {error ? (
                 <div className="clr-status err">Failed to load clan ranking ({error})</div>
+              ) : clans.length === 0 ? (
+                <div className="clr-status">Loading clan ranking…</div>
               ) : (
                 <div className="table-scroll">
                   <table className="clr-table">
@@ -260,7 +314,7 @@ export default function Home() {
                         <tr key={`${clan.clanId || clan.clan}-${clan.rank}`} className={clan.gain > 0 ? 'gain-row' : ''}>
                           <td className="r">{clan.rank}</td>
                           <td>
-                            <button type="button" className="clr-mem" onClick={() => openClanModal(clan)}>
+                            <button type="button" className="clr-mem" onClick={() => void openClanModal(clan)}>
                               {clan.clan}
                             </button>
                           </td>
@@ -287,18 +341,25 @@ export default function Home() {
       </footer>
 
       {modalOpen && (
-        <div className="clr-modal show" id="clr-modal" role="dialog" aria-modal="true" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false); }}>
+        <div
+          className="clr-modal show"
+          id="clr-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedClan?.clan || 'Clan'} members`}
+          onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}
+        >
           <div className="clr-modal-box">
             <div className="clr-modal-head">
-              <b id="clr-modal-title">{selectedClan?.clan || 'Clan'}</b>
-              <button type="button" className="clr-modal-x" onClick={() => setModalOpen(false)} aria-label="Close">×</button>
+              <b>{selectedClan?.clan || 'Clan'}</b>
+              <button type="button" className="clr-modal-x" onClick={closeModal} aria-label="Close">×</button>
             </div>
             <div className="clr-modal-sub">
-              Total Reputation: <b>{fmt(selectedData?.reputation ?? selectedClan?.reputation ?? 0)}</b> • {members.length} member(s)
+              Total Reputation: <b>{fmt(memberData?.reputation ?? selectedClan?.reputation ?? 0)}</b> • {currentMembers.length} member(s)
             </div>
             <div className="clr-modal-body" id="clr-modal-body">
-              {memberLoading && !members.length ? (
-                <div className="clr-status">Loading...</div>
+              {memberLoading && !currentMembers.length ? (
+                <div className="clr-status">Loading members…</div>
               ) : memberError ? (
                 <div className="clr-status err">{memberError}</div>
               ) : (
@@ -315,7 +376,7 @@ export default function Home() {
                       </tr>
                     </thead>
                     <tbody>
-                      {[...members].sort((a, b) => cleanNumber(b.rep) - cleanNumber(a.rep)).map((member, index) => (
+                      {currentMembers.map((member, index) => (
                         <tr key={`${member.name}-${member.level}-${index}`} className={member.gain > 0 ? 'gain-row' : ''}>
                           <td>{index + 1}</td>
                           <td>{member.name}</td>
