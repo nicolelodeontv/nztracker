@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const REFRESH_MS = 3000;
-const SOUND_KEY = 'nztracker:sound-enabled';
 const RANKING_API = '/api/clan-ranking';
 const MEMBERS_API = '/api/clan-members';
 const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
@@ -43,7 +42,6 @@ export default function Home() {
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [lastSync, setLastSync] = useState(null);
-  const [soundEnabled, setSoundEnabled] = useState(true);
   const [selectedClan, setSelectedClan] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [memberLoading, setMemberLoading] = useState(false);
@@ -54,20 +52,10 @@ export default function Home() {
   const totalGainReputationRef = useRef({});
   const previousMemberRepRef = useRef({});
   const totalMemberGainRef = useRef({});
-  const soundEnabledRef = useRef(true);
   const selectedClanRef = useRef(null);
   const firstRankingLoadRef = useRef(true);
   const rankingRequestRef = useRef(false);
   const memberRequestRef = useRef(false);
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SOUND_KEY);
-      const enabled = stored !== 'false';
-      soundEnabledRef.current = enabled;
-      setSoundEnabled(enabled);
-    } catch {}
-  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setServerNow(Date.now()), 1000);
@@ -77,15 +65,6 @@ export default function Home() {
   useEffect(() => {
     selectedClanRef.current = selectedClan;
   }, [selectedClan]);
-
-  const playGainSound = useCallback(() => {
-    if (!soundEnabledRef.current || typeof window === 'undefined') return;
-    try {
-      const audio = new Audio('/beep.mp3');
-      audio.volume = 0.8;
-      void audio.play().catch(() => {});
-    } catch {}
-  }, []);
 
   const refreshClanMembers = useCallback(async (clan, { showLoading = false } = {}) => {
     const clanId = clan?.clanId;
@@ -168,7 +147,6 @@ export default function Home() {
         const oldRep = previous[id];
         let gain = oldRep === undefined ? 0 : reputation - oldRep;
         if (!Number.isFinite(gain) || gain < 0) gain = 0;
-        if (gain > 0 && !firstRankingLoadRef.current) playGainSound();
         previous[id] = reputation;
         totals[id] = (totals[id] || 0) + gain;
         return { ...row, gain, totalGain: totals[id] };
@@ -196,7 +174,7 @@ export default function Home() {
     } finally {
       rankingRequestRef.current = false;
     }
-  }, [playGainSound, refreshClanMembers]);
+  }, [refreshClanMembers]);
 
   useEffect(() => {
     void loadRanking();
@@ -248,19 +226,6 @@ export default function Home() {
             <span className="server-time-label">Server Time</span>
             <span className="server-time-value">{serverTime} SGT</span>
           </div>
-          <button
-            type="button"
-            id="soundToggle"
-            className={`sound-btn ${soundEnabled ? '' : 'off'}`}
-            onClick={() => {
-              const next = !soundEnabledRef.current;
-              soundEnabledRef.current = next;
-              setSoundEnabled(next);
-              try { localStorage.setItem(SOUND_KEY, String(next)); } catch {}
-            }}
-          >
-            {soundEnabled ? '🔊 Sound ON' : '🔇 Sound OFF'}
-          </button>
         </div>
       </header>
 
