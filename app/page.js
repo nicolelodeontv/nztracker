@@ -79,13 +79,13 @@ export default function Home() {
       const totals = totalMemberGainRef.current;
       const nextMembers = members.map((member, index) => {
         const id = String(member.id || member.name || `${clan.clanId}-${index}`);
-        const reputation = cleanNumber(member.rep);
+        const reputation = cleanNumber(member.reputation ?? member.rep);
         const oldRep = previous[id];
         let gain = oldRep === undefined ? 0 : reputation - oldRep;
         if (!Number.isFinite(gain) || gain < 0) gain = 0;
         previous[id] = reputation;
         totals[id] = (totals[id] || 0) + gain;
-        return { ...member, gain, totalGain: totals[id] };
+        return { ...member, reputation, rep: reputation, gain, totalGain: totals[id] };
       });
 
       setMemberData({ ...data, members: nextMembers });
@@ -199,7 +199,7 @@ export default function Home() {
       index + 1,
       member.name,
       member.level || '-',
-      member.rep || 0,
+      member.reputation ?? member.rep ?? 0,
       member.gain || 0,
       member.totalGain || 0,
     ]);
@@ -377,7 +377,7 @@ export default function Home() {
                           <td className="r">{index + 1}</td>
                           <td>{member.name}</td>
                           <td>{member.level || '—'}</td>
-                          <td className="sc">{fmt(member.rep)}</td>
+                          <td className="sc">{fmt(member.reputation ?? member.rep)}</td>
                           <td className="sc gain-number">{fmt(member.gain || 0)}</td>
                           <td className="sc total-gain-number">{fmt(member.totalGain || 0)}</td>
                         </tr>
