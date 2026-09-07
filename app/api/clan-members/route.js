@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
 
 const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
-const LEGACY_MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members';
+const LEGACY_MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members/';
 const SERVICE = 'ClanService.getMemberList';
 const RESPONSE_TARGET = '/1';
 const DEFAULT_MAX_STAMINA = 200;
@@ -68,35 +68,10 @@ class Reader {
   }
 
   u8() { this.ensure(1); return this.view.getUint8(this.offset++); }
-
-  u16() {
-    this.ensure(2);
-    const value = this.view.getUint16(this.offset);
-    this.offset += 2;
-    return value;
-  }
-
-  u32() {
-    this.ensure(4);
-    const value = this.view.getUint32(this.offset);
-    this.offset += 4;
-    return value;
-  }
-
-  f64() {
-    this.ensure(8);
-    const value = this.view.getFloat64(this.offset);
-    this.offset += 8;
-    return value;
-  }
-
-  readBytes(count) {
-    this.ensure(count);
-    const value = this.bytes.slice(this.offset, this.offset + count);
-    this.offset += count;
-    return value;
-  }
-
+  u16() { this.ensure(2); const value = this.view.getUint16(this.offset); this.offset += 2; return value; }
+  u32() { this.ensure(4); const value = this.view.getUint32(this.offset); this.offset += 4; return value; }
+  f64() { this.ensure(8); const value = this.view.getFloat64(this.offset); this.offset += 8; return value; }
+  readBytes(count) { this.ensure(count); const value = this.bytes.slice(this.offset, this.offset + count); this.offset += count; return value; }
   string16() { return textDecoder.decode(this.readBytes(this.u16())); }
   string32() { return textDecoder.decode(this.readBytes(this.u32())); }
 
@@ -250,37 +225,77 @@ async function fromAmf(clanId) {
   };
 }
 
-async function fromLegacy(clanId) {
-  const target = `${LEGACY_MEMBER_API}/${encodeURIComponent(clanId)}`;
+function parseLegacyMemberHtml(text) {
+  const rows = text.match(/<tr[\\s\\S]*?<\\/tr>/gi) || [];
+  const parsed = [];
+
+  for (const row of rows) {
+    const cells = (row.match(/<t[dh][^>]*>[\\s\\S]*?<\\/t[dh]>/gi) || []).map((cell) => clean(cell.replace(/<[^>]+>/g, ' ')));
+    if (cells.length < 2) continue;
+
+    const lower = cells.map((cell) => cell.toLowerCase());
+    if (lower.includes('member') || lower.includes('reputation')) continue;
+
+    const name = clean(cells[1] || cells[0]);
+    if (!name || /^#?$/.test(name)) continue;
+
+    parsed.push({
+      name,
+      level: toNumber(cells[2]) ?? 0,
+      reputation: toNumber(cells[3]) ?? toNumber(cells[2]) ?? 0,
+    });
+  }
+
+  return parsed;
+}
+
+async function fetchLegacyMembers(target, clanId) {
   const response = await fetch(target, {
     cache: 'no-store',
     headers: {
-      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.1',
-      Accept: 'application/json,text/plain,text/html,*/*'
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.3',
+      Accept: 'text/html,application/json,text/plain,*/*'
     }
   });
   if (!response.ok) throw new Error(`Legacy member source returned HTTP ${response.status}.`);
+
   const text = await response.text();
-  let rawMembers = [];
   try {
     const payload = JSON.parse(text);
-    rawMembers = Array.isArray(payload?.members) ? payload.members : Array.isArray(payload) ? payload : [];
+    const rawMembers = Array.isArray(payload?.members) ? payload.members : Array.isArray(payload) ? payload : [];
+    return normalizeMembers(rawMembers);
   } catch {
-    const match = text.match(/<tr[\s\S]*?<\/tr>/gi) || [];
-    rawMembers = match.map((row) => ({ name: clean(row.replace(/<[^>]+>/g, ' ')) }));
+    return normalizeMembers(parseLegacyMemberHtml(text));
   }
-  const members = normalizeMembers(rawMembers);
-  if (!members.length) throw new Error('Legacy member source returned no members.');
-  return {
-    clanId,
-    members,
-    count: members.length,
-    fetchedAt: new Date().toISOString(),
-    source: target,
-    service: 'legacy-fallback',
-    stored: false,
-    staminaSource: 'default-200'
-  };
+}
+
+async function fromLegacy(clanId) {
+  const targets = [
+    `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}&t=${Date.now()}`,
+    `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}`
+  ];
+  let lastError = null;
+
+  for (const target of targets) {
+    try {
+      const members = await fetchLegacyMembers(target, clanId);
+      if (!members.length) throw new Error('Legacy member source returned no members.');
+      return {
+        clanId,
+        members,
+        count: members.length,
+        fetchedAt: new Date().toISOString(),
+        source: target,
+        service: 'legacy-fallback',
+        stored: false,
+        staminaSource: 'default-200'
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Legacy member source returned no members.');
 }
 
 export async function GET(request) {
