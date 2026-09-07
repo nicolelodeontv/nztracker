@@ -45,55 +45,89 @@ function parseCountdown($) {
   };
 }
 
+function looksLikeRankingTable($, table) {
+  const headers = $(table).find('thead th').map((_, element) => clean($(element).text()).toLowerCase()).get();
+  const rankIndex = findHeaderIndex(headers, 'rank', '#', 'ranking');
+  const clanIndex = findHeaderIndex(headers, 'clan');
+  const masterIndex = findHeaderIndex(headers, 'master', 'clan master', 'leader');
+  const membersIndex = findHeaderIndex(headers, 'members', 'member');
+  const reputationIndex = findHeaderIndex(headers, 'reputation', 'rep');
+  return {
+    headers,
+    rankIndex,
+    clanIndex,
+    masterIndex,
+    membersIndex,
+    reputationIndex,
+    valid: [rankIndex, clanIndex, membersIndex, reputationIndex].every((index) => index >= 0)
+  };
+}
+
 export function parseRankingHtml(html) {
   const $ = cheerio.load(String(html ?? ''));
-  const rows = [];
+  const candidates = [];
 
   $('table').each((_, table) => {
-    const headers = $(table).find('thead th').map((__, element) => clean($(element).text()).toLowerCase()).get();
-    const rankIndex = findHeaderIndex(headers, 'rank', '#', 'ranking');
-    const clanIndex = findHeaderIndex(headers, 'clan');
-    const masterIndex = findHeaderIndex(headers, 'master', 'clan master', 'leader');
-    const membersIndex = findHeaderIndex(headers, 'members', 'member');
-    const reputationIndex = findHeaderIndex(headers, 'reputation', 'rep');
-    if ([rankIndex, clanIndex, membersIndex, reputationIndex].some((index) => index < 0)) return;
+    const definition = looksLikeRankingTable($, table);
+    if (!definition.valid) return;
 
+    const tableRows = [];
     $(table).find('tbody tr').each((__, row) => {
       const cells = $(row).find('td').map((___, cell) => clean($(cell).text())).get();
       if (!cells.length) return;
-      const clan = clean(cells[clanIndex]);
+
+      const clan = clean(cells[definition.clanIndex]);
       if (!clan) return;
-      const memberCount = parseMemberCount(cells[membersIndex]);
-      const rank = toNumber(cells[rankIndex]);
+
+      const memberCount = parseMemberCount(cells[definition.membersIndex]);
+      const master = definition.masterIndex >= 0 ? clean(cells[definition.masterIndex]) : '';
+      const rank = toNumber(cells[definition.rankIndex]);
+      const reputation = toNumber(cells[definition.reputationIndex]);
+      const clanId = findClanId($, row);
+
       if (rank <= 0) return;
 
-      rows.push({
+      // The source page currently contains a secondary table using the same
+      // headers but empty member/master fields. Ignore those rows entirely.
+      const isRealClanRow = Boolean(clanId) || Boolean(master) || memberCount.current > 0 || memberCount.max > 0;
+      if (!isRealClanRow) return;
+
+      tableRows.push({
         rank,
         clan,
-        master: masterIndex >= 0 ? clean(cells[masterIndex]) : '',
+        master,
         memberCurrent: memberCount.current,
         memberMax: memberCount.max,
-        reputation: toNumber(cells[reputationIndex]),
-        clanId: findClanId($, row)
+        reputation,
+        clanId
       });
     });
+
+    if (tableRows.length) candidates.push(tableRows);
   });
 
-  rows.sort((a, b) => a.rank - b.rank);
+  if (!candidates.length) throw new Error('Clan ranking table not found in source HTML');
 
-  // The source may contain the same ranking more than once. Deduplicate by
-  // the real clan ID when available, otherwise by normalized clan name.
-  const seen = new Set();
+  // Prefer the table carrying actual clan metadata and the largest number of
+  // valid clan rows. This avoids accidentally merging an alternate/summary
+  // table that repeats the ranking with incomplete values.
+  candidates.sort((a, b) => b.length - a.length);
+  const rows = candidates[0].slice().sort((a, b) => a.rank - b.rank);
+
+  // Final guard against duplicate rows from responsive/desktop copies.
+  const seenIds = new Set();
+  const seenNames = new Set();
   const uniqueRows = rows.filter((row) => {
-    const key = row.clanId
-      ? `id:${row.clanId}`
-      : `name:${row.clan.toLocaleLowerCase().normalize('NFC')}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const nameKey = row.clan.toLocaleLowerCase().normalize('NFC');
+    const idKey = row.clanId ? String(row.clanId) : null;
+    if (idKey && seenIds.has(idKey)) return false;
+    if (!idKey && seenNames.has(nameKey)) return false;
+    if (idKey) seenIds.add(idKey);
+    seenNames.add(nameKey);
     return true;
   });
 
-  if (!uniqueRows.length) throw new Error('Clan ranking table not found in source HTML');
+  if (!uniqueRows.length) throw new Error('Clan ranking table contained no usable rows');
 
   const bodyText = clean($('body').text());
   const seasonMatch = bodyText.match(/Clan Ranking\s+Season\s+(\d+)/i);
