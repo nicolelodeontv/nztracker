@@ -1,6 +1,5 @@
 import './globals.css';
 import './tracker.css';
-import MemberImport from './components/member-import';
 
 export const metadata = {
   title: 'NINJA ZENSHIN — Clan Ranking',
@@ -10,10 +9,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>
-        {children}
-        <MemberImport />
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
