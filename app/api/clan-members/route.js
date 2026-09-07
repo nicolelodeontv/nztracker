@@ -1,12 +1,13 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 20;
+export const maxDuration = 15;
 
 const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
 const LEGACY_MEMBER_API = 'https://ninjazenshin.online/clan-ranking/members/';
 const SERVICE = 'ClanService.getMemberList';
 const RESPONSE_TARGET = '/1';
 const DEFAULT_MAX_STAMINA = 200;
+const UPSTREAM_TIMEOUT_MS = 7000;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -19,6 +20,21 @@ function toNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(String(value).replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) ? n : null;
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Upstream request timed out after ${UPSTREAM_TIMEOUT_MS / 1000}s.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function pushBytes(target, bytes) {
@@ -193,7 +209,7 @@ function normalizeMembers(rawMembers) {
 }
 
 async function fromAmf(clanId) {
-  const response = await fetch(AMF_ORIGIN, {
+  const response = await fetchWithTimeout(AMF_ORIGIN, {
     method: 'POST',
     cache: 'no-store',
     body: buildMemberRequest(clanId),
@@ -257,7 +273,7 @@ function parseLegacyMemberHtml(text) {
 }
 
 async function fetchLegacyMembers(target) {
-  const response = await fetch(target, {
+  const response = await fetchWithTimeout(target, {
     cache: 'no-store',
     headers: {
       'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.3',
@@ -277,33 +293,20 @@ async function fetchLegacyMembers(target) {
 }
 
 async function fromLegacy(clanId) {
-  const encodedClanId = encodeURIComponent(clanId);
-  const targets = [
-    `${LEGACY_MEMBER_API}${encodedClanId}?t=${Date.now()}`,
-    `${LEGACY_MEMBER_API}${encodedClanId}`
-  ];
-  let lastError = null;
+  const target = `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}?t=${Date.now()}`;
+  const members = await fetchLegacyMembers(target);
+  if (!members.length) throw new Error('Legacy member source returned no members.');
 
-  for (const target of targets) {
-    try {
-      const members = await fetchLegacyMembers(target);
-      if (!members.length) throw new Error('Legacy member source returned no members.');
-      return {
-        clanId,
-        members,
-        count: members.length,
-        fetchedAt: new Date().toISOString(),
-        source: target,
-        service: 'legacy-fallback',
-        stored: false,
-        staminaSource: 'default-200'
-      };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error('Legacy member source returned no members.');
+  return {
+    clanId,
+    members,
+    count: members.length,
+    fetchedAt: new Date().toISOString(),
+    source: target,
+    service: 'legacy-live',
+    stored: false,
+    staminaSource: 'default-200'
+  };
 }
 
 export async function GET(request) {
@@ -316,16 +319,33 @@ export async function GET(request) {
 
   try {
     try {
-      return Response.json(await fromAmf(clanId), { headers: { 'Cache-Control': 'no-store, max-age=0' } });
-    } catch (amfError) {
-      console.warn('Game AMF member request failed; using live fallback.', amfError);
-      const fallback = await fromLegacy(clanId);
-      return Response.json({ ...fallback, fallbackReason: amfError instanceof Error ? amfError.message : String(amfError) }, {
-        headers: { 'Cache-Control': 'no-store, max-age=0' }
-      });
+      return Response.json(await fromLegacy(clanId), { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    } catch (legacyError) {
+      try {
+        return Response.json({
+          ...(await fromAmf(clanId)),
+          fallbackReason: legacyError instanceof Error ? legacyError.message : String(legacyError),
+        }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+      } catch (amfError) {
+        console.error('All Ninja Zenshin member sources failed', {
+          clanId,
+          legacy: legacyError instanceof Error ? legacyError.message : String(legacyError),
+          amf: amfError instanceof Error ? amfError.message : String(amfError),
+        });
+        return Response.json({
+          error: 'Unable to fetch Ninja Zenshin clan members right now',
+          details: amfError instanceof Error ? amfError.message : String(amfError),
+          clanId,
+          source: AMF_ORIGIN,
+          service: SERVICE
+        }, {
+          status: 502,
+          headers: { 'Cache-Control': 'no-store, max-age=0' }
+        });
+      }
     }
   } catch (error) {
-    console.error('All Ninja Zenshin member sources failed', error);
+    console.error('Unexpected Ninja Zenshin member route failure', error);
     return Response.json({
       error: 'Unable to fetch Ninja Zenshin clan members right now',
       details: error instanceof Error ? error.message : String(error),
