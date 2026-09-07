@@ -95,7 +95,10 @@ function parseImportedFile(name, text) {
   if (rows.length < 2) throw new Error('CSV must contain a header row and at least one member.');
 
   const headers = rows[0].map(normalizeHeader);
-  const find = (...names) => names.map(normalizeHeader).map((name) => headers.indexOf(name)).find((index) => index >= 0);
+  const find = (...names) => names
+    .map(normalizeHeader)
+    .map((name) => headers.indexOf(name))
+    .find((index) => index >= 0);
   const nameIndex = find('name', 'member', 'player', 'username');
   const levelIndex = find('level', 'lv');
   const repIndex = find('rep', 'reputation');
@@ -123,6 +126,10 @@ function renderImportedMembers(members) {
   const tbody = table?.querySelector('tbody');
   if (!tbody) return false;
 
+  const firstImportedName = members[0]?.name;
+  const currentFirstName = tbody.rows[0]?.cells?.[1]?.textContent?.trim();
+  if (firstImportedName && currentFirstName === firstImportedName && tbody.rows.length === members.length) return true;
+
   tbody.replaceChildren();
   members.forEach((member, index) => {
     const row = document.createElement('tr');
@@ -134,6 +141,7 @@ function renderImportedMembers(members) {
       Number(member.gain || 0).toLocaleString('en-US'),
       Number(member.totalGain || 0).toLocaleString('en-US'),
     ];
+
     cells.forEach((value, cellIndex) => {
       const cell = document.createElement('td');
       cell.textContent = value;
@@ -142,6 +150,7 @@ function renderImportedMembers(members) {
       if (cellIndex === 5) cell.className = 'total-gain-number';
       row.appendChild(cell);
     });
+
     tbody.appendChild(row);
   });
 
@@ -150,6 +159,7 @@ function renderImportedMembers(members) {
     const label = sub.textContent.replace(/•.*$/, '').trim();
     sub.textContent = `${label} • ${members.length} imported member(s)`;
   }
+
   return true;
 }
 
@@ -165,6 +175,11 @@ export default function MemberImport() {
 
       const actions = document.createElement('div');
       actions.className = 'member-import-actions';
+      actions.style.display = 'flex';
+      actions.style.alignItems = 'center';
+      actions.style.gap = '6px';
+      actions.style.marginLeft = 'auto';
+      actions.style.marginRight = '6px';
 
       const importButton = document.createElement('button');
       importButton.type = 'button';
@@ -172,6 +187,14 @@ export default function MemberImport() {
       importButton.dataset.memberImport = 'true';
       importButton.textContent = '↥ Import';
       importButton.title = 'Import members from CSV or JSON';
+      importButton.style.height = '30px';
+      importButton.style.padding = '0 10px';
+      importButton.style.border = '1px solid var(--line)';
+      importButton.style.borderRadius = '8px';
+      importButton.style.background = '#1A1917';
+      importButton.style.color = 'var(--text)';
+      importButton.style.cursor = 'pointer';
+      importButton.style.font = "700 .52rem 'Geist Mono',monospace";
 
       const input = document.createElement('input');
       input.type = 'file';
@@ -182,12 +205,15 @@ export default function MemberImport() {
         const file = input.files?.[0];
         input.value = '';
         if (!file) return;
+
         try {
           const text = await file.text();
           const members = parseImportedFile(file.name, text);
           if (!members.length) throw new Error('No valid members were found in the file.');
+
           const clanName = getCurrentClanName();
           if (!clanName) throw new Error('Open a clan members window before importing.');
+
           const store = readStore();
           store[clanName] = members;
           writeStore(store);
@@ -198,6 +224,8 @@ export default function MemberImport() {
       });
 
       importButton.addEventListener('click', () => input.click());
+      importButton.addEventListener('mouseenter', () => { importButton.style.borderColor = '#514A42'; });
+      importButton.addEventListener('mouseleave', () => { importButton.style.borderColor = 'var(--line)'; });
       actions.append(importButton, input);
 
       const closeButton = modalHead.querySelector('.clr-modal-x');
@@ -208,10 +236,12 @@ export default function MemberImport() {
     const applyStoredMembers = () => {
       const clanName = getCurrentClanName();
       if (!clanName || renderingRef.current) return;
+
       const members = readStore()[clanName];
       if (!Array.isArray(members) || !members.length) return;
       const body = document.querySelector('.clr-modal.show .clr-modal-body');
       if (!body?.querySelector('.clr-mtable tbody')) return;
+
       renderingRef.current = true;
       renderImportedMembers(members);
       renderingRef.current = false;
