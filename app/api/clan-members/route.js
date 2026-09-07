@@ -154,6 +154,7 @@ function parseMemberResponse(buffer) {
 }
 
 function normalizeMembers(rawMembers) {
+  const seen = new Set();
   return (Array.isArray(rawMembers) ? rawMembers : []).map((member) => {
     const source = member && typeof member === 'object' ? member : {};
     const nested = source?.stats || source?.attributes || source?.status || {};
@@ -182,7 +183,13 @@ function normalizeMembers(rawMembers) {
       drainFloor: maxStamina * 0.50,
       bleeding: stamina <= maxStamina * 0.70
     };
-  }).filter((member) => member.name);
+  }).filter((member) => {
+    if (!member.name) return false;
+    const key = member.id ? `id:${member.id}` : `name:${member.name.normalize('NFC').toLocaleLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function fromAmf(clanId) {
@@ -270,9 +277,10 @@ async function fetchLegacyMembers(target) {
 }
 
 async function fromLegacy(clanId) {
+  const encodedClanId = encodeURIComponent(clanId);
   const targets = [
-    `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}?t=${Date.now()}`,
-    `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}`
+    `${LEGACY_MEMBER_API}${encodedClanId}?t=${Date.now()}`,
+    `${LEGACY_MEMBER_API}${encodedClanId}`
   ];
   let lastError = null;
 
