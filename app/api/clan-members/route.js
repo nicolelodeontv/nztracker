@@ -226,11 +226,11 @@ async function fromAmf(clanId) {
 }
 
 function parseLegacyMemberHtml(text) {
-  const rows = text.match(/<tr[\\s\\S]*?<\\/tr>/gi) || [];
+  const rows = text.match(/<tr[\s\S]*?<\/tr>/gi) || [];
   const parsed = [];
 
   for (const row of rows) {
-    const cells = (row.match(/<t[dh][^>]*>[\\s\\S]*?<\\/t[dh]>/gi) || []).map((cell) => clean(cell.replace(/<[^>]+>/g, ' ')));
+    const cells = (row.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi) || []).map((cell) => clean(cell.replace(/<[^>]+>/g, ' ')));
     if (cells.length < 2) continue;
 
     const lower = cells.map((cell) => cell.toLowerCase());
@@ -249,7 +249,7 @@ function parseLegacyMemberHtml(text) {
   return parsed;
 }
 
-async function fetchLegacyMembers(target, clanId) {
+async function fetchLegacyMembers(target) {
   const response = await fetch(target, {
     cache: 'no-store',
     headers: {
@@ -271,14 +271,14 @@ async function fetchLegacyMembers(target, clanId) {
 
 async function fromLegacy(clanId) {
   const targets = [
-    `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}&t=${Date.now()}`,
+    `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}?t=${Date.now()}`,
     `${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}`
   ];
   let lastError = null;
 
   for (const target of targets) {
     try {
-      const members = await fetchLegacyMembers(target, clanId);
+      const members = await fetchLegacyMembers(target);
       if (!members.length) throw new Error('Legacy member source returned no members.');
       return {
         clanId,
