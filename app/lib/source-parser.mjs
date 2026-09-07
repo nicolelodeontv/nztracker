@@ -36,8 +36,6 @@ function parseCountdown($) {
   const hours = toNumber(root.find('[data-h]').first().text());
   const minutes = toNumber(root.find('[data-m]').first().text());
   const seconds = toNumber(root.find('[data-s]').first().text());
-  const values = [days, hours, minutes, seconds];
-  if (!values.every(Number.isFinite)) return null;
   return {
     days,
     hours,
@@ -58,16 +56,13 @@ export function parseRankingHtml(html) {
     const masterIndex = findHeaderIndex(headers, 'master', 'clan master', 'leader');
     const membersIndex = findHeaderIndex(headers, 'members', 'member');
     const reputationIndex = findHeaderIndex(headers, 'reputation', 'rep');
-
     if ([rankIndex, clanIndex, membersIndex, reputationIndex].some((index) => index < 0)) return;
 
     $(table).find('tbody tr').each((__, row) => {
       const cells = $(row).find('td').map((___, cell) => clean($(cell).text())).get();
       if (!cells.length) return;
-
       const clan = clean(cells[clanIndex]);
       if (!clan) return;
-
       const memberCount = parseMemberCount(cells[membersIndex]);
       const rank = toNumber(cells[rankIndex]);
       if (rank <= 0) return;
@@ -85,14 +80,27 @@ export function parseRankingHtml(html) {
   });
 
   rows.sort((a, b) => a.rank - b.rank);
-  if (!rows.length) throw new Error('Clan ranking table not found in source HTML');
+
+  // The source may contain the same ranking more than once. Deduplicate by
+  // the real clan ID when available, otherwise by normalized clan name.
+  const seen = new Set();
+  const uniqueRows = rows.filter((row) => {
+    const key = row.clanId
+      ? `id:${row.clanId}`
+      : `name:${row.clan.toLocaleLowerCase().normalize('NFC')}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (!uniqueRows.length) throw new Error('Clan ranking table not found in source HTML');
 
   const bodyText = clean($('body').text());
   const seasonMatch = bodyText.match(/Clan Ranking\s+Season\s+(\d+)/i);
   const season = seasonMatch ? `Season ${seasonMatch[1]}` : 'Season 2';
 
   return {
-    rows,
+    rows: uniqueRows,
     season,
     countdown: parseCountdown($)
   };
