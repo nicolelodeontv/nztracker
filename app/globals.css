@@ -1,17 +1,22 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap');
 
 :root {
   color-scheme: dark;
-  --bg: #06080d;
-  --panel: #0a1119;
-  --panel-soft: #0b131c;
-  --text: #eef4fa;
-  --muted: #8390a3;
-  --line: #1b2632;
-  --line-soft: #15202a;
-  --cyan: #54d7ff;
-  --good: #5de5ad;
-  --danger: #ff8e8e;
+  --bg: #0D0D0D;
+  --panel: #141413;
+  --panel-soft: #111110;
+  --text: #F5F3EE;
+  --muted: #AAA49A;
+  --muted-2: #777169;
+  --line: #2A2824;
+  --line-soft: #211F1C;
+  --primary: #D97757;
+  --primary-soft: rgba(217,119,87,.12);
+  --good: #93A970;
+  --danger: #E47B70;
+  --warn: #D6A25F;
+  --blue: #7EA6D1;
+  --violet: #B39AC9;
 }
 
 * { box-sizing: border-box; }
@@ -21,27 +26,27 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 15% -10%, rgba(84,215,255,.07), transparent 28rem),
-    radial-gradient(circle at 90% -10%, rgba(168,117,255,.045), transparent 26rem),
+    radial-gradient(circle at 12% -10%, rgba(217,119,87,.055), transparent 28rem),
+    radial-gradient(circle at 90% -10%, rgba(179,154,201,.035), transparent 26rem),
     var(--bg);
   color: var(--text);
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-family: 'Geist', system-ui, sans-serif;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 button:disabled { cursor: not-allowed; opacity: .55; }
-input, button { touch-action: manipulation; }
-::selection { background: rgba(84,215,255,.22); color: #fff; }
-:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+input, button, select { touch-action: manipulation; }
+::selection { background: rgba(217,119,87,.24); color: #FFF8F3; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #202c38; border-radius: 999px; }
-::-webkit-scrollbar-thumb:hover { background: #30404f; }
+::-webkit-scrollbar-thumb { background: #34312C; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #45413A; }
 
 @media (max-width: 620px) {
   body { font-size: 15px; }
