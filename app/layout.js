@@ -1,5 +1,4 @@
 import './globals.css';
-import './tracker.css';
 import MemberExport from './member-export';
 import AppNav from './app-nav';
 
