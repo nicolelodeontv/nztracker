@@ -213,6 +213,38 @@ export default function Home() {
   const currentMembers = memberData?.members || [];
   const serverTime = getServerTime(serverNow);
 
+  const exportMembers = useCallback(() => {
+    if (!currentMembers.length) return;
+
+    const escapeCsv = (value) => {
+      const text = String(value ?? '');
+      return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+
+    const headers = ['#', 'Member', 'Lv', 'Rep', 'Gain', 'Total Gain'];
+    const rows = currentMembers.map((member, index) => [
+      index + 1,
+      member.name,
+      member.level || '-',
+      member.rep || 0,
+      member.gain || 0,
+      member.totalGain || 0,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(escapeCsv).join(','))
+      .join('\r\n');
+
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${(selectedClan?.clan || 'clan-members').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'clan-members'}-members.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, [currentMembers, selectedClan]);
+
   return (
     <div className="site-wrapper">
       <header className="site-header">
@@ -317,7 +349,18 @@ export default function Home() {
           <div className="clr-modal-box">
             <div className="clr-modal-head">
               <b>{selectedClan?.clan || 'Clan'}</b>
-              <button type="button" className="clr-modal-x" onClick={closeModal} aria-label="Close">×</button>
+              <div className="clr-modal-actions">
+                <button
+                  type="button"
+                  className="clr-modal-export"
+                  onClick={exportMembers}
+                  disabled={!currentMembers.length}
+                  title="Export the current member list as CSV"
+                >
+                  ↧ Export
+                </button>
+                <button type="button" className="clr-modal-x" onClick={closeModal} aria-label="Close">×</button>
+              </div>
             </div>
             <div className="clr-modal-sub">
               Total Reputation: <b>{fmt(memberData?.reputation ?? selectedClan?.reputation ?? 0)}</b> • {currentMembers.length} member(s)
