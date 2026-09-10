@@ -4,6 +4,7 @@ export const HISTORY_SAMPLE_MS = 5 * 60 * 1000;
 export const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 const HISTORY_PREFIX = 'nztracker/member-history';
+const HEALTH_PATH = `${HISTORY_PREFIX}/.healthcheck`;
 const locks = new Map();
 const textResponse = async (stream) => new Response(stream).text();
 const normalizeSeason = (season) => String(season || 'Season 2').trim().replace(/[^a-zA-Z0-9._-]+/g, '_');
@@ -11,8 +12,12 @@ const normalizeClanId = (clanId) => String(clanId || '').trim();
 
 export const historyPath = (clanId) => `${HISTORY_PREFIX}/${normalizeClanId(clanId)}.json`;
 
-function isStorageConfigured() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN);
+function hasBlobStoreConfig() {
+  return Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+function hasBlobAuthConfig() {
+  return Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.BLOB_READ_WRITE_TOKEN);
 }
 
 function emptyDocument(clanId) {
@@ -20,7 +25,7 @@ function emptyDocument(clanId) {
 }
 
 async function readDocument(clanId) {
-  if (!isStorageConfigured()) return emptyDocument(clanId);
+  if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return emptyDocument(clanId);
   try {
     const result = await get(historyPath(clanId), { access: 'private', useCache: false });
     if (!result) return emptyDocument(clanId);
@@ -36,7 +41,7 @@ async function readDocument(clanId) {
 }
 
 async function writeDocument(clanId, document) {
-  if (!isStorageConfigured()) return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
+  if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
   await put(historyPath(clanId), JSON.stringify(document), { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
   return { stored: true };
 }
@@ -104,9 +109,24 @@ export async function readMemberHistory({ clanId, season, hours = 168 }) {
     const points = cleanPoints(value?.points, cutoff);
     if (points.length) members[id] = { ...value, points };
   });
-  return { version: document.version, clanId: key, season: seasonKey, startedAt: seasonData.startedAt || null, updatedAt: seasonData.updatedAt || document.updatedAt || null, stored: isStorageConfigured(), members };
+  return { version: document.version, clanId: key, season: seasonKey, startedAt: seasonData.startedAt || null, updatedAt: seasonData.updatedAt || document.updatedAt || null, stored: storageHealth().durable, members };
+}
+
+export async function verifyStorageConnection() {
+  if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) {
+    return { configured: false, durable: false, authenticated: hasBlobAuthConfig(), provider: 'vercel-blob-private' };
+  }
+  try {
+    const result = await get(HEALTH_PATH, { access: 'private', useCache: false });
+    return { configured: true, durable: true, authenticated: true, provider: 'vercel-blob-private', healthObjectExists: Boolean(result) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { configured: true, durable: false, authenticated: true, provider: 'vercel-blob-private', error: message };
+  }
 }
 
 export function storageHealth() {
-  return { provider: 'vercel-blob-private', configured: isStorageConfigured(), durable: isStorageConfigured() };
+  const configured = hasBlobStoreConfig();
+  const authenticated = hasBlobAuthConfig();
+  return { provider: 'vercel-blob-private', configured, authenticated, durable: configured && authenticated };
 }
