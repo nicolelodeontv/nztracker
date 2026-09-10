@@ -64,14 +64,12 @@ export default function Home() {
 
   const ensureMemberHistory = useCallback(() => {
     if (memberHistoryRef.current) return memberHistoryRef.current;
-
     try {
       const stored = window.localStorage.getItem(MEMBER_HISTORY_STORAGE_KEY);
       memberHistoryRef.current = stored ? JSON.parse(stored) : {};
     } catch {
       memberHistoryRef.current = {};
     }
-
     return memberHistoryRef.current;
   }, []);
 
@@ -154,19 +152,14 @@ export default function Home() {
   const loadRanking = useCallback(async () => {
     if (rankingRequestRef.current) return;
     rankingRequestRef.current = true;
-
     try {
       setStatus((current) => current === 'live' ? 'live' : 'loading');
-
       const response = await fetch(`${RANKING_API}?t=${Date.now()}`, {
         cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.details || data.error || `HTTP ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
       const rows = Array.isArray(data.rows) ? data.rows : [];
       const previous = previousReputationRef.current;
       const totals = totalGainReputationRef.current;
@@ -180,14 +173,12 @@ export default function Home() {
         totals[id] = (totals[id] || 0) + gain;
         return { ...row, gain, totalGain: totals[id] };
       });
-
       setClans(nextRows);
       setSeason(data.season || 'Season 2');
       setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
       setLastSync(new Date(data.fetchedAt || Date.now()));
       setStatus('live');
       setError('');
-
       const activeClan = selectedClanRef.current;
       if (activeClan) {
         const updatedSelected = nextRows.find((row) => row.clanId === activeClan.clanId);
@@ -252,7 +243,6 @@ export default function Home() {
 
   const exportMembers = useCallback(() => {
     if (!currentMembers.length) return;
-
     const hours = Number(exportHours) || 5;
     const now = Date.now();
     const requestedStart = now - hours * 60 * 60 * 1000;
@@ -266,9 +256,9 @@ export default function Home() {
       '#',
       'Member',
       'Lv',
-      `Rep ${hours}h Ago`,
-      'Current Rep',
-      `Rep Gain (${hours}h)`,
+      'Before Rep',
+      'After Rep',
+      'Rep Gain',
       'Measured Hours',
       'Start Time',
       'End Time',
@@ -283,18 +273,18 @@ export default function Home() {
         .sort((a, b) => Number(a.t) - Number(b.t));
       const startPoint = eligible[eligible.length - 1] || points[0];
       const currentRep = cleanNumber(member.reputation ?? member.rep);
-      const startRep = startPoint ? cleanNumber(startPoint.r) : currentRep;
+      const beforeRep = startPoint ? cleanNumber(startPoint.r) : currentRep;
       const measuredMs = startPoint ? Math.max(0, now - Number(startPoint.t)) : 0;
       const measuredHours = measuredMs / (60 * 60 * 1000);
-      const intervalGain = Math.max(0, currentRep - startRep);
+      const repGain = Math.max(0, currentRep - beforeRep);
 
       return [
         index + 1,
         member.name,
         member.level || '-',
-        startRep,
+        beforeRep,
         currentRep,
-        intervalGain,
+        repGain,
         measuredHours.toFixed(2),
         formatDate(startPoint?.t),
         formatDate(now),
@@ -307,15 +297,10 @@ export default function Home() {
       ['Requested Window', `${hours} hours`],
       ['Exported At', formatDate(now)],
       ['History Tracking Started', formatDate(trackingStartedAt?.getTime())],
-      ['Note', 'Rep history is tracked in this browser. If less history is available, the export uses the earliest stored snapshot.'],
+      ['Note', 'Before Rep is the last stored reputation snapshot at or before the requested window. After Rep is the current live reputation. Rep Gain is After Rep minus Before Rep.'],
     ];
 
-    const csv = [
-      ...meta,
-      [],
-      headers,
-      ...rows,
-    ]
+    const csv = [...meta, [], headers, ...rows]
       .map((row) => row.map(escapeCsv).join(','))
       .join('\r\n');
 
@@ -456,20 +441,8 @@ export default function Home() {
                 <select
                   value={exportHours}
                   onChange={(event) => setExportHours(Number(event.target.value))}
-                  aria-label="Export history window"
-                  title="Export history window"
-                  style={{
-                    minHeight: '36px',
-                    padding: '0 9px',
-                    border: '1px solid #61300e',
-                    borderRadius: '4px',
-                    background: '#160c06',
-                    color: '#f1c08a',
-                    font: '800 .68rem/1 var(--display-font)',
-                    letterSpacing: '.04em',
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                  }}
+                  className="clr-modal-export"
+                  aria-label="Export period"
                 >
                   <option value={1}>1H</option>
                   <option value={3}>3H</option>
@@ -482,18 +455,15 @@ export default function Home() {
                   className="clr-modal-export"
                   onClick={exportMembers}
                   disabled={!currentMembers.length}
-                  title={`Export ${exportHours} hours of member reputation gains as CSV`}
+                  title="Export member reputation before and after the selected period"
                 >
-                  ↧ Export {exportHours}h
+                  ↧ Export {exportHours}H
                 </button>
                 <button type="button" className="clr-modal-x" onClick={closeModal} aria-label="Close">×</button>
               </div>
             </div>
             <div className="clr-modal-sub">
               Total Reputation: <b>{fmt(memberData?.reputation ?? selectedClan?.reputation ?? 0)}</b> • {currentMembers.length} member(s)
-              {trackingStartedAt && (
-                <span> • Tracking since {trackingStartedAt.toLocaleString('en-PH', { hour12: false })}</span>
-              )}
             </div>
             <div className="clr-modal-body" id="clr-modal-body">
               {memberLoading && !currentMembers.length ? (
