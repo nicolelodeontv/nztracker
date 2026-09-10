@@ -1,5 +1,6 @@
 import './globals.css';
 import './tracker.css';
+import CsvExportFix from './csv-export-fix';
 
 export const metadata = {
   title: 'NINJA ZENSHIN — Clan Ranking',
@@ -14,7 +15,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><CsvExportFix />{children}</body>
     </html>
   );
 }
