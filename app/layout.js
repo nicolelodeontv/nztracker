@@ -1,5 +1,6 @@
 import './globals.css';
 import './tracker.css';
+import './aitmpl-upgrades.css';
 import './mobile.css';
 import CsvExportFix from './csv-export-fix';
 
