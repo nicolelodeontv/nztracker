@@ -1,5 +1,6 @@
 import './globals.css';
 import './tracker.css';
+import './mobile.css';
 import CsvExportFix from './csv-export-fix';
 
 export const metadata = {
@@ -10,6 +11,12 @@ export const metadata = {
     shortcut: '/icon.svg',
     apple: '/icon.svg'
   }
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover'
 };
 
 export default function RootLayout({ children }) {
