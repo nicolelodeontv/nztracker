@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { storageHealth } from '../../lib/member-history';
+import { recordMemberSnapshot, storageHealth } from '../../lib/member-history';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,15 +46,39 @@ async function collectRanking() {
   return { season, rows, fetchedAt: new Date().toISOString(), source: SOURCE };
 }
 
-async function countMembers(clanId, requestUrl) {
-  if (!clanId) return { count: 0, source: 'none' };
+async function fetchMembers(clanId, requestUrl) {
+  if (!clanId) return { count: 0, source: 'none', members: [], stored: false };
   const target = new URL('/api/clan-members', requestUrl);
   target.searchParams.set('clanId', clanId);
   target.searchParams.set('monitor', '1');
-  const response = await fetch(target, { cache: 'no-store', headers: { Accept: 'application/json' } });
+  const response = await fetch(target, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' }
+  });
   if (!response.ok) throw new Error(`Member route returned HTTP ${response.status} for ${clanId}`);
   const payload = await response.json();
-  return { count: Number(payload?.count || 0), source: payload?.stale ? 'last-known' : payload?.staminaSource || payload?.service || 'live' };
+  return {
+    count: Number(payload?.count || 0),
+    source: payload?.stale ? 'last-known' : payload?.staminaSource || payload?.service || 'live',
+    members: Array.isArray(payload?.members) ? payload.members : [],
+    stale: Boolean(payload?.stale),
+  };
+}
+
+async function monitorClan(clan, season, requestUrl) {
+  const data = await fetchMembers(clan.clanId, requestUrl);
+  if (!clan.clanId || data.stale || !data.members.length) {
+    return { ...data, clanId: clan.clanId, clan: clan.clan, history: { stored: false, reason: data.stale ? 'Last-known member data; snapshot not advanced.' : 'No live members returned.' } };
+  }
+
+  const history = await recordMemberSnapshot({
+    clanId: clan.clanId,
+    season,
+    members: data.members,
+    capturedAt: Date.now(),
+  });
+
+  return { ...data, clanId: clan.clanId, clan: clan.clan, history };
 }
 
 export async function GET(request) {
@@ -62,9 +86,11 @@ export async function GET(request) {
   try {
     const ranking = await collectRanking();
     const withIds = ranking.rows.filter((clan) => clan.clanId);
-    const results = await Promise.allSettled(withIds.map((clan) => countMembers(clan.clanId, request.url)));
+    const results = await Promise.allSettled(withIds.map((clan) => monitorClan(clan, ranking.season, request.url)));
     const membersSeen = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value.count : 0), 0);
     const memberErrors = results.filter((result) => result.status === 'rejected').length;
+    const historyStored = results.filter((result) => result.status === 'fulfilled' && result.value.history?.stored).length;
+    const historyChanged = results.filter((result) => result.status === 'fulfilled' && result.value.history?.changed).length;
     const sourceCounts = {};
     results.forEach((result) => {
       if (result.status !== 'fulfilled') return;
@@ -81,6 +107,7 @@ export async function GET(request) {
       membersSeen,
       memberErrors,
       memberSources: sourceCounts,
+      history: { clansStored: historyStored, clansChanged: historyChanged, sampleIntervalMs: 5 * 60 * 1000 },
       historyStorage: storageHealth(),
       fetchedAt: ranking.fetchedAt,
       startedAt: startedAt.toISOString(),
