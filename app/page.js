@@ -6,6 +6,9 @@ const REFRESH_MS = 3000;
 const RANKING_API = '/api/clan-ranking';
 const MEMBERS_API = '/api/clan-members';
 const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
+const MEMBER_HISTORY_STORAGE_KEY = 'nztracker-member-rep-history-v1';
+const MEMBER_HISTORY_SAMPLE_MS = 5 * 60 * 1000;
+const MEMBER_HISTORY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const fmt = (value) => Number(value || 0).toLocaleString('en-US');
 const cleanNumber = (value) => Number(String(value ?? '').replace(/[^0-9.-]/g, '')) || 0;
@@ -47,14 +50,40 @@ export default function Home() {
   const [memberData, setMemberData] = useState(null);
   const [memberLoading, setMemberLoading] = useState(false);
   const [memberError, setMemberError] = useState('');
+  const [exportHours, setExportHours] = useState(5);
 
   const previousReputationRef = useRef({});
   const totalGainReputationRef = useRef({});
   const previousMemberRepRef = useRef({});
   const totalMemberGainRef = useRef({});
+  const memberHistoryRef = useRef(null);
   const selectedClanRef = useRef(null);
   const rankingRequestRef = useRef(false);
   const memberRequestRef = useRef(false);
+
+  const ensureMemberHistory = useCallback(() => {
+    if (memberHistoryRef.current) return memberHistoryRef.current;
+
+    try {
+      const stored = window.localStorage.getItem(MEMBER_HISTORY_STORAGE_KEY);
+      memberHistoryRef.current = stored ? JSON.parse(stored) : {};
+    } catch {
+      memberHistoryRef.current = {};
+    }
+
+    return memberHistoryRef.current;
+  }, []);
+
+  const saveMemberHistory = useCallback(() => {
+    try {
+      window.localStorage.setItem(
+        MEMBER_HISTORY_STORAGE_KEY,
+        JSON.stringify(memberHistoryRef.current || {})
+      );
+    } catch {
+      // Ignore storage quota/private-mode failures; live tracking still works in memory.
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setServerNow(Date.now()), 1000);
@@ -77,6 +106,14 @@ export default function Home() {
       const members = Array.isArray(data.members) ? data.members : [];
       const previous = previousMemberRepRef.current;
       const totals = totalMemberGainRef.current;
+      const history = ensureMemberHistory();
+      const now = Date.now();
+      const clanId = String(clan.clanId);
+      const clanHistory = history[clanId] && typeof history[clanId] === 'object'
+        ? history[clanId]
+        : {};
+      const cutoff = now - MEMBER_HISTORY_MAX_AGE_MS;
+
       const nextMembers = members.map((member, index) => {
         const id = String(member.id || member.name || `${clan.clanId}-${index}`);
         const reputation = cleanNumber(member.reputation ?? member.rep);
@@ -85,9 +122,23 @@ export default function Home() {
         if (!Number.isFinite(gain) || gain < 0) gain = 0;
         previous[id] = reputation;
         totals[id] = (totals[id] || 0) + gain;
+
+        const points = Array.isArray(clanHistory[id])
+          ? clanHistory[id].filter((point) => point && Number(point.t) >= cutoff)
+          : [];
+        const lastPoint = points[points.length - 1];
+        if (!lastPoint || now - Number(lastPoint.t) >= MEMBER_HISTORY_SAMPLE_MS || cleanNumber(lastPoint.r) !== reputation) {
+          points.push({ t: now, r: reputation });
+        } else {
+          points[points.length - 1] = { t: Number(lastPoint.t), r: reputation };
+        }
+        clanHistory[id] = points;
+
         return { ...member, reputation, rep: reputation, gain, totalGain: totals[id] };
       });
 
+      history[clanId] = clanHistory;
+      saveMemberHistory();
       setMemberData({ ...data, members: nextMembers });
       setMemberError('');
     } catch (err) {
@@ -96,7 +147,7 @@ export default function Home() {
       memberRequestRef.current = false;
       if (showLoading) setMemberLoading(false);
     }
-  }, []);
+  }, [ensureMemberHistory, saveMemberHistory]);
 
   const loadRanking = useCallback(async () => {
     if (rankingRequestRef.current) return;
@@ -185,38 +236,97 @@ export default function Home() {
 
   const currentMembers = memberData?.members || [];
   const serverTime = getServerTime(serverNow);
+  const history = ensureMemberHistory();
+  const selectedClanHistory = selectedClan?.clanId ? history[String(selectedClan.clanId)] || {} : {};
+  const trackingStartedAt = useMemo(() => {
+    const all = Object.values(selectedClanHistory).flatMap((points) => Array.isArray(points) ? points : []);
+    if (!all.length) return null;
+    const first = Math.min(...all.map((point) => Number(point.t)).filter(Number.isFinite));
+    return Number.isFinite(first) ? new Date(first) : null;
+  }, [selectedClanHistory]);
 
   const exportMembers = useCallback(() => {
     if (!currentMembers.length) return;
 
+    const hours = Number(exportHours) || 5;
+    const now = Date.now();
+    const requestedStart = now - hours * 60 * 60 * 1000;
     const escapeCsv = (value) => {
       const text = String(value ?? '');
       return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
     };
+    const formatDate = (value) => value ? new Date(value).toLocaleString('en-PH', { hour12: false }) : '';
 
-    const headers = ['#', 'Member', 'Lv', 'Rep', 'Gain', 'Total Gain'];
-    const rows = currentMembers.map((member, index) => [
-      index + 1,
-      member.name,
-      member.level || '-',
-      member.reputation ?? member.rep ?? 0,
-      member.gain || 0,
-      member.totalGain || 0,
-    ]);
-    const csv = [headers, ...rows]
+    const headers = [
+      '#',
+      'Member',
+      'Lv',
+      `Rep ${hours}h Ago`,
+      'Current Rep',
+      `Rep Gain (${hours}h)`,
+      'Measured Hours',
+      'Start Time',
+      'End Time',
+      'Current Total Gain',
+    ];
+
+    const rows = currentMembers.map((member, index) => {
+      const id = String(member.id || member.name || `${selectedClan?.clanId || 'clan'}-${index}`);
+      const points = Array.isArray(selectedClanHistory[id]) ? selectedClanHistory[id] : [];
+      const eligible = points
+        .filter((point) => Number(point.t) <= requestedStart)
+        .sort((a, b) => Number(a.t) - Number(b.t));
+      const startPoint = eligible[eligible.length - 1] || points[0];
+      const currentRep = cleanNumber(member.reputation ?? member.rep);
+      const startRep = startPoint ? cleanNumber(startPoint.r) : currentRep;
+      const measuredMs = startPoint ? Math.max(0, now - Number(startPoint.t)) : 0;
+      const measuredHours = measuredMs / (60 * 60 * 1000);
+      const intervalGain = Math.max(0, currentRep - startRep);
+
+      return [
+        index + 1,
+        member.name,
+        member.level || '-',
+        startRep,
+        currentRep,
+        intervalGain,
+        measuredHours.toFixed(2),
+        formatDate(startPoint?.t),
+        formatDate(now),
+        member.totalGain || 0,
+      ];
+    });
+
+    const meta = [
+      ['Clan', selectedClan?.clan || 'Clan'],
+      ['Requested Window', `${hours} hours`],
+      ['Exported At', formatDate(now)],
+      ['History Tracking Started', formatDate(trackingStartedAt?.getTime())],
+      ['Note', 'Rep history is tracked in this browser. If less history is available, the export uses the earliest stored snapshot.'],
+    ];
+
+    const csv = [
+      ...meta,
+      [],
+      headers,
+      ...rows,
+    ]
       .map((row) => row.map(escapeCsv).join(','))
       .join('\r\n');
 
+    const safeClan = (selectedClan?.clan || 'clan-members')
+      .replace(/[^a-z0-9_-]+/gi, '-')
+      .replace(/^-|-$/g, '') || 'clan-members';
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${(selectedClan?.clan || 'clan-members').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'clan-members'}-members.csv`;
+    anchor.download = `${safeClan}-rep-gain-${hours}h.csv`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-  }, [currentMembers, selectedClan]);
+  }, [currentMembers, ensureMemberHistory, exportHours, selectedClan, selectedClanHistory, trackingStartedAt]);
 
   return (
     <div className="site-wrapper">
@@ -338,20 +448,47 @@ export default function Home() {
             <div className="clr-modal-head">
               <b>{selectedClan?.clan || 'Clan'}</b>
               <div className="clr-modal-actions">
+                <select
+                  value={exportHours}
+                  onChange={(event) => setExportHours(Number(event.target.value))}
+                  aria-label="Export history window"
+                  title="Export history window"
+                  style={{
+                    minHeight: '36px',
+                    padding: '0 9px',
+                    border: '1px solid #61300e',
+                    borderRadius: '4px',
+                    background: '#160c06',
+                    color: '#f1c08a',
+                    font: '800 .68rem/1 var(--display-font)',
+                    letterSpacing: '.04em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value={1}>1H</option>
+                  <option value={3}>3H</option>
+                  <option value={5}>5H</option>
+                  <option value={12}>12H</option>
+                  <option value={24}>24H</option>
+                </select>
                 <button
                   type="button"
                   className="clr-modal-export"
                   onClick={exportMembers}
                   disabled={!currentMembers.length}
-                  title="Export the current member list as CSV"
+                  title={`Export ${exportHours} hours of member reputation gains as CSV`}
                 >
-                  ↧ Export
+                  ↧ Export {exportHours}h
                 </button>
                 <button type="button" className="clr-modal-x" onClick={closeModal} aria-label="Close">×</button>
               </div>
             </div>
             <div className="clr-modal-sub">
               Total Reputation: <b>{fmt(memberData?.reputation ?? selectedClan?.reputation ?? 0)}</b> • {currentMembers.length} member(s)
+              {trackingStartedAt && (
+                <span> • Tracking since {trackingStartedAt.toLocaleString('en-PH', { hour12: false })}</span>
+              )}
             </div>
             <div className="clr-modal-body" id="clr-modal-body">
               {memberLoading && !currentMembers.length ? (
