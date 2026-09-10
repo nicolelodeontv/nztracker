@@ -8,6 +8,10 @@ const SERVICE = 'ClanService.getMemberList';
 const RESPONSE_TARGET = '/1';
 const DEFAULT_MAX_STAMINA = 200;
 const UPSTREAM_TIMEOUT_MS = 7000;
+const LAST_KNOWN_MAX_AGE_MS = 30 * 60 * 1000;
+
+const memberCache = new Map();
+const inflightRequests = new Map();
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -244,6 +248,7 @@ async function fromAmf(clanId) {
     source: AMF_ORIGIN,
     service: SERVICE,
     stored: false,
+    stale: false,
     staminaSource: members.some((member) => member.staminaKnown) ? 'game-amf' : 'default-200'
   };
 }
@@ -305,8 +310,84 @@ async function fromLegacy(clanId) {
     source: target,
     service: 'legacy-live',
     stored: false,
+    stale: false,
     staminaSource: 'default-200'
   };
+}
+
+function cloneCachedPayload(payload, { stale = false, failure = null } = {}) {
+  return {
+    ...payload,
+    members: Array.isArray(payload?.members) ? payload.members.map((member) => ({ ...member })) : [],
+    stale,
+    fallbackReason: failure || undefined,
+    fetchedAt: payload?.fetchedAt || new Date().toISOString(),
+    servedAt: new Date().toISOString(),
+  };
+}
+
+function storeMemberCache(clanId, payload) {
+  memberCache.set(String(clanId), { savedAt: Date.now(), payload });
+  if (memberCache.size > 100) {
+    const oldest = [...memberCache.entries()].sort((a, b) => a[1].savedAt - b[1].savedAt)[0];
+    if (oldest) memberCache.delete(oldest[0]);
+  }
+}
+
+function getMemberCache(clanId) {
+  const entry = memberCache.get(String(clanId));
+  if (!entry) return null;
+  return { ...entry, ageMs: Date.now() - entry.savedAt };
+}
+
+async function fetchFreshMembers(clanId) {
+  const key = String(clanId);
+  const existing = inflightRequests.get(key);
+  if (existing) return existing;
+
+  const request = (async () => {
+    try {
+      return await fromLegacy(clanId);
+    } catch (legacyError) {
+      try {
+        return {
+          ...(await fromAmf(clanId)),
+          fallbackReason: legacyError instanceof Error ? legacyError.message : String(legacyError),
+        };
+      } catch (amfError) {
+        const legacyMessage = legacyError instanceof Error ? legacyError.message : String(legacyError);
+        const amfMessage = amfError instanceof Error ? amfError.message : String(amfError);
+        const cached = getMemberCache(clanId);
+        if (cached && cached.ageMs <= LAST_KNOWN_MAX_AGE_MS) {
+          console.warn('Serving last-known Ninja Zenshin member data', {
+            clanId,
+            cacheAgeSeconds: Math.round(cached.ageMs / 1000),
+            legacy: legacyMessage,
+            amf: amfMessage,
+          });
+          return cloneCachedPayload(cached.payload, {
+            stale: true,
+            failure: `Live sources failed. Legacy: ${legacyMessage} AMF: ${amfMessage}`,
+          });
+        }
+        console.error('All Ninja Zenshin member sources failed', {
+          clanId,
+          legacy: legacyMessage,
+          amf: amfMessage,
+        });
+        throw new Error(amfMessage);
+      }
+    }
+  })();
+
+  inflightRequests.set(key, request);
+  try {
+    const payload = await request;
+    if (!payload.stale && Array.isArray(payload.members) && payload.members.length) storeMemberCache(key, payload);
+    return payload;
+  } finally {
+    inflightRequests.delete(key);
+  }
 }
 
 export async function GET(request) {
@@ -318,37 +399,18 @@ export async function GET(request) {
   }
 
   try {
-    try {
-      return Response.json(await fromLegacy(clanId), { headers: { 'Cache-Control': 'no-store, max-age=0' } });
-    } catch (legacyError) {
-      try {
-        return Response.json({
-          ...(await fromAmf(clanId)),
-          fallbackReason: legacyError instanceof Error ? legacyError.message : String(legacyError),
-        }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
-      } catch (amfError) {
-        console.error('All Ninja Zenshin member sources failed', {
-          clanId,
-          legacy: legacyError instanceof Error ? legacyError.message : String(legacyError),
-          amf: amfError instanceof Error ? amfError.message : String(amfError),
-        });
-        return Response.json({
-          error: 'Unable to fetch Ninja Zenshin clan members right now',
-          details: amfError instanceof Error ? amfError.message : String(amfError),
-          clanId,
-          source: AMF_ORIGIN,
-          service: SERVICE
-        }, {
-          status: 502,
-          headers: { 'Cache-Control': 'no-store, max-age=0' }
-        });
+    const payload = await fetchFreshMembers(clanId);
+    return Response.json(payload, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+        'X-NZ-Member-Source': payload.stale ? 'last-known' : payload.service || 'live',
       }
-    }
+    });
   } catch (error) {
-    console.error('Unexpected Ninja Zenshin member route failure', error);
+    const details = error instanceof Error ? error.message : String(error);
     return Response.json({
       error: 'Unable to fetch Ninja Zenshin clan members right now',
-      details: error instanceof Error ? error.message : String(error),
+      details,
       clanId,
       source: AMF_ORIGIN,
       service: SERVICE
