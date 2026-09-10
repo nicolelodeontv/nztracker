@@ -68,6 +68,22 @@ and calculates:
 - Measured hours
 - Timestamp history
 
+### ⏱️ Background member monitoring
+
+Member reputation snapshots are collected automatically every **5 minutes** through GitHub Actions, even when nobody has the website open. The scheduled job calls `/api/monitor`, which fetches live member data and records durable snapshots into private Vercel Blob history.
+
+```text
+GitHub Actions (every 5 min)
+            ↓
+     /api/monitor
+            ↓
+  Ninja Zenshin members
+            ↓
+     Vercel Blob history
+            ↓
+   Before → Gain → After
+```
+
 ### ⇩ Export
 
 CSV exports contain:
@@ -141,11 +157,11 @@ Reports tracker service and history-storage readiness for the UI.
 
 ### `/api/monitor`
 
-Runs the scheduled production health/data check.
+Runs the scheduled production data check and persists live member snapshots for background reputation tracking.
 
 ## Durable history storage
 
-The 2.0 history service uses **private Vercel Blob** when the project is connected to a Blob store. Vercel Blob supports durable private storage and current Vercel deployments can authenticate with short-lived OIDC credentials when the store is connected. citeturn497627search0turn497627search3
+The 2.0 history service uses **private Vercel Blob** when the project is connected to a Blob store. Vercel Blob supports durable private storage and current Vercel deployments can authenticate with short-lived OIDC credentials when the store is connected.
 
 If Blob storage is not connected, the UI clearly reports **HISTORY LOCAL** and uses the browser fallback rather than falsely claiming server persistence.
 
