@@ -1,1 +1,19 @@
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#0D0D0D}body{font-family:'Geist',system-ui,sans-serif;color:#F5F3EE}button,input,select,textarea{font:inherit}a{color:inherit}
+
+/* Live Member Data — hard UI fixes */
+.clr-modal-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:8px!important;flex-wrap:nowrap!important;min-width:0!important;margin-left:auto!important}
+.clr-modal-actions .clr-modal-export{box-sizing:border-box!important}
+.clr-modal-actions select.clr-modal-export{appearance:auto!important;-webkit-appearance:auto!important;width:72px!important;min-width:72px!important;height:36px!important;min-height:36px!important;padding:0 26px 0 10px!important;margin:0!important;border:1px solid #61300e!important;border-radius:4px!important;background:#160c06!important;color:#f1c08a!important;cursor:pointer!important;font:800 .68rem/36px 'Barlow Condensed',Arial,sans-serif!important;letter-spacing:.06em!important;text-transform:uppercase!important;outline:none!important;box-shadow:none!important;opacity:1!important}
+.clr-modal-actions select.clr-modal-export:hover,.clr-modal-actions select.clr-modal-export:focus,.clr-modal-actions select.clr-modal-export:active{border-color:#ef841f!important;background:#1d1008!important;color:#fff!important;outline:none!important;box-shadow:0 0 0 1px rgba(239,132,31,.12)!important}
+.clr-modal-actions select.clr-modal-export option{background:#17100b;color:#f3eee7;font:700 14px/1 system-ui,sans-serif;padding:8px}
+.clr-modal-actions button.clr-modal-export{width:auto!important;min-width:104px!important;height:36px!important;min-height:36px!important;padding:0 13px!important;margin:0!important;white-space:nowrap!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}
+.clr-modal-actions .clr-modal-x{width:36px!important;min-width:36px!important;height:36px!important;min-height:36px!important;flex:0 0 36px!important;margin:0!important}
+.clr-modal-head{min-width:0!important}
+.clr-modal-head>b{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+
+@media(max-width:760px){
+  .clr-modal-actions{gap:5px!important}
+  .clr-modal-actions select.clr-modal-export{width:62px!important;min-width:62px!important;padding-left:8px!important;padding-right:22px!important;font-size:.62rem!important}
+  .clr-modal-actions button.clr-modal-export{min-width:94px!important;padding:0 9px!important;font-size:.62rem!important}
+  .clr-modal-actions .clr-modal-x{width:34px!important;min-width:34px!important;height:34px!important;min-height:34px!important}
+}
