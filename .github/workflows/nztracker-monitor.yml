@@ -1,0 +1,23 @@
+name: Ninja Zenshin Member Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run member snapshot monitor
+        env:
+          TRACKER_URL: https://nztracker.vercel.app/api/monitor
+        run: |
+          set -euo pipefail
+          echo "Running Ninja Zenshin monitor: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          response="$(curl --fail --silent --show-error --max-time 55 \
+            -H 'Accept: application/json' \
+            -H 'User-Agent: NinjaZenshinScheduledMonitor/1.0' \
+            "$TRACKER_URL")"
+          echo "$response"
