@@ -51,6 +51,7 @@ export default function Home() {
   const [memberLoading, setMemberLoading] = useState(false);
   const [memberError, setMemberError] = useState('');
   const [exportHours, setExportHours] = useState(5);
+  const [historyVersion, setHistoryVersion] = useState(0);
 
   const previousReputationRef = useRef({});
   const totalGainReputationRef = useRef({});
@@ -139,6 +140,7 @@ export default function Home() {
 
       history[clanId] = clanHistory;
       saveMemberHistory();
+      setHistoryVersion((value) => value + 1);
       setMemberData({ ...data, members: nextMembers });
       setMemberError('');
     } catch (err) {
@@ -236,14 +238,17 @@ export default function Home() {
 
   const currentMembers = memberData?.members || [];
   const serverTime = getServerTime(serverNow);
-  const history = ensureMemberHistory();
+  const history = typeof window !== 'undefined' ? ensureMemberHistory() : {};
   const selectedClanHistory = selectedClan?.clanId ? history[String(selectedClan.clanId)] || {} : {};
   const trackingStartedAt = useMemo(() => {
     const all = Object.values(selectedClanHistory).flatMap((points) => Array.isArray(points) ? points : []);
-    if (!all.length) return null;
-    const first = Math.min(...all.map((point) => Number(point.t)).filter(Number.isFinite));
+    let first = Infinity;
+    for (const point of all) {
+      const timestamp = Number(point.t);
+      if (Number.isFinite(timestamp) && timestamp < first) first = timestamp;
+    }
     return Number.isFinite(first) ? new Date(first) : null;
-  }, [selectedClanHistory]);
+  }, [selectedClanHistory, historyVersion]);
 
   const exportMembers = useCallback(() => {
     if (!currentMembers.length) return;
@@ -326,7 +331,7 @@ export default function Home() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-  }, [currentMembers, ensureMemberHistory, exportHours, selectedClan, selectedClanHistory, trackingStartedAt]);
+  }, [currentMembers, exportHours, selectedClan, selectedClanHistory, trackingStartedAt]);
 
   return (
     <div className="site-wrapper">
