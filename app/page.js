@@ -533,7 +533,7 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="site-footer"><p>© 2026 Ninja Zenshin — Unofficial Fan Tracker</p></footer>
+      <footer className="site-footer"><p>© 2026 Ninja Zenshin — Created by <a href="https://discord.com/users/396080330702061588" target="_blank" rel="noopener noreferrer">Michol</a></p></footer>
 
       {modalOpen && <div className="clr-modal show" role="dialog" aria-modal="true" aria-label={`${selectedClan?.clan || 'Clan'} live members`} onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
         <div className="clr-modal-box">
