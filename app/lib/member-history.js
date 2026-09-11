@@ -16,8 +16,15 @@ function hasBlobStoreConfig() {
   return Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
 }
 
+// Vercel Blob OIDC is implicit on Vercel Functions after a store is upgraded to OIDC.
+// Do not require VERCEL_OIDC_TOKEN to be exposed as a normal environment variable:
+// the Blob SDK authenticates through the platform automatically.
 function hasBlobAuthConfig() {
-  return Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.BLOB_READ_WRITE_TOKEN);
+  return Boolean(
+    process.env.BLOB_READ_WRITE_TOKEN ||
+    process.env.VERCEL_OIDC_TOKEN ||
+    (process.env.VERCEL === '1' && process.env.BLOB_STORE_ID)
+  );
 }
 
 function emptyDocument(clanId) {
@@ -42,7 +49,12 @@ async function readDocument(clanId) {
 
 async function writeDocument(clanId, document) {
   if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
-  await put(historyPath(clanId), JSON.stringify(document), { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+  await put(historyPath(clanId), JSON.stringify(document), {
+    access: 'private',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: 'application/json'
+  });
   return { stored: true };
 }
 
@@ -84,7 +96,10 @@ export async function recordMemberSnapshot({ clanId, season, members, capturedAt
       const points = cleanPoints(nextMembers[member.id]?.points, cutoff);
       const last = points[points.length - 1];
       const shouldAdd = !last || now - Number(last.t) >= HISTORY_SAMPLE_MS || Number(last.r) !== member.rep;
-      if (shouldAdd) { points.push({ t: now, r: member.rep, level: member.level, name: member.name }); changed = true; }
+      if (shouldAdd) {
+        points.push({ t: now, r: member.rep, level: member.level, name: member.name });
+        changed = true;
+      }
       nextMembers[member.id] = { name: member.name, level: member.level, points, lastSeenAt: now };
     }
     seasonData.members = nextMembers;
@@ -109,24 +124,54 @@ export async function readMemberHistory({ clanId, season, hours = 168 }) {
     const points = cleanPoints(value?.points, cutoff);
     if (points.length) members[id] = { ...value, points };
   });
-  return { version: document.version, clanId: key, season: seasonKey, startedAt: seasonData.startedAt || null, updatedAt: seasonData.updatedAt || document.updatedAt || null, stored: storageHealth().durable, members };
+  return {
+    version: document.version,
+    clanId: key,
+    season: seasonKey,
+    startedAt: seasonData.startedAt || null,
+    updatedAt: seasonData.updatedAt || document.updatedAt || null,
+    stored: storageHealth().durable,
+    members
+  };
 }
 
 export async function verifyStorageConnection() {
   if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) {
-    return { configured: false, durable: false, authenticated: hasBlobAuthConfig(), provider: 'vercel-blob-private' };
+    return {
+      configured: hasBlobStoreConfig(),
+      durable: false,
+      authenticated: hasBlobAuthConfig(),
+      provider: 'vercel-blob-private'
+    };
   }
   try {
     const result = await get(HEALTH_PATH, { access: 'private', useCache: false });
-    return { configured: true, durable: true, authenticated: true, provider: 'vercel-blob-private', healthObjectExists: Boolean(result) };
+    return {
+      configured: true,
+      durable: true,
+      authenticated: true,
+      provider: 'vercel-blob-private',
+      healthObjectExists: Boolean(result)
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { configured: true, durable: false, authenticated: true, provider: 'vercel-blob-private', error: message };
+    return {
+      configured: true,
+      durable: false,
+      authenticated: true,
+      provider: 'vercel-blob-private',
+      error: message
+    };
   }
 }
 
 export function storageHealth() {
   const configured = hasBlobStoreConfig();
   const authenticated = hasBlobAuthConfig();
-  return { provider: 'vercel-blob-private', configured, authenticated, durable: configured && authenticated };
+  return {
+    provider: 'vercel-blob-private',
+    configured,
+    authenticated,
+    durable: configured && authenticated
+  };
 }
