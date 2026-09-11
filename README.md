@@ -1,169 +1,119 @@
-# 🥷 Ninja Zenshin Clan Tracker 2.0
+# 🥷 Ninja Zenshin Clan Tracker 3.0
 
-A community-built live tracker for monitoring **Ninja Zenshin Clan Ranking** data in a compact, high-readability interface focused on reliable live monitoring and reputation intelligence.
+A community-built Ninja Zenshin operations dashboard for live clan ranking, member reputation monitoring, durable background history, FD operations, alerts, timelines and Discord-ready reporting.
 
-**Live site:** https://nztracker-meow-7e9e.vercel.app/
+**Live site:** https://nztracker.vercel.app/
 
 **Source:** https://ninjazenshin.online/?panel=clan-ranking
 
-## Core features
+## 3.0 upgrades
 
-### 🏆 Live Clan Ranking
+### ⚡ True 1-second Live Mode
 
-The main workspace shows:
+The open dashboard refreshes live clan ranking every second. The selected clan's member panel also refreshes every second while open. The countdown and server clock update independently every second.
 
-**# · Clan · Master · Members · Reputation · Gain · Total Gain**
+### ⏱️ Background Sync Command Center
 
-Ranking refreshes every 3 seconds through the Next.js API route.
+The dashboard exposes the durable monitor heartbeat:
 
-### 👥 Live Member Data
+**Background Sync · Last Snapshot · Next Expected · Clans · Members · History · Source**
 
-Click any clan name to open the member intelligence panel.
+The background monitor runs independently of an open browser through GitHub Actions every 5 minutes and persists snapshots to private Vercel Blob.
 
-Member view includes:
+### 💾 Server history is the source of truth
 
-**# · Member · Lv · Rep · Before · Gain · Measured · Status · Total**
+Member **Before / Gain / 6H / 24H / Total** calculations are based on durable server-side timestamp history first. Browser localStorage is used only as a fallback when server history cannot be read.
 
-The member panel refreshes while open and protects against false gains when reputation resets.
-
-### 🛡️ Reliability and fallback
-
-`/api/clan-members` uses this recovery chain:
-
-```text
-Live legacy member source
-        ↓
-AMF ClanService.getMemberList
-        ↓
-Last-known server cache
-        ↓
-Last-known browser cache
-```
-
-A temporary upstream outage no longer has to blank the member panel.
-
-### 💾 Season-aware durable history
-
-The tracker stores member reputation history separately by:
+History is stored as:
 
 **Season → Clan → Member → timestamped reputation points**
 
-History is sampled at 5-minute intervals or immediately when a member's reputation changes. Up to 30 days are retained server-side when the project's private Vercel Blob store is connected.
+Up to 30 days are retained. A point is sampled every 5 minutes or immediately when reputation changes.
 
-The client also keeps a local fallback so the UI can continue reporting during a storage outage.
+### 📈 Member intelligence
 
-### 📈 Live member intelligence
-
-The Live Member panel supports:
+The Live Member Data panel provides:
 
 **1H · 3H · 5H · 6H · 12H · 24H · 7D**
 
-and calculates:
+and includes:
 
-- Top gainers
-- Zero-gain members
-- Reset detection
-- Missing-history detection
-- Active/new status
-- Measured hours
-- Timestamp history
+- Before / After / Gain
+- Gain per hour
+- 6H and 24H gain
+- Active, Recent, Idle, No Gain, Missing and Reset states
+- Rep change event log
+- Activity timeline
+- Rep trend visualization
+- Automatic alerts
+- Top contributors
 
-### ⏱️ Background member monitoring
+### 🎯 FD Operations Mode
 
-Member reputation snapshots are collected automatically every **5 minutes** through GitHub Actions, even when nobody has the website open. The scheduled job calls `/api/monitor`, which fetches live member data and records durable snapshots into private Vercel Blob history.
+FD Mode highlights current clan rank, 24H gain, active members, members under the 10,000 rep target, mini-burn candidates, top contributors, and reset/missing warnings.
 
-```text
-GitHub Actions (every 5 min)
-            ↓
-     /api/monitor
-            ↓
-  Ninja Zenshin members
-            ↓
-     Vercel Blob history
-            ↓
-   Before → Gain → After
-```
+### 🚨 Automatic alerts
 
-### ⇩ Export
+The tracker detects and flags:
 
-CSV exports contain:
+**+10K gain · fast gain · no activity · rep reset · missing history**
 
-**Before Rep · After Rep · Rep Gain · Measured Hours · Start Time · End Time · Status · Current Total Gain**
+Unexpected negative reputation movement is treated as a reset rather than counted as positive gain.
 
-and a detailed timestamp-history section.
+### 🛡️ Data integrity protection
 
-A separate **Discord-ready summary** can be copied or exported as a text file.
+The monitor rejects or excludes unsafe snapshots when it encounters stale upstream member data, empty member responses, duplicate member records, source errors, partial member responses, or reputation resets.
 
-### ❤️ API health
+### 📊 Clan Intelligence
 
-The Live Member header shows real-time service state for:
+The dashboard provides a focused intelligence panel for the primary clan (CHAOS when present):
 
-**Ranking · Members · History · Sync age**
+**Rank · Reputation · 24H Gain · Active Members · Gap to #1 · Lead over next clan · Top contributors**
 
-Stale or last-known member data is explicitly labeled instead of being presented as live.
+### 📜 Rep Change Event Log
 
-### 📱 Compact responsive UI
+Member reputation changes are normalized into timestamped events with **Time · Member · Change · Rate/H · Type**.
 
-The tracker uses a compact dark monitoring layout with:
+Filters include **ALL · CHAOS · 1K+ · 5K+ · RESET**.
 
-- Large readable headings and table values
-- Touch-safe segmented period controls
-- Mobile-safe modal behavior
-- Horizontally scrollable wide tables
-- Strong active/stale/error indicators
-- No native export-period selector styling conflicts
+### 📤 One-click reporting
 
-## Data flow
+CSV exports include member intelligence and event history. The Discord report can be copied directly into Discord.
+
+## Background architecture
 
 ```text
-Ninja Zenshin
-     │
-     ├── Clan Ranking ───────────────┐
-     │                              │
-     └── Clan Members ──────────────┤
-                                    ▼
-                           Next.js API routes
-                    ┌───────────────┼────────────────┐
-                    │               │                │
-             /api/clan-ranking /api/clan-members /api/member-history
-                    │               │                │
-                    └───────────────┼────────────────┘
-                                    ▼
-                                Tracker UI
-                                    │
-                         ┌──────────┴──────────┐
-                         │                     │
-                  Durable history        Local fallback
-                    Vercel Blob            localStorage
+GitHub Actions (every 5 minutes)
+              ↓
+        /api/monitor
+              ↓
+     Ninja Zenshin source
+              ↓
+   live member validation
+              ↓
+      private Vercel Blob
+              ↓
+   server-side reputation history
+              ↓
+       Before → Gain → After
 ```
+
+The open browser does not need to stay running for member history to accumulate.
 
 ## API routes
 
-### `/api/clan-ranking`
+- `/api/clan-ranking` — live Ninja Zenshin clan ranking parser.
+- `/api/clan-members` — live member data with upstream recovery and last-known protection.
+- `/api/member-history` — durable season-separated timestamped reputation history.
+- `/api/health` — service and durable-storage readiness.
+- `/api/monitor` — scheduled validated snapshot collector.
+- `/api/sync-status` — durable monitor heartbeat used by the Background Sync Command Center.
 
-Retrieves and parses the live Ninja Zenshin clan ranking source.
+## Storage
 
-### `/api/clan-members`
+NZ Tracker 3.0 uses **private Vercel Blob** for durable history and monitor status. Neon is not used.
 
-Retrieves live member data with fallback handling and last-known caching.
-
-### `/api/member-history`
-
-Reads and writes season-separated timestamped reputation history.
-
-### `/api/health`
-
-Reports tracker service and history-storage readiness for the UI.
-
-### `/api/monitor`
-
-Runs the scheduled production data check and persists live member snapshots for background reputation tracking.
-
-## Durable history storage
-
-The 2.0 history service uses **private Vercel Blob** when the project is connected to a Blob store. Vercel Blob supports durable private storage and current Vercel deployments can authenticate with short-lived OIDC credentials when the store is connected.
-
-If Blob storage is not connected, the UI clearly reports **HISTORY LOCAL** and uses the browser fallback rather than falsely claiming server persistence.
+When durable storage is unavailable, the UI explicitly falls back to local history instead of claiming that the data is durable.
 
 ## Tech stack
 
@@ -172,6 +122,6 @@ If Blob storage is not connected, the UI clearly reports **HISTORY LOCAL** and u
 - JavaScript
 - CSS
 - Cheerio
-- `@vercel/blob`
+- `@vercel/blob` 2.8.0
 - Vercel
 - Node.js 24.x
