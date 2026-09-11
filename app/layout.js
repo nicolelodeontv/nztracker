@@ -2,6 +2,7 @@ import './globals.css';
 import './tracker.css';
 import './aitmpl-upgrades.css';
 import './mobile.css';
+import './nz3-polish.css';
 import CsvExportFix from './csv-export-fix';
 
 export const metadata = {
