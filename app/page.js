@@ -2,615 +2,444 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const REFRESH_MS = 3000;
+const REFRESH_MS = 1000;
+const INTELLIGENCE_REFRESH_MS = 10000;
+const SYNC_REFRESH_MS = 5000;
 const RANKING_API = '/api/clan-ranking';
 const MEMBERS_API = '/api/clan-members';
 const HISTORY_API = '/api/member-history';
 const HEALTH_API = '/api/health';
+const SYNC_API = '/api/sync-status';
 const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
-const LOCAL_HISTORY_KEY = 'nztracker-member-rep-history-v2';
-const LAST_KNOWN_KEY = 'nztracker-last-known-members-v2';
-const HISTORY_SAMPLE_MS = 5 * 60 * 1000;
 const PERIODS = [1, 3, 5, 6, 12, 24, 168];
+const PERIOD_LABELS = { 1: '1H', 3: '3H', 5: '5H', 6: '6H', 12: '12H', 24: '24H', 168: '7D' };
+const format = (n) => Number(n || 0).toLocaleString('en-US');
+const num = (v) => Number(String(v ?? '').replace(/[^0-9.-]/g, '')) || 0;
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const hoursBetween = (a, b) => Math.max(0, (Number(b) - Number(a)) / 3600000);
+const dateText = (v) => v ? new Date(v).toLocaleString('en-PH', { hour12: false }) : '—';
 
-const fmt = (value) => Number(value || 0).toLocaleString('en-US');
-const cleanNumber = (value) => Number(String(value ?? '').replace(/[^0-9.-]/g, '')) || 0;
-const pad = (value) => String(value).padStart(2, '0');
-
-function getServerTime(now) {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Singapore',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date(now));
+function timelineFor(historyMember) {
+  return Array.isArray(historyMember?.points) ? historyMember.points.slice().sort((a, b) => Number(a.t) - Number(b.t)) : [];
 }
 
-function getCountdown(endDate, now) {
-  const end = new Date(endDate || 0).getTime();
-  if (!Number.isFinite(end)) return { days: 0, hours: 0, minutes: 0, seconds: 0 };
-  const diff = Math.max(0, end - now);
-  const totalSeconds = Math.floor(diff / 1000);
-  return {
-    days: Math.floor(totalSeconds / 86400),
-    hours: Math.floor(totalSeconds / 3600) % 24,
-    minutes: Math.floor(totalSeconds / 60) % 60,
-    seconds: totalSeconds % 60,
-  };
+function baselinePoint(points, since) {
+  if (!points.length) return null;
+  const before = points.filter((p) => Number(p.t) <= since).at(-1);
+  return before || points[0];
 }
 
-function safeRead(key) {
-  try {
-    const value = window.localStorage.getItem(key);
-    return value ? JSON.parse(value) : {};
-  } catch {
-    return {};
+function statusFor(member, historyMember, now, windowStart) {
+  const points = timelineFor(historyMember);
+  if (member?.missing) return 'MISSING';
+  if (points.length < 2) return 'NEW';
+  const latest = points.at(-1);
+  const prior = points.at(-2);
+  if (Number(latest.r) < Number(prior.r)) return 'RESET';
+  const ageMinutes = (now - Number(latest.t)) / 60000;
+  const baseline = baselinePoint(points, windowStart);
+  const periodGain = num(latest.r) - num(baseline?.r);
+  if (periodGain > 0 && ageMinutes <= 15) return 'ACTIVE';
+  if (ageMinutes <= 30) return 'RECENT';
+  if (ageMinutes <= 360) return 'IDLE';
+  return 'NO GAIN';
+}
+
+function memberMetrics(member, historyMember, hours, now) {
+  const points = timelineFor(historyMember);
+  const since = now - hours * 3600000;
+  const current = num(member?.reputation ?? member?.rep ?? points.at(-1)?.r);
+  const baseline = baselinePoint(points, since);
+  const first = baseline ? num(baseline.r) : current;
+  const gain = Math.max(0, current - first);
+  const reset = Boolean(baseline && current < first) || points.some((p, i) => i && num(p.r) < num(points[i - 1].r));
+  const latestTs = Number(points.at(-1)?.t || 0);
+  const measuredHours = latestTs ? hoursBetween(Number(points[0]?.t || latestTs), latestTs) : 0;
+  const gainPerHour = measuredHours > 0 ? gain / Math.max(hoursBetween(Number(baseline?.t || since), now), 1 / 60) : 0;
+  return { current, before: first, gain, gainPerHour, latestTs, reset };
+}
+
+function deriveEvents(members, history, now) {
+  const events = [];
+  for (const member of members) {
+    const points = timelineFor(history?.[member.id]);
+    for (let i = 1; i < points.length; i += 1) {
+      const before = num(points[i - 1].r);
+      const after = num(points[i].r);
+      const gain = after - before;
+      if (gain <= 0) continue;
+      const t = Number(points[i].t);
+      if (now - t > 24 * 3600000) continue;
+      events.push({ t, member: member.name, gain, before, after });
+    }
   }
+  return events.sort((a, b) => b.t - a.t);
 }
 
-function safeWrite(key, value) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Local fallback is best-effort only.
-  }
-}
-
-function csvEscape(value) {
-  const text = String(value ?? '');
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function formatDate(value) {
-  return value ? new Date(value).toLocaleString('en-PH', { hour12: false }) : '';
-}
-
-function statusLabel(item) {
-  return item?.status === 'RESET' ? 'RESET' : item?.status === 'MISSING' ? 'MISSING' : item?.gain > 0 ? 'ACTIVE' : item?.measuredHours >= 0.5 ? 'ZERO' : 'NEW';
+function badgeClass(value) {
+  return `badge badge-${String(value).toLowerCase().replace(/\s+/g, '-')}`;
 }
 
 export default function Home() {
   const [clans, setClans] = useState([]);
   const [season, setSeason] = useState('Season 2');
   const [seasonEnd, setSeasonEnd] = useState(FALLBACK_SEASON_END);
-  const [serverNow, setServerNow] = useState(Date.now());
-  const [status, setStatus] = useState('loading');
-  const [lastSync, setLastSync] = useState(null);
-  const [error, setError] = useState('');
-
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedClan, setSelectedClan] = useState(null);
-  const [memberData, setMemberData] = useState(null);
-  const [memberLoading, setMemberLoading] = useState(false);
-  const [memberError, setMemberError] = useState('');
-  const [historyData, setHistoryData] = useState(null);
-  const [historyError, setHistoryError] = useState('');
-  const [historyStored, setHistoryStored] = useState(false);
-  const [periodHours, setPeriodHours] = useState(5);
+  const [now, setNow] = useState(Date.now());
+  const [rankingState, setRankingState] = useState('LOADING');
+  const [rankingError, setRankingError] = useState('');
+  const [sync, setSync] = useState(null);
   const [health, setHealth] = useState({ ranking: 'UNKNOWN', members: 'UNKNOWN', history: 'UNKNOWN' });
+  const [mode, setMode] = useState('NORMAL');
+  const [filter, setFilter] = useState('ALL');
+  const [selected, setSelected] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [history, setHistory] = useState(null);
+  const [memberState, setMemberState] = useState('LOADING');
+  const [historyState, setHistoryState] = useState('LOADING');
+  const [periodHours, setPeriodHours] = useState(5);
+  const [eventFilter, setEventFilter] = useState('ALL');
   const [copied, setCopied] = useState(false);
-
-  const previousReputationRef = useRef({});
-  const totalGainReputationRef = useRef({});
-  const lastHistoryPostRef = useRef({});
-  const selectedClanRef = useRef(null);
-  const rankingRequestRef = useRef(false);
+  const [lastRankingAt, setLastRankingAt] = useState(null);
+  const requestRef = useRef(false);
   const memberRequestRef = useRef(false);
 
-  useEffect(() => {
-    const timer = setInterval(() => setServerNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const loadHealth = useCallback(async () => {
+  const refreshRanking = useCallback(async () => {
+    if (requestRef.current) return;
+    requestRef.current = true;
     try {
-      const response = await fetch(`${HEALTH_API}?t=${Date.now()}`, { cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      setHealth({
-        ranking: data?.services?.clanRanking?.status === 'ready' ? 'READY' : 'ERROR',
-        members: data?.services?.clanMembers?.status === 'ready' ? 'READY' : 'ERROR',
-        history: data?.services?.memberHistory?.status === 'ready' ? 'DURABLE' : 'LOCAL',
-      });
-    } catch {
-      setHealth((current) => ({ ...current, history: current.history === 'UNKNOWN' ? 'LOCAL' : current.history }));
+      const r = await fetch(`${RANKING_API}?t=${Date.now()}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.details || data.error || `HTTP ${r.status}`);
+      setClans(Array.isArray(data.rows) ? data.rows : []);
+      setSeason(data.season || 'Season 2');
+      setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
+      setLastRankingAt(Date.now());
+      setRankingState('LIVE');
+      setRankingError('');
+      setHealth((h) => ({ ...h, ranking: 'LIVE' }));
+    } catch (e) {
+      setRankingState('ERROR');
+      setRankingError(e instanceof Error ? e.message : 'Ranking source unavailable');
+      setHealth((h) => ({ ...h, ranking: 'ERROR' }));
+    } finally {
+      requestRef.current = false;
     }
   }, []);
 
-  const fetchHistory = useCallback(async (clan, hours = 168) => {
-    if (!clan?.clanId) return;
+  const refreshSystem = useCallback(async () => {
     try {
-      const params = new URLSearchParams({
-        clanId: String(clan.clanId),
-        season: String(season || 'Season 2'),
-        hours: String(Math.min(168, Math.max(1, hours))),
-        t: String(Date.now()),
+      const [healthResponse, syncResponse] = await Promise.all([
+        fetch(`${HEALTH_API}?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`${SYNC_API}?t=${Date.now()}`, { cache: 'no-store' }),
+      ]);
+      const hd = await healthResponse.json().catch(() => ({}));
+      const sd = await syncResponse.json().catch(() => ({}));
+      setHealth({
+        ranking: hd?.services?.clanRanking?.status === 'ready' ? 'READY' : 'ERROR',
+        members: hd?.services?.clanMembers?.status === 'ready' ? 'READY' : 'ERROR',
+        history: hd?.services?.memberHistory?.status === 'ready' ? 'DURABLE' : 'LOCAL',
       });
-      const response = await fetch(`${HISTORY_API}?${params.toString()}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
-      setHistoryData(data);
-      setHistoryStored(Boolean(data.stored));
-      setHistoryError('');
-      setHealth((current) => ({ ...current, history: data.stored ? 'DURABLE' : 'LOCAL' }));
-      safeWrite(`${LOCAL_HISTORY_KEY}:${clan.clanId}:${season}`, data);
-    } catch (err) {
-      const local = safeRead(`${LOCAL_HISTORY_KEY}:${clan.clanId}:${season}`);
-      if (local?.members) {
-        setHistoryData(local);
-        setHistoryStored(false);
-        setHistoryError('Server history unavailable — using last local history.');
-        setHealth((current) => ({ ...current, history: 'LOCAL' }));
-      } else {
-        setHistoryError(err instanceof Error ? err.message : 'Unable to load history');
-      }
+      setSync(sd);
+    } catch {
+      // Live APIs are polled again on the next tick.
+    }
+  }, []);
+
+  const refreshMembers = useCallback(async (clan) => {
+    if (!clan?.clanId || memberRequestRef.current) return;
+    memberRequestRef.current = true;
+    try {
+      const r = await fetch(`${MEMBERS_API}?clanId=${encodeURIComponent(clan.clanId)}&t=${Date.now()}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.details || data.error || `HTTP ${r.status}`);
+      setMembers(Array.isArray(data.members) ? data.members : []);
+      setMemberState(data.stale ? 'STALE' : 'LIVE');
+      setHealth((h) => ({ ...h, members: data.stale ? 'STALE' : 'LIVE' }));
+    } catch {
+      setMemberState('ERROR');
+      setHealth((h) => ({ ...h, members: 'ERROR' }));
+    } finally {
+      memberRequestRef.current = false;
+    }
+  }, []);
+
+  const loadHistory = useCallback(async (clan, hours = 168) => {
+    if (!clan?.clanId) return;
+    setHistoryState('LOADING');
+    try {
+      const params = new URLSearchParams({ clanId: String(clan.clanId), season, hours: String(hours), t: String(Date.now()) });
+      const r = await fetch(`${HISTORY_API}?${params}`, { cache: 'no-store', headers: { Accept: 'application/json' } });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.details || data.error || `HTTP ${r.status}`);
+      setHistory(data);
+      setHistoryState(data.stored ? 'DURABLE' : 'LOCAL');
+      setHealth((h) => ({ ...h, history: data.stored ? 'DURABLE' : 'LOCAL' }));
+    } catch {
+      setHistory(null);
+      setHistoryState('ERROR');
     }
   }, [season]);
 
-  const persistHistorySnapshot = useCallback(async (clan, members, capturedAt) => {
-    if (!clan?.clanId || !members?.length) return;
-    const clanKey = `${season}:${clan.clanId}`;
-    const now = Number(capturedAt) || Date.now();
-    const lastPosted = lastHistoryPostRef.current[clanKey] || 0;
-    const repFingerprint = members.map((member) => `${member.id || member.name}:${cleanNumber(member.reputation ?? member.rep)}`).join('|');
-    const previousFingerprint = lastHistoryPostRef.current[`${clanKey}:fp`];
-    const shouldPost = !lastPosted || now - lastPosted >= HISTORY_SAMPLE_MS || repFingerprint !== previousFingerprint;
-    if (!shouldPost) return;
-    lastHistoryPostRef.current[clanKey] = now;
-    lastHistoryPostRef.current[`${clanKey}:fp`] = repFingerprint;
-
-    try {
-      const response = await fetch(HISTORY_API, {
-        method: 'POST',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          clanId: clan.clanId,
-          season,
-          capturedAt: now,
-          members,
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
-      setHistoryStored(Boolean(data.stored));
-      setHealth((current) => ({ ...current, history: data.stored ? 'DURABLE' : 'LOCAL' }));
-      void fetchHistory(clan, 168);
-    } catch {
-      setHealth((current) => ({ ...current, history: 'LOCAL' }));
-    }
-  }, [fetchHistory, season]);
-
-  const refreshClanMembers = useCallback(async (clan, options = {}) => {
-    if (!clan?.clanId || memberRequestRef.current) return;
-    memberRequestRef.current = true;
-    const showLoading = Boolean(options.showLoading);
-    if (showLoading) setMemberLoading(true);
-    const clanKey = `${season}:${clan.clanId}`;
-    try {
-      const response = await fetch(`${MEMBERS_API}?clanId=${encodeURIComponent(clan.clanId)}&t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { Accept: 'application/json' },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
-
-      const members = Array.isArray(data.members) ? data.members : [];
-      const previous = previousReputationRef.current;
-      const totals = totalGainReputationRef.current;
-      const nextMembers = members.map((member, index) => {
-        const id = String(member.id || member.name || `${clan.clanId}-${index}`);
-        const reputation = cleanNumber(member.reputation ?? member.rep);
-        const prevKey = `${clanKey}:${id}`;
-        const oldRep = previous[prevKey];
-        const reset = oldRep !== undefined && reputation < oldRep;
-        const gain = oldRep === undefined || reset ? 0 : Math.max(0, reputation - oldRep);
-        previous[prevKey] = reputation;
-        if (reset) totals[`${clanKey}:${id}`] = 0;
-        totals[`${clanKey}:${id}`] = (totals[`${clanKey}:${id}`] || 0) + gain;
-        return { ...member, id, reputation, rep: reputation, gain, totalGain: totals[`${clanKey}:${id}`], resetDetected: reset };
-      });
-
-      setMemberData({ ...data, members: nextMembers, updatedAt: data.servedAt || data.fetchedAt || new Date().toISOString() });
-      setMemberError('');
-      setHealth((current) => ({ ...current, members: data.stale ? 'STALE' : 'LIVE' }));
-      safeWrite(`${LAST_KNOWN_KEY}:${clanKey}`, { ...data, members: nextMembers, savedAt: Date.now() });
-      void persistHistorySnapshot(clan, members, Date.now());
-    } catch (err) {
-      const local = safeRead(`${LAST_KNOWN_KEY}:${clanKey}`);
-      if (local?.members?.length) {
-        setMemberData(local);
-        setMemberError('Live source unavailable — showing last successful member data.');
-        setHealth((current) => ({ ...current, members: 'LAST KNOWN' }));
-      } else {
-        setMemberError(err instanceof Error ? err.message : 'Failed to load clan members');
-        setHealth((current) => ({ ...current, members: 'ERROR' }));
-      }
-    } finally {
-      memberRequestRef.current = false;
-      if (showLoading) setMemberLoading(false);
-    }
-  }, [persistHistorySnapshot, season]);
-
-  const loadRanking = useCallback(async () => {
-    if (rankingRequestRef.current) return;
-    rankingRequestRef.current = true;
-    try {
-      setStatus((current) => current === 'live' ? 'live' : 'loading');
-      const response = await fetch(`${RANKING_API}?t=${Date.now()}`, {
-        cache: 'no-store',
-        headers: { Accept: 'application/json' },
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
-      const rows = Array.isArray(data.rows) ? data.rows : [];
-      const previous = previousReputationRef.current;
-      const totals = totalGainReputationRef.current;
-      const nextRows = rows.map((row) => {
-        const id = String(row.clanId || row.clan || row.rank);
-        const reputation = cleanNumber(row.reputation);
-        const key = `${data.season || 'Season 2'}:${id}`;
-        const oldRep = previous[key];
-        const reset = oldRep !== undefined && reputation < oldRep;
-        const gain = oldRep === undefined || reset ? 0 : Math.max(0, reputation - oldRep);
-        previous[key] = reputation;
-        if (reset) totals[key] = 0;
-        totals[key] = (totals[key] || 0) + gain;
-        return { ...row, gain, totalGain: totals[key], resetDetected: reset };
-      });
-      setClans(nextRows);
-      setSeason(data.season || 'Season 2');
-      setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
-      setLastSync(new Date(data.fetchedAt || Date.now()));
-      setStatus('live');
-      setError('');
-      setHealth((current) => ({ ...current, ranking: 'LIVE' }));
-      const activeClan = selectedClanRef.current;
-      if (activeClan) {
-        const updatedSelected = nextRows.find((row) => String(row.clanId) === String(activeClan.clanId));
-        if (updatedSelected) setSelectedClan(updatedSelected);
-      }
-    } catch (err) {
-      setStatus('error');
-      setError(err instanceof Error ? err.message : 'Failed to load clan ranking');
-      setHealth((current) => ({ ...current, ranking: 'ERROR' }));
-    } finally {
-      rankingRequestRef.current = false;
-    }
-  }, []);
+  useEffect(() => {
+    setNow(Date.now());
+    const clock = setInterval(() => setNow(Date.now()), 1000);
+    void refreshRanking();
+    void refreshSystem();
+    const ranking = setInterval(() => void refreshRanking(), REFRESH_MS);
+    const system = setInterval(() => void refreshSystem(), SYNC_REFRESH_MS);
+    return () => { clearInterval(clock); clearInterval(ranking); clearInterval(system); };
+  }, [refreshRanking, refreshSystem]);
 
   useEffect(() => {
-    void loadHealth();
-    void loadRanking();
-    const timer = setInterval(() => void loadRanking(), REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [loadHealth, loadRanking]);
+    if (!selected) return;
+    void refreshMembers(selected);
+    void loadHistory(selected, 168);
+    const timer = setInterval(() => void refreshMembers(selected), REFRESH_MS);
+    const historyTimer = setInterval(() => void loadHistory(selected, 168), INTELLIGENCE_REFRESH_MS);
+    return () => { clearInterval(timer); clearInterval(historyTimer); };
+  }, [selected, refreshMembers, loadHistory]);
 
-  const openClanModal = useCallback(async (clan) => {
-    selectedClanRef.current = clan;
-    setSelectedClan(clan);
-    setModalOpen(true);
-    setMemberError('');
-    setHistoryError('');
-    setMemberData(null);
-    setHistoryData(null);
-    await refreshClanMembers(clan, { showLoading: true });
-    await fetchHistory(clan, 168);
-  }, [fetchHistory, refreshClanMembers]);
+  const clanIndex = useMemo(() => new Map(clans.map((c) => [String(c.clanId), c])), [clans]);
+  const selectedRow = selected ? clanIndex.get(String(selected.clanId)) || selected : null;
+  const historyMembers = history?.members || {};
+  const currentMemberMap = useMemo(() => new Map(members.map((m) => [String(m.id || m.name), m])), [members]);
+  const allMemberRows = useMemo(() => {
+    const ids = new Set([...Object.keys(historyMembers), ...members.map((m) => String(m.id || m.name))]);
+    return [...ids].map((id) => {
+      const hist = historyMembers[id] || {};
+      const live = currentMemberMap.get(id) || null;
+      const member = live || { id, name: hist.name || id, reputation: hist.points?.at(-1)?.r || 0, missing: true };
+      const metrics = memberMetrics(member, hist, periodHours, now);
+      const status = statusFor(member, hist, now, now - periodHours * 3600000);
+      return { ...member, id, ...metrics, status, historyMember: hist };
+    }).sort((a, b) => b.current - a.current);
+  }, [historyMembers, members, currentMemberMap, periodHours, now]);
 
-  useEffect(() => {
-    const clan = selectedClanRef.current;
-    if (!modalOpen || !clan?.clanId) return;
-    const timer = setInterval(() => {
-      void refreshClanMembers(selectedClanRef.current);
-    }, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [modalOpen, selectedClan?.clanId, refreshClanMembers]);
+  const selectedIntel = useMemo(() => {
+    const reps = allMemberRows.map((m) => m.current);
+    const before = allMemberRows.map((m) => m.before);
+    const gain = allMemberRows.reduce((s, m) => s + m.gain, 0);
+    const active = allMemberRows.filter((m) => m.status === 'ACTIVE').length;
+    const recent = allMemberRows.filter((m) => m.status === 'RECENT').length;
+    const idle = allMemberRows.filter((m) => m.status === 'IDLE').length;
+    const noGain = allMemberRows.filter((m) => m.status === 'NO GAIN').length;
+    const missing = allMemberRows.filter((m) => m.status === 'MISSING').length;
+    const resets = allMemberRows.filter((m) => m.status === 'RESET').length;
+    const avg = allMemberRows.length ? gain / allMemberRows.length : 0;
+    const hour = gain / Math.max(periodHours, 1);
+    const top = [...allMemberRows].sort((a, b) => b.gain - a.gain).slice(0, 5);
+    const burn = [...allMemberRows].filter((m) => m.current < 10000).sort((a, b) => a.current - b.current);
+    const rank = Number(selectedRow?.rank || 0);
+    const above = rank > 1 ? clans.find((c) => Number(c.rank) === rank - 1) : null;
+    const below = clans.find((c) => Number(c.rank) === rank + 1);
+    const takeover = above ? Math.max(0, num(above.reputation) - num(selectedRow?.reputation)) : 0;
+    const lead = below ? Math.max(0, num(selectedRow?.reputation) - num(below.reputation)) : 0;
+    return { reps, before, gain, active, recent, idle, noGain, missing, resets, avg, hour, top, burn, takeover, lead, rank };
+  }, [allMemberRows, clans, selectedRow, periodHours]);
 
-  const closeModal = useCallback(() => {
-    setModalOpen(false);
-    setMemberLoading(false);
-    setMemberError('');
-    selectedClanRef.current = null;
-    setSelectedClan(null);
-    setMemberData(null);
-    setHistoryData(null);
-    setHistoryError('');
-    setCopied(false);
-  }, []);
+  const events = useMemo(() => {
+    if (!selected) return [];
+    const raw = deriveEvents(members.map((m) => ({ ...m, id: String(m.id || m.name) })), historyMembers, now);
+    if (eventFilter === '+1K') return raw.filter((e) => e.gain >= 1000);
+    if (eventFilter === '+5K') return raw.filter((e) => e.gain >= 5000);
+    if (eventFilter === 'MEMBER') return raw.filter((e) => e.member);
+    return raw;
+  }, [selected, members, historyMembers, now, eventFilter]);
 
-  useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape' && modalOpen) closeModal();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeModal, modalOpen]);
+  const alerts = useMemo(() => {
+    if (!selected) return [];
+    const result = [];
+    for (const m of allMemberRows) {
+      if (m.gain >= 10000) result.push({ level: 'HIGH', type: '+10K GAIN', text: `${m.name} gained ${format(m.gain)} in ${PERIOD_LABELS[periodHours]}` });
+      if (m.gainPerHour >= 1000) result.push({ level: 'HIGH', type: 'FAST GAIN', text: `${m.name} is averaging ${format(Math.round(m.gainPerHour))}/hr` });
+      if (m.status === 'IDLE' || m.status === 'NO GAIN') result.push({ level: 'WARN', type: 'NO ACTIVITY', text: `${m.name} has no positive gain in ${PERIOD_LABELS[periodHours]}` });
+      if (m.status === 'RESET') result.push({ level: 'CRIT', type: 'REP RESET', text: `${m.name} reputation dropped below a prior snapshot` });
+      if (m.status === 'MISSING') result.push({ level: 'CRIT', type: 'MEMBER MISSING', text: `${m.name} exists in history but is absent from the live source` });
+    }
+    return result.slice(0, 30);
+  }, [selected, allMemberRows, periodHours]);
 
-  const currentMembers = memberData?.members || [];
-  const currentHistoryMembers = historyData?.members || {};
-  const now = serverNow;
-  const windowStart = now - periodHours * 60 * 60 * 1000;
+  const countdown = useMemo(() => {
+    const diff = Math.max(0, new Date(seasonEnd).getTime() - now);
+    const total = Math.floor(diff / 1000);
+    return `${Math.floor(total / 86400)}d ${String(Math.floor(total / 3600) % 24).padStart(2, '0')}h ${String(Math.floor(total / 60) % 60).padStart(2, '0')}m ${String(total % 60).padStart(2, '0')}s`;
+  }, [seasonEnd, now]);
 
-  const memberInsights = useMemo(() => currentMembers.map((member, index) => {
-    const id = String(member.id || member.name || `${selectedClan?.clanId || 'clan'}-${index}`);
-    const points = Array.isArray(currentHistoryMembers[id]?.points) ? [...currentHistoryMembers[id].points].sort((a, b) => Number(a.t) - Number(b.t)) : [];
-    const eligible = points.filter((point) => Number(point.t) <= windowStart);
-    const startPoint = eligible[eligible.length - 1] || points[0] || null;
-    const currentRep = cleanNumber(member.reputation ?? member.rep);
-    const beforeRep = startPoint ? cleanNumber(startPoint.r) : currentRep;
-    const measuredMs = startPoint ? Math.max(0, now - Number(startPoint.t)) : 0;
-    const measuredHours = measuredMs / 3600000;
-    const reset = Boolean(startPoint && currentRep < beforeRep);
-    const gain = reset ? 0 : Math.max(0, currentRep - beforeRep);
-    const sessionGain = cleanNumber(member.totalGain);
-    const status = reset ? 'RESET' : !startPoint ? 'MISSING' : gain > 0 ? 'ACTIVE' : measuredHours >= 0.5 ? 'ZERO' : 'NEW';
-    return {
-      ...member,
-      id,
-      beforeRep,
-      afterRep: currentRep,
-      gain,
-      measuredHours,
-      startAt: startPoint?.t || null,
-      endAt: now,
-      sessionGain,
-      status,
-      statusLabel: statusLabel({ gain, measuredHours, status }),
-      points,
-    };
-  }), [currentMembers, currentHistoryMembers, now, periodHours, selectedClan?.clanId, windowStart]);
+  const filteredClans = useMemo(() => clans.filter((c) => {
+    const q = filter.toLowerCase();
+    if (q === 'all') return true;
+    if (q === 'top') return Number(c.rank) <= 3;
+    if (q === 'active') return Number(c.members || 0) > 0;
+    return String(c.clan || '').toLowerCase().includes(q);
+  }), [clans, filter]);
 
-  const sortedInsights = useMemo(() => [...memberInsights].sort((a, b) => b.gain - a.gain || b.afterRep - a.afterRep), [memberInsights]);
-  const topGainers = sortedInsights.filter((member) => member.gain > 0).slice(0, 5);
-  const zeroGain = memberInsights.filter((member) => member.status === 'ZERO');
-  const resetMembers = memberInsights.filter((member) => member.status === 'RESET');
-  const missingMembers = memberInsights.filter((member) => member.status === 'MISSING');
-
-  const timestampRows = useMemo(() => memberInsights.flatMap((member) => member.points
-    .filter((point) => Number(point.t) >= windowStart)
-    .map((point) => ({
-      member: member.name,
-      id: member.id,
-      time: Number(point.t),
-      rep: cleanNumber(point.r),
-    }))
-  ).sort((a, b) => b.time - a.time).slice(0, 120), [memberInsights, windowStart]);
-
-  const discordSummary = useMemo(() => {
-    const clanName = selectedClan?.clan || 'Clan';
+  const copyReport = async () => {
+    if (!selected || !selectedRow) return;
     const lines = [
-      `**${clanName} — ${periodHours === 168 ? '7D' : `${periodHours}H`} REP SUMMARY**`,
-      `Members: ${currentMembers.length} | Active: ${memberInsights.filter((m) => m.status === 'ACTIVE').length} | Zero: ${zeroGain.length} | Reset: ${resetMembers.length} | Missing: ${missingMembers.length}`,
-      '',
-      '**TOP GAINERS**',
-      ...(topGainers.length ? topGainers.map((member, index) => `${index + 1}. ${member.name} — +${fmt(member.gain)} rep`) : ['None recorded in this window.']),
-      '',
-      '**ZERO GAIN**',
-      ...(zeroGain.length ? zeroGain.map((member) => `${member.name} — ${fmt(member.afterRep)} rep`) : ['None']),
-      ...(resetMembers.length ? ['', '**RESETS DETECTED**', ...resetMembers.map((member) => `${member.name} — before ${fmt(member.beforeRep)}, now ${fmt(member.afterRep)}`)] : []),
-      `\nUpdated: ${formatDate(now)}`,
+      `🥷 NINJA ZENSHIN — ${selectedRow.clan || selectedRow.name}`,
+      `Rank #${selectedRow.rank} • REP ${format(selectedRow.reputation)} • ${mode}`,
+      `Period ${PERIOD_LABELS[periodHours]} • Gain ${format(selectedIntel.gain)} • ${format(Math.round(selectedIntel.hour))}/hr`,
+      `Active ${selectedIntel.active} • Recent ${selectedIntel.recent} • Idle ${selectedIntel.idle} • No Gain ${selectedIntel.noGain} • Missing ${selectedIntel.missing}`,
+      `10K mini-burn candidates: ${selectedIntel.burn.length}`,
+      ...selectedIntel.top.map((m, i) => `${i + 1}. ${m.name} +${format(m.gain)}`),
     ];
-    return lines.join('\n');
-  }, [currentMembers.length, missingMembers.length, now, periodHours, resetMembers, selectedClan?.clan, topGainers, zeroGain]);
+    try { await navigator.clipboard.writeText(lines.join('\n')); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { setCopied(false); }
+  };
 
-  const exportMembers = useCallback((format = 'csv') => {
-    if (!currentMembers.length) return;
-    const safeClan = (selectedClan?.clan || 'clan-members').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'clan-members';
-    if (format === 'txt') {
-      const blob = new Blob([discordSummary], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `${safeClan}-discord-summary-${periodHours === 168 ? '7d' : `${periodHours}h`}.txt`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      return;
-    }
-
-    const summaryHeaders = ['#', 'Member', 'Lv', 'Before Rep', 'After Rep', 'Rep Gain', 'Measured Hours', 'Start Time', 'End Time', 'Status', 'Current Total Gain'];
-    const summaryRows = memberInsights.map((member, index) => [
-      index + 1,
-      member.name,
-      member.level || '-',
-      member.beforeRep,
-      member.afterRep,
-      member.gain,
-      member.measuredHours.toFixed(2),
-      formatDate(member.startAt),
-      formatDate(member.endAt),
-      member.statusLabel,
-      member.sessionGain,
-    ]);
-    const historyHeaders = ['Timestamp', 'Member', 'Rep'];
-    const historyRows = timestampRows.map((row) => [formatDate(row.time), row.member, row.rep]);
-    const metadata = [
-      ['Clan', selectedClan?.clan || 'Clan'],
-      ['Season', season],
-      ['Window', periodHours === 168 ? '7 days' : `${periodHours} hours`],
-      ['Exported', formatDate(now)],
-      ['History Source', historyStored ? 'Server-side durable history' : 'Local fallback'],
-      ['Note', 'Before Rep is the latest stored point at or before the selected window. After Rep is the live/latest displayed rep. Rep Gain is reset-safe and never includes negative reset deltas.'],
-    ];
-    const rows = [
-      ['NZ TRACKER 2.0'],
-      ...metadata,
-      [],
-      summaryHeaders,
-      ...summaryRows,
-      [],
-      ['TIMESTAMP HISTORY'],
-      historyHeaders,
-      ...historyRows,
-    ];
-    const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\r\n');
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${safeClan}-rep-history-${periodHours === 168 ? '7d' : `${periodHours}h`}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }, [currentMembers.length, discordSummary, historyStored, memberInsights, now, periodHours, season, selectedClan?.clan, timestampRows]);
-
-  const copyDiscordSummary = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(discordSummary);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  }, [discordSummary]);
-
-  const countdown = useMemo(() => getCountdown(seasonEnd, serverNow), [seasonEnd, serverNow]);
-  const serverTime = getServerTime(serverNow);
-  const historyAge = historyData?.updatedAt ? Math.max(0, Math.floor((now - new Date(historyData.updatedAt).getTime()) / 60000)) : null;
+  const exportCsv = () => {
+    if (!selected) return;
+    const rows = allMemberRows.map((m) => [m.name, m.current, m.before, m.gain, Math.round(m.gainPerHour), m.status].map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','));
+    const csv = ['Member,Current REP,Before,Gains,Gain/Hour,Status', ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `nztracker-${selected.clanId}-${PERIOD_LABELS[periodHours]}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="site-wrapper">
-      <header className="site-header">
-        <div className="header-banner">
-          <h1>NINJA ZENSHIN</h1>
-          <span>Clan Ranking</span>
+    <main className="nz3-root">
+      <style jsx global>{`
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background:#07090d; color:#f5f7fb; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+        button,input { font: inherit; }
+        button { cursor:pointer; }
+        .nz3-root { min-height:100vh; display:flex; flex-direction:column; background:radial-gradient(circle at 50% -10%,#172033 0,#07090d 48%); }
+        .nz3-shell { width:min(1500px,100%); margin:0 auto; padding:14px 16px 10px; display:flex; flex-direction:column; gap:10px; flex:1; min-height:0; }
+        .topbar,.sync,.strip,.panel,.modal { border:1px solid #273142; background:rgba(12,16,23,.96); border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.2); }
+        .topbar { padding:12px 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+        .brand { display:flex; gap:10px; align-items:baseline; min-width:0; }
+        .brand h1 { margin:0; font-size:26px; letter-spacing:.08em; font-weight:900; white-space:nowrap; }
+        .brand small { color:#92a0b3; font-size:12px; }
+        .controls { display:flex; gap:7px; flex-wrap:wrap; justify-content:flex-end; }
+        .btn { border:1px solid #324054; background:#111722; color:#e9edf5; border-radius:9px; padding:8px 11px; font-weight:800; font-size:12px; }
+        .btn:hover { border-color:#60708a; background:#17202e; transform:translateY(-1px); }
+        .btn.active { background:#e8edf5; color:#10151d; border-color:#e8edf5; }
+        .sync { padding:10px 12px; display:grid; grid-template-columns:1.4fr repeat(5,1fr); gap:8px; align-items:stretch; }
+        .sync-main { min-width:0; }
+        .sync-title { font-size:12px; letter-spacing:.12em; font-weight:900; }
+        .sync-state { font-size:22px; font-weight:1000; margin-top:2px; }
+        .sync-meta,.metric label,.strip span { color:#8f9caf; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+        .sync-item { padding:7px 9px; border:1px solid #222d3c; border-radius:10px; min-width:0; }
+        .sync-item strong { display:block; margin-top:3px; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .strip { padding:7px 10px; display:flex; gap:16px; flex-wrap:wrap; }
+        .strip b { color:#e8edf5; margin-left:4px; }
+        .workspace { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(460px,.95fr); gap:10px; min-height:0; flex:1; }
+        .panel { min-height:0; overflow:hidden; }
+        .panel-head { padding:11px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; border-bottom:1px solid #202a37; }
+        .panel-head h2 { margin:0; font-size:16px; letter-spacing:.04em; }
+        .sub { color:#8492a6; font-size:11px; }
+        .table-wrap { overflow:auto; max-height:calc(100vh - 225px); }
+        table { width:100%; border-collapse:collapse; min-width:690px; }
+        th,td { padding:8px 9px; border-bottom:1px solid #1d2632; text-align:right; font-size:12px; white-space:nowrap; }
+        th:first-child,td:first-child,th:nth-child(2),td:nth-child(2) { text-align:left; }
+        th { position:sticky; top:0; z-index:2; background:#0f141c; color:#7f8da0; font-size:10px; letter-spacing:.08em; }
+        tbody tr:hover { background:#121924; }
+        .clan-link { background:none; border:0; color:#f4f7fb; font-weight:900; padding:0; }
+        .clan-link:hover { color:#9cc4ff; }
+        .gain { color:#9fe3b1; font-weight:900; }
+        .rank { font-weight:900; color:#aeb9c9; }
+        .right-stack { display:grid; grid-template-rows:auto minmax(0,1fr); gap:10px; min-height:0; }
+        .overview { display:grid; grid-template-columns:repeat(5,1fr); gap:7px; padding:9px; }
+        .metric { border:1px solid #222d3b; border-radius:10px; padding:9px; }
+        .metric strong { display:block; margin-top:3px; font-size:20px; }
+        .scroll-panel { overflow:auto; max-height:calc(100vh - 350px); }
+        .empty { padding:28px; text-align:center; color:#78869a; }
+        .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.72); backdrop-filter:blur(5px); display:flex; align-items:center; justify-content:center; padding:12px; z-index:20; }
+        .modal { width:min(1400px,100%); height:min(92vh,930px); display:flex; flex-direction:column; overflow:hidden; }
+        .modal-head { padding:12px 14px; display:flex; justify-content:space-between; gap:10px; align-items:center; border-bottom:1px solid #253041; }
+        .modal-head h2 { margin:0; font-size:22px; }
+        .modal-body { padding:10px; overflow:auto; display:grid; gap:10px; }
+        .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+        .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+        .section { border:1px solid #222d3c; border-radius:12px; overflow:hidden; }
+        .section-title { padding:9px 10px; font-size:12px; font-weight:1000; letter-spacing:.08em; border-bottom:1px solid #222d3c; }
+        .section-body { padding:9px; }
+        .periods { display:flex; gap:5px; flex-wrap:wrap; }
+        .periods .btn { padding:6px 9px; }
+        .status-row { display:flex; gap:5px; flex-wrap:wrap; }
+        .badge { display:inline-flex; padding:3px 6px; border-radius:999px; border:1px solid #344154; font-size:9px; font-weight:900; letter-spacing:.04em; }
+        .badge-active { color:#9fe3b1; border-color:#2e6944; } .badge-recent{color:#cfe8ff;border-color:#395778}.badge-idle{color:#ead7a0;border-color:#6b592f}.badge-no{color:#a8b2c2}.badge-missing,.badge-reset{color:#ff9c9c;border-color:#6f3434}.badge-new{color:#dcc5ff;border-color:#5a4378}
+        .list { display:grid; gap:5px; max-height:260px; overflow:auto; }
+        .rowline { display:grid; grid-template-columns:1fr auto auto auto; gap:8px; align-items:center; padding:6px 7px; border:1px solid #202a38; border-radius:8px; font-size:11px; }
+        .rowline strong { overflow:hidden; text-overflow:ellipsis; }
+        .alert { padding:7px 8px; border-left:3px solid #667; background:#0f151d; border-radius:7px; font-size:11px; }
+        .alert-high { border-color:#d7ad4d; } .alert-crit { border-color:#d65f5f; } .alert-warn { border-color:#8f9b69; }
+        .footer { padding:8px 2px 2px; color:#6d7888; font-size:10px; display:flex; justify-content:space-between; gap:8px; }
+        @media (max-width:1100px){ .workspace{grid-template-columns:1fr}.right-stack{grid-template-rows:auto auto}.table-wrap{max-height:46vh}.scroll-panel{max-height:50vh} }
+        @media (max-width:720px){ .nz3-shell{padding:8px}.topbar{align-items:flex-start;flex-direction:column}.brand h1{font-size:21px}.sync{grid-template-columns:repeat(2,1fr)}.sync-main{grid-column:1/-1}.overview,.grid4{grid-template-columns:repeat(2,1fr)}.grid3{grid-template-columns:1fr}.modal{height:96vh}.modal-head h2{font-size:18px}.rowline{grid-template-columns:1fr auto}.rowline span:nth-last-child(-n+2){display:none}.footer{flex-direction:column}.strip{gap:8px 12px} }
+      `}</style>
+      <div className="nz3-shell">
+        <header className="topbar">
+          <div className="brand"><h1>NINJA ZENSHIN 3.0</h1><small>{season} • {countdown}</small></div>
+          <div className="controls">
+            <button className={`btn ${mode === 'NORMAL' ? 'active' : ''}`} onClick={() => setMode('NORMAL')}>NORMAL</button>
+            <button className={`btn ${mode === 'FD MODE' ? 'active' : ''}`} onClick={() => setMode('FD MODE')}>FD MODE</button>
+            <button className="btn" onClick={() => { void refreshRanking(); void refreshSystem(); }}>REFRESH</button>
+          </div>
+        </header>
+
+        <section className="sync">
+          <div className="sync-main"><div className="sync-title">BACKGROUND SYNC</div><div className="sync-state">{sync?.status === 'active' ? 'ACTIVE' : sync?.status === 'stale' ? 'STALE' : 'CHECKING'}</div><div className="sync-meta">Source: Ninja Zenshin • history: {sync?.durable ? 'DURABLE' : 'CHECKING'}</div></div>
+          <div className="sync-item"><div className="sync-meta">Last Snapshot</div><strong>{sync?.lastRunAt ? dateText(sync.lastRunAt) : '—'}</strong></div>
+          <div className="sync-item"><div className="sync-meta">Next Expected</div><strong>{sync?.nextExpectedAt ? dateText(sync.nextExpectedAt) : '—'}</strong></div>
+          <div className="sync-item"><div className="sync-meta">Clans</div><strong>{sync?.clansWithMemberData ?? sync?.clansSeen ?? '—'}</strong></div>
+          <div className="sync-item"><div className="sync-meta">Members</div><strong>{sync?.membersSeen ?? '—'}</strong></div>
+          <div className="sync-item"><div className="sync-meta">Monitor</div><strong>{sync?.durable ? 'DURABLE' : 'NOT READY'}</strong></div>
+        </section>
+
+        <div className="strip">
+          <span>RANKING <b>{health.ranking}</b></span><span>LIVE MEMBERS <b>{health.members}</b></span><span>HISTORY <b>{health.history}</b></span><span>UI REFRESH <b>1S</b></span><span>LAST RANKING <b>{lastRankingAt ? `${Math.floor((now - lastRankingAt) / 1000)}s` : '—'}</b></span>
         </div>
-        <div className="server-time-bar">
-          <div className="server-time-left">
-            <div className={`server-time-dot ${status}`} />
-            <span className="server-time-label">Server Time</span>
-            <span className="server-time-value">{serverTime} SGT</span>
+
+        <div className="workspace">
+          <section className="panel">
+            <div className="panel-head"><div><h2>CLAN RANKING</h2><div className="sub">Live source • click a clan for intelligence</div></div><div className="controls"><button className={`btn ${filter === 'ALL' ? 'active' : ''}`} onClick={() => setFilter('ALL')}>ALL</button><button className={`btn ${filter === 'TOP' ? 'active' : ''}`} onClick={() => setFilter('TOP')}>TOP 3</button></div></div>
+            <div className="table-wrap">
+              {rankingState === 'ERROR' ? <div className="empty">SOURCE ERROR — {rankingError}</div> : (
+                <table><thead><tr><th>RANK</th><th>CLAN</th><th>REP</th><th>MEMBERS</th><th>SERVER</th></tr></thead><tbody>
+                  {filteredClans.map((c) => <tr key={c.clanId}><td className="rank">#{c.rank}</td><td><button className="clan-link" onClick={() => setSelected(c)}>{c.clan || c.name || `Clan ${c.clanId}`}</button></td><td>{format(c.reputation)}</td><td>{format(c.members)}</td><td><span className={badgeClass('ACTIVE')}>LIVE</span></td></tr>)}
+                </tbody></table>
+              )}
+            </div>
+          </section>
+
+          <div className="right-stack">
+            <section className="panel"><div className="panel-head"><div><h2>OPERATIONS OVERVIEW</h2><div className="sub">System health and live monitor coverage</div></div></div><div className="overview">
+              <div className="metric"><label>Season</label><strong>{season}</strong></div><div className="metric"><label>Live Clans</label><strong>{sync?.clansWithMemberData ?? clans.length}</strong></div><div className="metric"><label>Live Members</label><strong>{sync?.membersSeen ?? '—'}</strong></div><div className="metric"><label>Monitor Errors</label><strong>{sync?.memberErrors ?? 0}</strong></div><div className="metric"><label>Mode</label><strong>{mode}</strong></div>
+            </div></section>
+            <section className="panel"><div className="panel-head"><div><h2>3.0 FEATURES</h2><div className="sub">Select a clan to open the command center</div></div></div><div className="scroll-panel"><div className="section-body">
+              <div className="grid3">
+                <div className="metric"><label>Durable History</label><strong>{health.history}</strong></div><div className="metric"><label>1s Ranking</label><strong>ON</strong></div><div className="metric"><label>1s Members</label><strong>{selected ? 'ON' : 'OPEN CLAN'}</strong></div>
+              </div>
+              <div className="empty">Clan Intelligence • Activity Timeline • Gain Rate Intelligence • Rep Events • Alerts • 10K Mini-Burn • CSV • Discord Report</div>
+            </div></div></section>
           </div>
         </div>
-      </header>
 
-      <main className="main-content">
-        <div className="content-card">
-          <div className="card-heading">
-            <div>
-              <h1>Clan Ranking</h1>
-              <div className="clr-season">{season}</div>
+        <footer className="footer"><span>Server history is authoritative for Before / Gain / Total calculations. localStorage is never used as the calculation source.</span><span>{season} • 1-second UI</span></footer>
+      </div>
+
+      {selected && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
+        <section className="modal">
+          <div className="modal-head"><div><h2>#{selectedRow?.rank} {selectedRow?.clan || selectedRow?.name}</h2><div className="sub">Live REP {format(selectedRow?.reputation)} • History {historyState} • Members {memberState}</div></div><div className="controls"><button className="btn" onClick={exportCsv}>CSV</button><button className="btn" onClick={copyReport}>{copied ? 'COPIED' : 'DISCORD REPORT'}</button><button className="btn" onClick={() => setSelected(null)}>CLOSE</button></div></div>
+          <div className="modal-body">
+            <section className="section"><div className="section-title">CLAN INTELLIGENCE</div><div className="section-body"><div className="grid4">
+              <div className="metric"><label>Current REP</label><strong>{format(selectedRow?.reputation)}</strong></div><div className="metric"><label>{PERIOD_LABELS[periodHours]} Gain</label><strong className="gain">+{format(selectedIntel.gain)}</strong></div><div className="metric"><label>Gain / Hour</label><strong>{format(Math.round(selectedIntel.hour))}</strong></div><div className="metric"><label>Overtake Gap</label><strong>{selectedIntel.takeover ? format(selectedIntel.takeover) : '—'}</strong></div>
+            </div></div></section>
+
+            <section className="section"><div className="section-title">ACTIVITY INTELLIGENCE • {PERIOD_LABELS[periodHours]}</div><div className="section-body"><div className="periods">{PERIODS.map((p) => <button key={p} className={`btn ${periodHours === p ? 'active' : ''}`} onClick={() => setPeriodHours(p)}>{PERIOD_LABELS[p]}</button>)}</div><div className="status-row" style={{ marginTop:8 }}><span className="badge badge-active">ACTIVE {selectedIntel.active}</span><span className="badge badge-recent">RECENT {selectedIntel.recent}</span><span className="badge badge-idle">IDLE {selectedIntel.idle}</span><span className="badge badge-no">NO GAIN {selectedIntel.noGain}</span><span className="badge badge-missing">MISSING {selectedIntel.missing}</span><span className="badge badge-reset">RESET {selectedIntel.resets}</span></div></div></section>
+
+            <div className="grid3">
+              <section className="section"><div className="section-title">TOP GAINERS</div><div className="section-body"><div className="list">{selectedIntel.top.map((m) => <div className="rowline" key={m.id}><strong>{m.name}</strong><span className="gain">+{format(m.gain)}</span><span>{format(Math.round(m.gainPerHour))}/hr</span><span className={badgeClass(m.status)}>{m.status}</span></div>)}</div></div></section>
+              <section className="section"><div className="section-title">10K MINI-BURN</div><div className="section-body"><div className="list">{selectedIntel.burn.length ? selectedIntel.burn.map((m) => <div className="rowline" key={m.id}><strong>{m.name}</strong><span>{format(m.current)}</span><span>+{format(m.gain)}</span><span>{format(Math.max(0,10000-m.current))} LEFT</span></div>) : <div className="empty">No members below 10K.</div>}</div></div></section>
+              <section className="section"><div className="section-title">ALERT CENTER</div><div className="section-body"><div className="list">{alerts.length ? alerts.map((a, i) => <div className={`alert alert-${a.level.toLowerCase()}`} key={`${a.type}-${i}`}><b>{a.type}</b> — {a.text}</div>) : <div className="empty">No active alerts.</div>}</div></div></section>
             </div>
-            <div className="sync-state"><span className={`sync-dot ${status}`} /><span>{status === 'live' ? 'LIVE' : status === 'loading' ? 'SYNCING' : 'ERROR'}</span></div>
+
+            <section className="section"><div className="section-title">REP CHANGE EVENT LOG</div><div className="section-body"><div className="periods" style={{ marginBottom:8 }}>{['ALL','+1K','+5K','MEMBER'].map((f) => <button key={f} className={`btn ${eventFilter === f ? 'active' : ''}`} onClick={() => setEventFilter(f)}>{f}</button>)}</div><div className="list">{events.length ? events.slice(0, 80).map((e, i) => <div className="rowline" key={`${e.t}-${i}`}><strong>{e.member}</strong><span className="gain">+{format(e.gain)}</span><span>{format(e.after)}</span><span>{dateText(e.t)}</span></div>) : <div className="empty">No recorded positive rep events in the last 24H.</div>}</div></div></section>
+
+            <section className="section"><div className="section-title">MEMBER ACTIVITY TIMELINE • SERVER HISTORY</div><div className="section-body"><div className="scroll-panel" style={{ maxHeight: 360 }}><table><thead><tr><th>MEMBER</th><th>LIVE REP</th><th>BEFORE</th><th>GAIN</th><th>GAIN/HR</th><th>STATUS</th><th>LAST SNAPSHOT</th></tr></thead><tbody>{allMemberRows.map((m) => <tr key={m.id}><td>{m.name}</td><td>{format(m.current)}</td><td>{format(m.before)}</td><td className="gain">+{format(m.gain)}</td><td>{format(Math.round(m.gainPerHour))}</td><td><span className={badgeClass(m.status)}>{m.status}</span></td><td>{m.latestTs ? dateText(m.latestTs) : '—'}</td></tr>)}</tbody></table></div></div></section>
           </div>
-
-          <div className="clr-cd">
-            <div><b>{countdown.days}</b><span>Days</span></div>
-            <div><b>{pad(countdown.hours)}</b><span>Hours</span></div>
-            <div><b>{pad(countdown.minutes)}</b><span>Minutes</span></div>
-            <div><b>{pad(countdown.seconds)}</b><span>Seconds</span></div>
-          </div>
-
-          <div className="ranking-status-row">
-            <span>{lastSync ? `Last updated ${lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Connecting to live ranking…'}</span>
-            <button type="button" onClick={() => void loadRanking()} disabled={status === 'loading'}>↻ Refresh</button>
-          </div>
-
-          {error ? <div className="clr-status err">Failed to load clan ranking ({error})</div> : clans.length === 0 ? <div className="clr-status">Loading clan ranking…</div> : (
-            <div className="table-scroll">
-              <table className="clr-table">
-                <thead><tr><th>#</th><th>Clan</th><th>Master</th><th>Members</th><th className="num">Reputation</th><th className="num">Gain</th><th className="num">Total Gain</th></tr></thead>
-                <tbody>{clans.map((clan) => {
-                  const isTopTen = Number(clan.rank) >= 1 && Number(clan.rank) <= 10;
-                  return <tr key={`${clan.clanId || clan.clan}-${clan.rank}`} className={clan.gain > 0 ? 'gain-row' : ''}>
-                    <td className="r">{clan.rank}</td>
-                    <td><button type="button" className="clr-mem" onClick={() => void openClanModal(clan)}>{clan.clan}</button></td>
-                    <td>{clan.master || '—'}</td>
-                    <td className="c">{clan.memberCurrent}/{clan.memberMax}</td>
-                    <td className="num">{fmt(clan.reputation)}</td>
-                    <td className="num gain-number">{fmt(clan.gain)}</td>
-                    <td className="num total-gain-number">{fmt(clan.totalGain)}</td>
-                  </tr>;
-                })}</tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="clr-foot">Click a clan name to open Live Member Data • Reputation resets are protected from false gain calculations</div>
-        </div>
-      </main>
-
-      <footer className="site-footer"><p>© 2026 Ninja Zenshin — Created by <a href="https://discord.com/users/396080330702061588" target="_blank" rel="noopener noreferrer">Michol</a></p></footer>
-
-      {modalOpen && <div className="clr-modal show" role="dialog" aria-modal="true" aria-label={`${selectedClan?.clan || 'Clan'} live members`} onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
-        <div className="clr-modal-box">
-          <div className="clr-modal-head">
-            <div className="live-head-main">
-              <div className="eyebrow">LIVE MEMBER DATA</div>
-              <b>{selectedClan?.clan || 'Clan'}</b>
-              <span>{currentMembers.length} members • {periodHours === 168 ? '7D' : `${periodHours}H`} intelligence window</span>
-            </div>
-            <div className="clr-modal-actions">
-              <div className="period-control" role="group" aria-label="Tracking period">
-                {PERIODS.map((hours) => <button key={hours} type="button" className={periodHours === hours ? 'active' : ''} onClick={() => { setPeriodHours(hours); void fetchHistory(selectedClanRef.current, hours); }}>{hours === 168 ? '7D' : `${hours}H`}</button>)}
-              </div>
-              <button type="button" className="clr-modal-export" onClick={() => exportMembers('csv')} disabled={!currentMembers.length}>↧ CSV</button>
-              <button type="button" className="clr-modal-export" onClick={() => exportMembers('txt')} disabled={!currentMembers.length}>↧ Discord</button>
-              <button type="button" className="clr-modal-x" onClick={closeModal} aria-label="Close">×</button>
-            </div>
-          </div>
-
-          <div className="health-strip" aria-label="API health">
-            <span className={health.ranking === 'LIVE' ? 'ok' : health.ranking === 'ERROR' ? 'bad' : ''}>RANK {health.ranking}</span>
-            <span className={health.members === 'LIVE' ? 'ok' : health.members === 'STALE' || health.members === 'LAST KNOWN' ? 'warn' : health.members === 'ERROR' ? 'bad' : ''}>MEMBERS {health.members}</span>
-            <span className={health.history === 'DURABLE' ? 'ok' : 'warn'}>HISTORY {health.history}</span>
-            {historyAge !== null && <span>SYNC {historyAge < 1 ? 'NOW' : `${historyAge}M AGO`}</span>}
-          </div>
-
-          <div className="clr-modal-sub">
-            <span>Total Reputation: <b>{fmt(memberData?.reputation ?? selectedClan?.reputation ?? 0)}</b></span>
-            <span>{memberData?.stale ? 'Showing last-known server data' : memberError ? memberError : 'Live source connected'}</span>
-          </div>
-
-          <div className="intelligence-grid">
-            <div><b>{memberInsights.filter((m) => m.status === 'ACTIVE').length}</b><span>ACTIVE</span></div>
-            <div><b>{zeroGain.length}</b><span>ZERO GAIN</span></div>
-            <div><b>{resetMembers.length}</b><span>RESETS</span></div>
-            <div><b>{missingMembers.length}</b><span>MISSING</span></div>
-            <div><b>{topGainers[0] ? `+${fmt(topGainers[0].gain)}` : '—'}</b><span>TOP GAIN</span></div>
-          </div>
-
-          {historyError && <div className="history-notice">{historyError}</div>}
-          {memberLoading && !currentMembers.length ? <div className="clr-status">Loading live members…</div> : memberError && !currentMembers.length ? <div className="clr-status err">{memberError}</div> : (
-            <div className="clr-modal-body">
-              <div className="table-scroll modal-table-scroll">
-                <table className="clr-mtable">
-                  <thead><tr><th>#</th><th>Member</th><th>Lv</th><th>Rep</th><th>Before</th><th>Gain</th><th>Measured</th><th>Status</th><th>Total</th></tr></thead>
-                  <tbody>{sortedInsights.map((member, index) => <tr key={`${member.id}-${index}`} className={member.status === 'ACTIVE' ? 'gain-row' : ''}>
-                    <td className="r">{index + 1}</td>
-                    <td>{member.name}</td>
-                    <td>{member.level || '—'}</td>
-                    <td className="num">{fmt(member.afterRep)}</td>
-                    <td className="num before-number">{fmt(member.beforeRep)}</td>
-                    <td className="num gain-number">+{fmt(member.gain)}</td>
-                    <td className="num">{member.measuredHours.toFixed(2)}h</td>
-                    <td><span className={`member-status ${member.status.toLowerCase().replace(/\s+/g, '-')}`}>{member.statusLabel}</span></td>
-                    <td className="num total-gain-number">{fmt(member.sessionGain)}</td>
-                  </tr>)}</tbody>
-                </table>
-              </div>
-
-              <div className="insight-columns">
-                <section className="insight-panel"><div className="panel-title">TOP GAINERS</div>{topGainers.length ? topGainers.map((member, index) => <div className="insight-row" key={member.id}><span>{index + 1}. {member.name}</span><b>+{fmt(member.gain)}</b></div>) : <div className="insight-empty">No gains recorded.</div>}</section>
-                <section className="insight-panel"><div className="panel-title">ZERO GAIN MEMBERS</div>{zeroGain.length ? zeroGain.slice(0, 10).map((member) => <div className="insight-row" key={member.id}><span>{member.name}</span><b>0</b></div>) : <div className="insight-empty">No zero-gain members in this window.</div>}</section>
-                <section className="insight-panel"><div className="panel-title">RESET / MISSING</div>{[...resetMembers, ...missingMembers].length ? [...resetMembers, ...missingMembers].slice(0, 10).map((member) => <div className="insight-row" key={member.id}><span>{member.name}</span><b>{member.statusLabel}</b></div>) : <div className="insight-empty">No issues detected.</div>}</section>
-              </div>
-
-              <div className="history-panel">
-                <div className="panel-title">TIMESTAMP HISTORY <span>{timestampRows.length} points shown</span></div>
-                <div className="table-scroll history-table-scroll"><table className="history-table"><thead><tr><th>Timestamp</th><th>Member</th><th>Rep</th></tr></thead><tbody>{timestampRows.map((row) => <tr key={`${row.id}-${row.time}`}><td>{formatDate(row.time)}</td><td>{row.member}</td><td className="num">{fmt(row.rep)}</td></tr>)}</tbody></table></div>
-              </div>
-
-              <div className="discord-panel"><div><div className="panel-title">DISCORD-READY SUMMARY</div><pre>{discordSummary}</pre></div><button type="button" onClick={() => void copyDiscordSummary()}>{copied ? '✓ COPIED' : 'COPY SUMMARY'}</button></div>
-            </div>
-          )}
-
-          <div className="clr-modal-foot">History: {historyStored ? 'server-side durable' : 'local fallback'} • Before/After/Rep Gain are reset-safe • Updated {memberData?.updatedAt ? new Date(memberData.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</div>
-        </div>
+        </section>
       </div>}
-    </div>
+    </main>
   );
 }
