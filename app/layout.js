@@ -4,7 +4,6 @@ import './aitmpl-upgrades.css';
 import './mobile.css';
 import './nz3-polish.css';
 import './nz3-final-ui.css';
-import './csv-export-fix.css';
 import CsvExportFix from './csv-export-fix';
 
 export const metadata = {
