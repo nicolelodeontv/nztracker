@@ -1,49 +1,26 @@
-import * as cheerio from 'cheerio';
-import { recordMemberSnapshot, storageHealth } from '../../lib/member-history';
+import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../lib/member-history';
+import { parseRankingHtml } from '../../lib/source-parser.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-
-function clean(value) { return String(value ?? '').replace(/\s+/g, ' ').trim(); }
-function toNumber(value) { return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0; }
+const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 async function collectRanking() {
   const response = await fetch(SOURCE, {
     cache: 'no-store',
-    headers: { 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/2.3', Accept: 'text/html,application/xhtml+xml' }
+    headers: {
+      'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/3.0',
+      Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8'
+    }
   });
-  if (!response.ok) throw new Error(`Source returned ${response.status}`);
+  if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   const html = await response.text();
-  const $ = cheerio.load(html);
-  const rows = [];
-  let season = 'Season 2';
-
-  $('table').each((_, table) => {
-    const headers = $(table).find('thead th').map((__, el) => clean($(el).text()).toLowerCase()).get();
-    if (!headers.includes('clan') || !headers.includes('reputation') || !headers.includes('members')) return;
-    $(table).find('tbody tr').each((__, tr) => {
-      const cells = $(tr).find('td').map((___, td) => clean($(td).text())).get();
-      if (cells.length < 5) return;
-      const rank = toNumber(cells[0]);
-      const clanCell = $(tr).find('td').eq(1);
-      const clan = clean(clanCell.text());
-      const master = cells[2];
-      const [memberCurrent, memberMax] = (cells[3] || '0/0').split('/').map(toNumber);
-      const reputation = toNumber(cells[4]);
-      const clanId = clean(clanCell.find('[data-clan]').attr('data-clan') || '');
-      if (rank > 0 && clan) rows.push({ rank, clan, master, memberCurrent, memberMax, reputation, clanId: clanId || null });
-    });
-  });
-
-  const bodyText = clean($('body').text());
-  const seasonMatch = bodyText.match(/Clan Ranking\s+Season\s+(\d+)/i);
-  if (seasonMatch) season = `Season ${seasonMatch[1]}`;
-  if (!rows.length) throw new Error('Clan ranking table not found');
-  rows.sort((a, b) => a.rank - b.rank);
-  return { season, rows, fetchedAt: new Date().toISOString(), source: SOURCE };
+  const parsed = parseRankingHtml(html);
+  if (!parsed.rows?.length) throw new Error('Shared ranking parser returned no rows');
+  return { ...parsed, fetchedAt: new Date().toISOString(), source: SOURCE };
 }
 
 async function fetchMembers(clanId, requestUrl) {
@@ -51,10 +28,7 @@ async function fetchMembers(clanId, requestUrl) {
   const target = new URL('/api/clan-members', requestUrl);
   target.searchParams.set('clanId', clanId);
   target.searchParams.set('monitor', '1');
-  const response = await fetch(target, {
-    cache: 'no-store',
-    headers: { Accept: 'application/json' }
-  });
+  const response = await fetch(target, { cache: 'no-store', headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Member route returned HTTP ${response.status} for ${clanId}`);
   const payload = await response.json();
   return {
@@ -68,17 +42,25 @@ async function fetchMembers(clanId, requestUrl) {
 async function monitorClan(clan, season, requestUrl) {
   const data = await fetchMembers(clan.clanId, requestUrl);
   if (!clan.clanId || data.stale || !data.members.length) {
-    return { ...data, clanId: clan.clanId, clan: clan.clan, history: { stored: false, reason: data.stale ? 'Last-known member data; snapshot not advanced.' : 'No live members returned.' } };
+    return {
+      ...data,
+      clanId: clan.clanId,
+      clan: clan.clan,
+      history: { stored: false, reason: data.stale ? 'Last-known member data; snapshot not advanced.' : 'No live members returned.' }
+    };
   }
 
-  const history = await recordMemberSnapshot({
-    clanId: clan.clanId,
-    season,
-    members: data.members,
-    capturedAt: Date.now(),
-  });
-
+  const history = await recordMemberSnapshot({ clanId: clan.clanId, season, members: data.members, capturedAt: Date.now() });
   return { ...data, clanId: clan.clanId, clan: clan.clan, history };
+}
+
+async function persistHeartbeat(payload) {
+  try {
+    return await recordSyncStatus(payload);
+  } catch (error) {
+    console.error('Unable to persist sync heartbeat', error);
+    return { stored: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function GET(request) {
@@ -98,6 +80,24 @@ export async function GET(request) {
       sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     });
 
+    const finishedAt = new Date();
+    const heartbeat = await persistHeartbeat({
+      version: 1,
+      status: 'active',
+      lastRunAt: finishedAt.toISOString(),
+      nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
+      intervalMs: SYNC_INTERVAL_MS,
+      season: ranking.season,
+      clansSeen: ranking.rows.length,
+      clansWithMemberData: withIds.length - memberErrors,
+      membersSeen,
+      memberErrors,
+      historyClansStored: historyStored,
+      historyClansChanged: historyChanged,
+      memberSources: sourceCounts,
+      source: ranking.source,
+    });
+
     return Response.json({
       ok: true,
       mode: 'live-with-history',
@@ -107,14 +107,31 @@ export async function GET(request) {
       membersSeen,
       memberErrors,
       memberSources: sourceCounts,
-      history: { clansStored: historyStored, clansChanged: historyChanged, sampleIntervalMs: 5 * 60 * 1000 },
+      history: { clansStored: historyStored, clansChanged: historyChanged, sampleIntervalMs: SYNC_INTERVAL_MS },
       historyStorage: storageHealth(),
+      syncStatusStored: Boolean(heartbeat?.stored),
       fetchedAt: ranking.fetchedAt,
       startedAt: startedAt.toISOString(),
-      finishedAt: new Date().toISOString(),
+      finishedAt: finishedAt.toISOString(),
       source: ranking.source
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
-    return Response.json({ ok: false, mode: 'live-with-history', historyStorage: storageHealth(), error: error instanceof Error ? error.message : String(error), finishedAt: new Date().toISOString() }, { status: 502 });
+    const finishedAt = new Date();
+    await persistHeartbeat({
+      version: 1,
+      status: 'error',
+      lastRunAt: finishedAt.toISOString(),
+      nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
+      intervalMs: SYNC_INTERVAL_MS,
+      source: SOURCE,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return Response.json({
+      ok: false,
+      mode: 'live-with-history',
+      historyStorage: storageHealth(),
+      error: error instanceof Error ? error.message : String(error),
+      finishedAt: finishedAt.toISOString()
+    }, { status: 502, headers: { 'Cache-Control': 'no-store, max-age=0' } });
   }
 }
