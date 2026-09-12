@@ -7,12 +7,16 @@ import ClanIntelligence from './ClanIntelligence';
 import { buildMemberRows, deriveAlerts, deriveEvents } from '../lib/metrics';
 
 const RANKING_REFRESH_MS = 30000;
+const RANKING_RETRY_MS = 5000;
 const OPS_REFRESH_MS = 10000;
 const MEMBER_REFRESH_MS = 30000;
 const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
 async function readJson(url) {
-  const response = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json' } });
+  const response = await fetch(url, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
+  });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.details || data.error || `HTTP ${response.status}`);
   return data;
@@ -39,8 +43,11 @@ export default function NZTrackerApp() {
 
   const refreshRanking = useCallback(async () => {
     try {
-      const data = await readJson('/api/clan-ranking');
-      setClans(Array.isArray(data.rows) ? data.rows : []);
+      const bust = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const data = await readJson(`/api/clan-ranking?refresh=${bust}`);
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      if (!rows.length) throw new Error('Shared ranking dataset returned no rows.');
+      setClans(rows);
       setSeason(data.season || 'Season 2');
       setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
       setUpdatedAt(data.updatedAt || data.fetchedAt || null);
@@ -54,7 +61,11 @@ export default function NZTrackerApp() {
 
   const refreshOps = useCallback(async () => {
     try {
-      const [syncData, healthData] = await Promise.all([readJson('/api/sync-status'), readJson('/api/health')]);
+      const bust = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const [syncData, healthData] = await Promise.all([
+        readJson(`/api/sync-status?refresh=${bust}`),
+        readJson(`/api/health?refresh=${bust}`),
+      ]);
       setSync(syncData);
       setHealth(healthData);
     } catch {
@@ -66,7 +77,7 @@ export default function NZTrackerApp() {
     if (!clan?.clanId) return;
     try {
       setMemberState('LOADING');
-      const data = await readJson(`/api/clan-members?clanId=${encodeURIComponent(clan.clanId)}`);
+      const data = await readJson(`/api/clan-members?clanId=${encodeURIComponent(clan.clanId)}&refresh=${Date.now()}`);
       setMembers(Array.isArray(data.members) ? data.members : []);
       setMemberState(data.stale ? 'STALE' : 'LIVE');
     } catch {
@@ -74,7 +85,7 @@ export default function NZTrackerApp() {
     }
     try {
       setHistoryState('LOADING');
-      const data = await readJson(`/api/member-history?clanId=${encodeURIComponent(clan.clanId)}&season=${encodeURIComponent(season)}&hours=168`);
+      const data = await readJson(`/api/member-history?clanId=${encodeURIComponent(clan.clanId)}&season=${encodeURIComponent(season)}&hours=168&refresh=${Date.now()}`);
       setHistory(data);
       setHistoryState(data.stored ? 'DURABLE' : 'LOCAL');
     } catch {
@@ -85,9 +96,15 @@ export default function NZTrackerApp() {
 
   useEffect(() => {
     refreshRanking();
-    const timer = setInterval(refreshRanking, RANKING_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [refreshRanking]);
+    let timer = setInterval(refreshRanking, RANKING_REFRESH_MS);
+    const retryTimer = setInterval(() => {
+      if (rankingState !== 'LIVE') refreshRanking();
+    }, RANKING_RETRY_MS);
+    return () => {
+      clearInterval(timer);
+      clearInterval(retryTimer);
+    };
+  }, [refreshRanking, rankingState]);
 
   useEffect(() => {
     if (view !== 'ops') return undefined;
@@ -139,7 +156,7 @@ export default function NZTrackerApp() {
 
       {view === 'player' ? (
         <section className="nz-player-layout">
-          <div className="nz-status-strip"><span className={`dot ${rankingState === 'LIVE' ? 'live' : ''}`}></span><b>LIVE</b><span>Shared monitor dataset</span><span>Updated {updatedAt ? new Date(updatedAt).toLocaleString('en-PH', { hour12: false }) : '—'}</span><span>{clans.length} clans</span></div>
+          <div className="nz-status-strip"><span className={`dot ${rankingState === 'LIVE' ? 'live' : ''}`}></span><b>{rankingState === 'LIVE' ? 'LIVE' : 'SYNCING'}</b><span>Shared monitor dataset</span><span>Updated {updatedAt ? new Date(updatedAt).toLocaleString('en-PH', { hour12: false }) : '—'}</span><span>{clans.length} clans</span></div>
           {rankingState !== 'LIVE' && <div className="nz-notice">{rankingError || 'Waiting for the 5-minute background monitor to publish the next ranking snapshot.'}</div>}
           <RankingTable rows={clans} selectedId={selected?.clanId} onSelect={setSelected} />
           <p className="nz-player-hint">Tap a clan to open clan intelligence. Player traffic reads the cached dataset and never scrapes Ninja Zenshin.</p>
