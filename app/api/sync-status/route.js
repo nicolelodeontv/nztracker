@@ -33,6 +33,8 @@ export async function GET() {
       memberErrors: Number(sync?.memberErrors || 0),
       historyClansStored: Number(sync?.historyClansStored || 0),
       historyClansChanged: Number(sync?.historyClansChanged || 0),
+      rankingCacheStored: Boolean(sync?.rankingCacheStored),
+      rankingRows: Number(sync?.rankingRows || 0),
       memberSources: sync?.memberSources || {},
       source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
       durable: storage.durable,
