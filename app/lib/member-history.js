@@ -5,20 +5,19 @@ export const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 const HISTORY_PREFIX = 'nztracker/member-history';
 const HEALTH_PATH = `${HISTORY_PREFIX}/.healthcheck`;
+const SYNC_STATUS_PATH = 'nztracker/sync-status/latest.json';
 const locks = new Map();
 const textResponse = async (stream) => new Response(stream).text();
 const normalizeSeason = (season) => String(season || 'Season 2').trim().replace(/[^a-zA-Z0-9._-]+/g, '_');
 const normalizeClanId = (clanId) => String(clanId || '').trim();
 
 export const historyPath = (clanId) => `${HISTORY_PREFIX}/${normalizeClanId(clanId)}.json`;
+export const syncStatusPath = () => SYNC_STATUS_PATH;
 
 function hasBlobStoreConfig() {
   return Boolean(process.env.BLOB_STORE_ID || process.env.BLOB_READ_WRITE_TOKEN);
 }
 
-// Vercel Blob OIDC is implicit on Vercel Functions after a store is upgraded to OIDC.
-// Do not require VERCEL_OIDC_TOKEN to be exposed as a normal environment variable:
-// the Blob SDK authenticates through the platform automatically.
 function hasBlobAuthConfig() {
   return Boolean(
     process.env.BLOB_READ_WRITE_TOKEN ||
@@ -82,7 +81,7 @@ function cleanPoints(points, cutoff) {
 export async function recordMemberSnapshot({ clanId, season, members, capturedAt = Date.now() }) {
   const key = normalizeClanId(clanId);
   if (!key || !Array.isArray(members) || !members.length) return { stored: false, changed: false, reason: 'Invalid snapshot.' };
-  return withLock(key, async () => {
+  return withLock(`history:${key}`, async () => {
     const now = Number(capturedAt) || Date.now();
     const cutoff = now - HISTORY_MAX_AGE_MS;
     const document = await readDocument(key);
@@ -133,6 +132,39 @@ export async function readMemberHistory({ clanId, season, hours = 168 }) {
     stored: storageHealth().durable,
     members
   };
+}
+
+async function readSyncDocument() {
+  if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return null;
+  try {
+    const result = await get(SYNC_STATUS_PATH, { access: 'private', useCache: false });
+    if (!result) return null;
+    const text = await textResponse(result.stream);
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/not found|404|does not exist/i.test(message)) return null;
+    throw error;
+  }
+}
+
+export async function recordSyncStatus(status = {}) {
+  if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) {
+    return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
+  }
+  const payload = { version: 1, ...status, updatedAt: new Date().toISOString() };
+  await put(SYNC_STATUS_PATH, JSON.stringify(payload), {
+    access: 'private',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: 'application/json'
+  });
+  return { stored: true, ...payload };
+}
+
+export async function readSyncStatus() {
+  return readSyncDocument();
 }
 
 export async function verifyStorageConnection() {
