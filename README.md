@@ -11,6 +11,7 @@ Source: https://ninjazenshin.online/?panel=clan-ranking
 - Server history is the source of truth; localStorage is fallback only.
 - Source integrity guards reject stale, empty, duplicate, partial, and invalid snapshots.
 - Background Sync Command Center exposes last/next snapshot, clan/member counts, durable status, and source.
+- Live ranking requests use cache-busting and explicit stale fallback handling.
 
 ## Live intelligence
 - ~1 second UI refresh for ranking and open member panels.
