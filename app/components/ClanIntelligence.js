@@ -7,6 +7,7 @@ import { PERIOD_LABELS } from '../lib/metrics';
 import { downloadCsv } from '../lib/csv';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
+const fmtRate = (n) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 export default function ClanIntelligence({ clan, rows, intel, events, alerts, periodHours, setPeriodHours, eventFilter, setEventFilter }) {
   if (!clan) return <div className="nz-empty">Select a clan to open clean clan intelligence.</div>;
@@ -35,7 +36,7 @@ export default function ClanIntelligence({ clan, rows, intel, events, alerts, pe
       </div>
       <div className="nz-metrics">
         <div><span>TOTAL GAIN</span><b>+{fmt(intel.gain)}</b></div>
-        <div><span>GAIN / HR</span><b>{fmt(Math.round(intel.hour))}</b></div>
+        <div><span>GAIN / HR</span><b>{fmtRate(intel.hour)}</b></div>
         <div><span>ACTIVE</span><b>{intel.active}</b></div>
         <div><span>NO GAIN</span><b>{intel.noGain}</b></div>
         <div><span>10K BURN</span><b>{intel.burn.length}</b></div>
@@ -48,17 +49,26 @@ export default function ClanIntelligence({ clan, rows, intel, events, alerts, pe
         <EventLog events={events} filter={eventFilter} setFilter={setEventFilter} />
       </div>
       <div className="nz-member-table">
-        <div className="nz-panel-head"><h3>Member intelligence</h3><span className="nz-muted">{rows.length} members</span></div>
-        <div className="nz-table-wrap">
-          <table>
-            <thead><tr><th>MEMBER</th><th>REP</th><th>GAIN</th><th>GAIN/HR</th><th>STATUS</th></tr></thead>
+        <div className="nz-panel-head">
+          <div>
+            <h3>Member intelligence</h3>
+            <span className="nz-table-subtitle">REP activity for the selected {PERIOD_LABELS[periodHours] || `${periodHours}H`} window</span>
+          </div>
+          <span className="nz-muted">{rows.length} members</span>
+        </div>
+        <div className="nz-table-wrap nz-member-intel-wrap">
+          <table className="nz-member-intel-table">
+            <thead><tr><th>MEMBER</th><th>REP</th><th>GAIN</th><th>GAIN / HR</th><th>STATUS</th></tr></thead>
             <tbody>
-              {rows.map((m) => (
+              {rows.length ? rows.map((m) => (
                 <tr key={m.id}>
-                  <td>{m.name}</td><td>{fmt(m.current)}</td><td className="gain">+{fmt(m.gain)}</td><td>{fmt(Math.round(m.gainPerHour))}</td>
+                  <td className="member-name" title={m.name}>{m.name}</td>
+                  <td>{fmt(m.current)}</td>
+                  <td className={`gain ${m.gain > 0 ? 'has-gain' : 'zero-gain'}`}>{m.gain > 0 ? `+${fmt(m.gain)}` : '0'}</td>
+                  <td className="rate">{m.gain > 0 ? `${fmtRate(m.gainPerHour)}/hr` : '—'}</td>
                   <td><span className={`nz-status ${String(m.status).toLowerCase().replace(/\s+/g,'-')}`}>{m.status}</span></td>
                 </tr>
-              ))}
+              )) : <tr><td colSpan="5" className="nz-empty-row">No member intelligence data available yet.</td></tr>}
             </tbody>
           </table>
         </div>
