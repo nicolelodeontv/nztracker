@@ -15,8 +15,9 @@ export const rankingCachePath = () => RANKING_PATH;
 export async function recordRankingSnapshot(parsed) {
   if (!canUseBlob()) return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
   const payload = {
-    version: 1,
+    version: 2,
     season: parsed?.season || 'Season 2',
+    seasonEndsAt: parsed?.seasonEndsAt || null,
     countdown: parsed?.countdown || null,
     rows: Array.isArray(parsed?.rows) ? parsed.rows : [],
     fetchedAt: parsed?.fetchedAt || new Date().toISOString(),
