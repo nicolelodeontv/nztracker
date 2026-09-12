@@ -1,10 +1,4 @@
 import './globals.css';
-import './tracker.css';
-import './aitmpl-upgrades.css';
-import './mobile.css';
-import './nz3-polish.css';
-import './nz3-final-ui.css';
-import CsvExportFix from './csv-export-fix';
 
 export const metadata = {
   title: 'NINJA ZENSHIN — Clan Ranking',
@@ -25,7 +19,7 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body><CsvExportFix />{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
