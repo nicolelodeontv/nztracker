@@ -17,30 +17,52 @@ export function statusFor(member, historyMember, now = Date.now(), windowStart =
   const points = timelineFor(historyMember);
   if (member?.missing) return 'MISSING';
   if (points.length < 2) return 'NEW';
+
   const latest = points.at(-1);
   const prior = points.at(-2);
   if (number(latest.r) < number(prior.r)) return 'RESET';
-  const ageMinutes = (now - Number(latest.t)) / 60000;
+
   const baseline = baselinePoint(points, windowStart);
-  const periodGain = number(latest.r) - number(baseline?.r);
+  const current = number(member?.reputation ?? member?.rep ?? latest.r);
+  const periodGain = Math.max(0, current - number(baseline?.r ?? current));
+  const ageMinutes = Math.max(0, (now - Number(latest.t)) / 60000);
+
+  // Positive reputation gain always wins over the old "NO GAIN" fallback.
+  // A member is only NO GAIN when the selected period has genuinely produced 0 gain.
   if (periodGain > 0 && ageMinutes <= 15) return 'ACTIVE';
-  if (ageMinutes <= 30) return 'RECENT';
-  if (ageMinutes <= 360) return 'IDLE';
+  if (periodGain > 0 && ageMinutes <= 30) return 'RECENT';
+  if (periodGain > 0) return 'IDLE';
   return 'NO GAIN';
 }
 
 export function memberMetrics(member, historyMember, hours = 5, now = Date.now()) {
   const points = timelineFor(historyMember);
-  const since = now - hours * 3600000;
+  const safeHours = Math.max(Number(hours) || 0, 1 / 60);
+  const since = now - safeHours * 3600000;
   const current = number(member?.reputation ?? member?.rep ?? points.at(-1)?.r);
   const baseline = baselinePoint(points, since);
   const before = baseline ? number(baseline.r) : current;
-  const gain = Math.max(0, current - before);
-  const latestTs = Number(points.at(-1)?.t || 0);
-  const measuredMs = Math.max(1, latestTs - Number(baseline?.t || since));
-  const gainPerHour = gain / (measuredMs / 3600000);
-  const reset = Boolean(baseline && current < before) || points.some((point, i) => i && number(point.r) < number(points[i - 1].r));
-  return { current, before, gain, gainPerHour: Number.isFinite(gainPerHour) ? gainPerHour : 0, latestTs, reset };
+  const rawGain = current - before;
+  const gain = Math.max(0, rawGain);
+
+  // Measure against the same baseline used for GAIN. The previous implementation
+  // divided by baseline -> latest snapshot time, which could be near zero while
+  // CURRENT REP was newer, producing an inflated GAIN/HR value.
+  const baselineTs = Number(baseline?.t || since);
+  const elapsedHours = Math.max((now - baselineTs) / 3600000, 1 / 60);
+  const gainPerHour = gain / elapsedHours;
+  const reset = Boolean(rawGain < 0) || points.some((point, i) => i && number(point.r) < number(points[i - 1].r));
+
+  return {
+    current,
+    before,
+    gain,
+    gainPerHour: Number.isFinite(gainPerHour) ? gainPerHour : 0,
+    latestTs: Number(points.at(-1)?.t || 0),
+    baselineTs,
+    elapsedHours,
+    reset,
+  };
 }
 
 export function buildMemberRows(members, historyMembers, hours, now = Date.now()) {
@@ -51,9 +73,11 @@ export function buildMemberRows(members, historyMembers, hours, now = Date.now()
     const live = currentMap.get(id);
     const member = live || { id, name: historyMember.name || id, reputation: historyMember.points?.at(-1)?.r || 0, missing: true };
     const metrics = memberMetrics(member, historyMember, hours, now);
-    const status = statusFor(member, historyMember, now, now - hours * 3600000);
+    const status = metrics.reset
+      ? 'RESET'
+      : statusFor(member, historyMember, now, now - Math.max(Number(hours) || 1, 1 / 60) * 3600000);
     return { ...member, id, ...metrics, status, historyMember };
-  }).sort((a, b) => b.current - a.current);
+  }).sort((a, b) => b.gain - a.gain || b.current - a.current || String(a.name).localeCompare(String(b.name)));
 }
 
 export function deriveEvents(members, historyMembers, now = Date.now()) {
@@ -80,7 +104,7 @@ export function deriveAlerts(rows, periodHours) {
     if (member.gain >= 10000) alerts.push({ level: 'HIGH', type: '+10K GAIN', text: `${member.name} gained ${member.gain.toLocaleString()} in ${label}` });
     else if (member.gain >= 5000) alerts.push({ level: 'INFO', type: '+5K GAIN', text: `${member.name} gained ${member.gain.toLocaleString()} in ${label}` });
     if (member.gainPerHour >= 1000) alerts.push({ level: 'HIGH', type: 'FAST GAIN', text: `${member.name} is averaging ${Math.round(member.gainPerHour).toLocaleString()}/hr` });
-    if (member.status === 'IDLE' || member.status === 'NO GAIN') alerts.push({ level: 'WARN', type: 'NO ACTIVITY', text: `${member.name} has no positive gain in ${label}` });
+    if (member.status === 'IDLE' || member.status === 'NO GAIN') alerts.push({ level: 'WARN', type: 'NO ACTIVITY', text: member.status === 'IDLE' ? `${member.name} has gain, but no recent activity snapshot` : `${member.name} has no positive gain in ${label}` });
     if (member.status === 'RESET') alerts.push({ level: 'CRIT', type: 'REP RESET', text: `${member.name} reputation dropped below a prior snapshot` });
     if (member.status === 'MISSING') alerts.push({ level: 'CRIT', type: 'MEMBER MISSING', text: `${member.name} exists in history but is absent from live data` });
   }
