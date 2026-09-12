@@ -1,4 +1,5 @@
 import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../lib/member-history';
+import { recordRankingSnapshot } from '../../lib/ranking-cache';
 import { parseRankingHtml } from '../../lib/source-parser.mjs';
 
 export const runtime = 'nodejs';
@@ -67,6 +68,7 @@ export async function GET(request) {
   const startedAt = new Date();
   try {
     const ranking = await collectRanking();
+    const rankingCache = await recordRankingSnapshot(ranking);
     const withIds = ranking.rows.filter((clan) => clan.clanId);
     const results = await Promise.allSettled(withIds.map((clan) => monitorClan(clan, ranking.season, request.url)));
     const membersSeen = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value.count : 0), 0);
@@ -82,7 +84,7 @@ export async function GET(request) {
 
     const finishedAt = new Date();
     const heartbeat = await persistHeartbeat({
-      version: 1,
+      version: 2,
       status: 'active',
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
@@ -94,19 +96,22 @@ export async function GET(request) {
       memberErrors,
       historyClansStored: historyStored,
       historyClansChanged: historyChanged,
+      rankingCacheStored: Boolean(rankingCache?.stored),
+      rankingRows: ranking.rows.length,
       memberSources: sourceCounts,
       source: ranking.source,
     });
 
     return Response.json({
       ok: true,
-      mode: 'live-with-history',
+      mode: 'shared-monitor',
       season: ranking.season,
       clansSeen: ranking.rows.length,
       clansWithMemberData: withIds.length - memberErrors,
       membersSeen,
       memberErrors,
       memberSources: sourceCounts,
+      rankingCache,
       history: { clansStored: historyStored, clansChanged: historyChanged, sampleIntervalMs: SYNC_INTERVAL_MS },
       historyStorage: storageHealth(),
       syncStatusStored: Boolean(heartbeat?.stored),
@@ -118,7 +123,7 @@ export async function GET(request) {
   } catch (error) {
     const finishedAt = new Date();
     await persistHeartbeat({
-      version: 1,
+      version: 2,
       status: 'error',
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
@@ -128,7 +133,7 @@ export async function GET(request) {
     });
     return Response.json({
       ok: false,
-      mode: 'live-with-history',
+      mode: 'shared-monitor',
       historyStorage: storageHealth(),
       error: error instanceof Error ? error.message : String(error),
       finishedAt: finishedAt.toISOString()
