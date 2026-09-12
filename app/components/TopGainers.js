@@ -1,0 +1,2 @@
+const fmt = (n) => Number(n || 0).toLocaleString();
+export default function TopGainers({ members = [] }) { return <section className="nz-card"><div className="nz-card-head"><h3>Top Gainers</h3><span>PERIOD</span></div>{members.length ? members.map((m, i) => <div className="nz-list-row" key={m.id || m.name}><b>#{i + 1} {m.name}</b><strong>+{fmt(m.gain)}</strong></div>) : <div className="nz-empty small">No gain data yet.</div>}</section>; }
