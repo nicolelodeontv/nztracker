@@ -1,5 +1,4 @@
 import NZTrackerApp from './components/NZTrackerApp';
-import './nz3-v3.css';
 
 export const metadata = {
   title: 'Ninja Zenshin Tracker',
