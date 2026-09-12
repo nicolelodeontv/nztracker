@@ -1,0 +1,2 @@
+const fmt = (n) => Number(n || 0).toLocaleString();
+export default function MiniBurn({ members = [] }) { return <section className="nz-card"><div className="nz-card-head"><h3>Mini Burn</h3><span>&lt; 10K REP</span></div><div className="nz-log">{members.slice(0,10).map((m)=><div className="nz-list-row" key={m.id || m.name}><b>{m.name}</b><span>{fmt(m.current)} REP</span></div>)}{!members.length && <div className="nz-empty small">No members below 10K REP.</div>}</div></section>; }
