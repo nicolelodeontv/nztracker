@@ -37,6 +37,7 @@ export async function GET() {
       rankingRows: Number(sync?.rankingRows || 0),
       memberSources: sync?.memberSources || {},
       source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
+      error: sync?.error || null,
       durable: storage.durable,
       storageProvider: storage.provider,
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
