@@ -72,7 +72,8 @@ test('buildMemberRows merges live and history-only members, then sorts by reputa
   const rows = buildMemberRows(members, historyMembers, 5, now);
   assert.deepEqual(rows.map((row) => row.name), ['High', 'Low', 'Missing']);
   assert.equal(rows[2].status, 'MISSING');
-  assert.equal(rows[1].gain, 0);
+  assert.equal(rows[1].gain, 1000);
+  assert.equal(rows[0].gain, 4000);
 });
 
 test('deriveEvents ignores non-gains and events older than 24 hours', () => {
