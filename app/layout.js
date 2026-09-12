@@ -1,4 +1,4 @@
-import './globals.css';
+import './nz3-v3.css';
 
 export const metadata = {
   title: 'NINJA ZENSHIN — Clan Ranking',
