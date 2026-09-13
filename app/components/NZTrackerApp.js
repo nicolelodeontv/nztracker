@@ -54,23 +54,22 @@ export default function NZTrackerApp() {
   const refreshRanking = useCallback(async () => {
     try {
       const bust = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const data = await readJson(`/api/clan-ranking?refresh=${bust}`);
-      const rows = Array.isArray(data.rows) ? data.rows : [];
-      if (!rows.length) throw new Error('Game ranking returned no clans.');
-      const syncedServerNow = data.serverNow || data.fetchedAt || null;
+      const data = await readJson(`/api/clans?limit=500&refresh=${bust}`);
+      const rows = Array.isArray(data.clans) ? data.clans : [];
+      if (!rows.length) throw new Error('Supabase ranking table is empty. Waiting for the first 5-minute sync.');
+      const syncedServerNow = data.lastUpdated || rows[0]?.capturedAt || null;
       if (syncedServerNow) clockOffsetRef.current = new Date(syncedServerNow).getTime() - Date.now();
       setServerNow(syncedServerNow);
       setClans(rows);
-      setSeason(data.season || 'Season 2');
+      setSeason(rows[0]?.season || 'Season 2');
       setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
-      setUpdatedAt(data.updatedAt || data.fetchedAt || null);
-      setLastRankingStatus(data.sourceStatus || 'live');
-      if (data.sourceStatus === 'live') { setRankingState('LIVE'); setRankingError(''); }
-      else if (data.sourceStatus === 'stale-live-fallback') { setRankingState('STALE'); setRankingError(data.liveError || 'Live game source is temporarily unavailable. Showing the last verified ranking.'); }
-      else { setRankingState('CACHED'); setRankingError('Ranking is cached and waiting for a fresh game sync.'); }
+      setUpdatedAt(data.lastUpdated || rows[0]?.capturedAt || null);
+      setLastRankingStatus(data.sync?.status === 'success' ? 'supabase-synced' : 'supabase');
+      setRankingState('LIVE');
+      setRankingError('');
     } catch (error) {
       setRankingState((current) => clans.length ? 'STALE' : 'WAITING');
-      setRankingError(error instanceof Error ? error.message : 'Game ranking source unavailable');
+      setRankingError(error instanceof Error ? error.message : 'Supabase ranking data unavailable');
     }
   }, [clans.length]);
 
@@ -114,7 +113,7 @@ export default function NZTrackerApp() {
   return (
     <main className="nz-app">
       <header className="nz-topbar"><div className="nz-brand"><span>🥷</span><div><h1>NINJA ZENSHIN</h1><p>{season} · {countdown}</p></div></div><nav className="nz-switch"><button className={`nz-btn ${view === 'player' ? 'active' : ''}`} onClick={() => setView('player')}>PLAYER</button><button className={`nz-btn ${view === 'ops' ? 'active' : ''}`} onClick={() => setView('ops')}>OPS</button></nav></header>
-      {view === 'player' ? <section className="nz-player-layout"><div className="nz-status-strip"><span className={`dot ${rankingState === 'LIVE' ? 'live' : rankingState === 'STALE' ? 'stale' : ''}`}></span><b>{rankingLabel}</b><span>Game ranking source</span><span>Updated {rankingAgeLabel(updatedAt, syncedNow)}</span><span>{clans.length} clans</span><span>{lastRankingStatus === 'live' ? 'Verified live fetch' : lastRankingStatus || 'Awaiting verification'}</span></div>{rankingState !== 'LIVE' && <div className="nz-notice">{rankingError || 'Waiting for a fresh game ranking sync.'}</div>}<RankingTable rows={clans} selectedId={selected?.clanId} onSelect={setSelected} /><p className="nz-player-hint">Game-synchronized time is used for the season countdown and activity calculations. Ranking refreshes every 30s; stale data is labeled STALE.</p></section> : <section className="nz-ops-layout"><SyncStatusPanel sync={sync} health={health?.services ? { ranking: health.services.clanRanking?.status, members: health.services.clanMembers?.status, history: health.services.memberHistory?.status } : health} /><div className="nz-op-detail"><div><span>MONITOR MODE</span><b>ONE SHARED SCRAPER</b><small>5-minute upstream fetch → durable ranking cache</small></div><div><span>FALLBACK TIER</span><b>LEGACY → AMF → LAST-KNOWN</b><small>Member fallbacks stay operational, not player-facing.</small></div><div><span>CLIENT</span><b>LIVE VERIFY</b><small>30s ranking refresh · 30s member refresh · 10s ops telemetry</small></div></div><div className="nz-ops-note"><b>Operational boundary</b><span>Source health, Blob durability, heartbeat, scraper source, fallback tier and monitor errors stay in Ops.</span></div></section>}
+      {view === 'player' ? <section className="nz-player-layout"><div className="nz-status-strip"><span className={`dot ${rankingState === 'LIVE' ? 'live' : rankingState === 'STALE' ? 'stale' : ''}`}></span><b>{rankingLabel}</b><span>Supabase ranking database</span><span>Updated {rankingAgeLabel(updatedAt, syncedNow)}</span><span>{clans.length} clans</span><span>{lastRankingStatus === 'supabase-synced' ? 'Latest Vercel Cron sync' : lastRankingStatus || 'Awaiting sync'}</span></div>{rankingState !== 'LIVE' && <div className="nz-notice">{rankingError || 'Waiting for the first Supabase sync.'}</div>}<RankingTable rows={clans} selectedId={selected?.clanId} onSelect={setSelected} /><p className="nz-player-hint">Rankings are read from Supabase and refreshed every 30s. Vercel Cron updates the database from the game source every 5 minutes.</p></section> : <section className="nz-ops-layout"><SyncStatusPanel sync={sync} health={health?.services ? { ranking: health.services.clanRanking?.status, members: health.services.clanMembers?.status, history: health.services.memberHistory?.status } : health} /><div className="nz-op-detail"><div><span>MONITOR MODE</span><b>ONE SHARED SCRAPER</b><small>5-minute upstream fetch → Supabase + durable ranking cache</small></div><div><span>FALLBACK TIER</span><b>LEGACY → AMF → LAST-KNOWN</b><small>Member fallbacks stay operational, not player-facing.</small></div><div><span>CLIENT</span><b>SUPABASE VERIFY</b><small>30s ranking refresh · 30s member refresh · 10s ops telemetry</small></div></div><div className="nz-ops-note"><b>Operational boundary</b><span>Source health, Supabase durability, heartbeat, scraper source, fallback tier and monitor errors stay in Ops.</span></div></section>}
       {selected && <div className="nz-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><div className="nz-modal"><div className="nz-modal-head"><div><span className="nz-kicker">LIVE → CLAN</span><h2>{selectedRow?.clan || selected.clan}</h2><small>Members: {memberState} · History: {historyState}</small></div><button className="nz-btn" onClick={() => setSelected(null)}>CLOSE</button></div><div className="nz-modal-body"><ClanIntelligence clan={selectedRow} rows={rows} intel={intel} events={events} alerts={alerts} periodHours={periodHours} setPeriodHours={setPeriodHours} eventFilter={eventFilter} setEventFilter={setEventFilter} /></div></div></div>}
     </main>
   );
