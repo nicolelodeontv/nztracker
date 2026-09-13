@@ -16,6 +16,16 @@ const ageText = (seconds) => {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   return `${Math.floor(seconds / 3600)}h ago`;
 };
+const singaporeDateTime = (value, options = {}) => {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('en-SG', {
+    timeZone: 'Asia/Singapore',
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+    ...options
+  }).format(new Date(value));
+};
+const singaporeTime = (value) => singaporeDateTime(value, { dateStyle: undefined });
 const statusClass = (status) => `nz4-source ${String(status || 'unknown').toLowerCase()}`;
 
 async function json(url) {
@@ -168,11 +178,11 @@ export default function NZTrackerDashboard() {
 
       {tab === 'finder' && <section className="nz4-panel"><div className="nz4-toolbar"><div><span className="nz4-kicker">PLAYER SEARCH</span><h2>FIND + TRACK</h2><p>Search current clan membership and both leaderboards.</p></div></div><input className="nz4-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search player name…" autoFocus />{queryBusy && <div className="nz4-search-status">SEARCHING…</div>}{searchData && <div className="nz4-search-grid"><div><b>CLAN MEMBERS</b>{(searchData.members || []).map((row, i) => <div key={`${row.member_id}-${i}`} className="nz4-search-row"><span>{row.name}</span><em>{row.clan_id} · L{row.level} · {fmt(row.reputation)} REP</em></div>)}</div><div><b>PVE</b>{(searchData.pve || []).map((row, i) => <div key={`pve-${i}`} className="nz4-search-row"><span>#{row.rank} {row.player_name}</span><em>{fmt(row.score)} score</em></div>)}</div><div><b>PVP</b>{(searchData.pvp || []).map((row, i) => <div key={`pvp-${i}`} className="nz4-search-row"><span>#{row.rank} {row.player_name}</span><em>{fmt(row.score)} · {row.wins}/{row.losses}</em></div>)}</div><div><b>HISTORY</b><div className="nz4-history-summary">PVE points: {(searchData.history?.pve || []).length} · PVP points: {(searchData.history?.pvp || []).length}</div></div></div>}</section>}
 
-      {tab === 'ops' && <section className="nz4-panel"><div className="nz4-toolbar"><div><span className="nz4-kicker">OPERATIONS</span><h2>SYNC HEALTH</h2><p>Independent source states, freshness, and failures.</p></div><button className="nz4-btn" onClick={refresh}>FORCE REFRESH</button></div><div className="nz4-status-grid">{sourceEntries.map(([name, source]) => <div key={name} className={statusClass(source?.status)}><span>{name.toUpperCase()}</span><b>{String(source?.status || 'unknown').toUpperCase()}</b><small>{source?.error || `${source?.rows ?? source?.clans ?? 0} rows`}</small></div>)}</div><div className="nz4-ops-details"><div><span>LAST SYNC</span><b>{dataStatus?.lastRunAt ? new Date(dataStatus.lastRunAt).toLocaleString() : '—'}</b></div><div><span>FRESHNESS</span><b>{ageText(dataStatus?.ageSeconds)}</b></div><div><span>CLANS</span><b>{dataStatus?.clans ?? 0}</b></div><div><span>PLAYERS</span><b>{dataStatus?.members ?? 0}</b></div><div><span>FAILED MEMBER REQUESTS</span><b>{dataStatus?.memberErrors ?? 0}</b></div><div><span>DURABLE</span><b>{dataStatus?.durable ? 'YES' : 'NO'}</b></div></div>{dataStatus?.error && <div className="nz4-error-box"><b>LAST ERROR</b><span>{dataStatus.error}</span></div>}</section>}
+      {tab === 'ops' && <section className="nz4-panel"><div className="nz4-toolbar"><div><span className="nz4-kicker">OPERATIONS</span><h2>SYNC HEALTH</h2><p>Independent source states, freshness, and failures.</p></div><button className="nz4-btn" onClick={refresh}>FORCE REFRESH</button></div><div className="nz4-status-grid">{sourceEntries.map(([name, source]) => <div key={name} className={statusClass(source?.status)}><span>{name.toUpperCase()}</span><b>{String(source?.status || 'unknown').toUpperCase()}</b><small>{source?.error || `${source?.rows ?? source?.clans ?? 0} rows`}</small></div>)}</div><div className="nz4-ops-details"><div><span>LAST SYNC</span><b>{singaporeDateTime(dataStatus?.lastRunAt)}</b></div><div><span>FRESHNESS</span><b>{ageText(dataStatus?.ageSeconds)}</b></div><div><span>CLANS</span><b>{dataStatus?.clans ?? 0}</b></div><div><span>PLAYERS</span><b>{dataStatus?.members ?? 0}</b></div><div><span>FAILED MEMBER REQUESTS</span><b>{dataStatus?.memberErrors ?? 0}</b></div><div><span>DURABLE</span><b>{dataStatus?.durable ? 'YES' : 'NO'}</b></div></div>{dataStatus?.error && <div className="nz4-error-box"><b>LAST ERROR</b><span>{dataStatus.error}</span></div>}</section>}
 
       {selected && <div className="nz4-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}><div className="nz4-modal"><div className="nz4-modal-head"><div><span className="nz4-kicker">CLAN PROFILE</span><h2>#{selectedRow?.rank} {selectedRow?.clan}</h2><p>{selectedRow?.master || '—'} · {selectedRow?.memberCurrent}/{selectedRow?.memberMax} · {fmt(selectedRow?.reputation)} REP</p></div><button className="nz4-btn" onClick={() => setSelected(null)}>CLOSE</button></div><ClanIntelligence clan={selectedRow} rows={intelRows} intel={intel} events={events} alerts={alerts} periodHours={periodHours} setPeriodHours={setPeriodHours} eventFilter={eventFilter} setEventFilter={setEventFilter} /></div></div>}
 
-      <footer className="nz4-footer"><span>Independent game-data tracker</span><span>Source: ninjazenshin.online</span><span>{clock ? new Date(clock).toLocaleTimeString() : '—'}</span></footer>
+      <footer className="nz4-footer"><span>Independent game-data tracker</span><span>Source: ninjazenshin.online</span><span>{clock ? singaporeTime(clock) : '—'}</span></footer>
 
       <style jsx global>{`
         :root{--nz4-bg:#07090c;--nz4-panel:#0d1117;--nz4-panel2:#10161d;--nz4-line:#27313b;--nz4-text:#f5f7fa;--nz4-muted:#9da8b5;--nz4-accent:#e6edf3;--nz4-good:#56d364;--nz4-warn:#d29922;--nz4-bad:#f85149}
