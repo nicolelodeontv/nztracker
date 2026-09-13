@@ -5,8 +5,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   const url = new URL(request.url);
-  const season = url.searchParams.get('season') || undefined;
-  const round = url.searchParams.get('round');
+  const seasonParam = url.searchParams.get('season');
+  const roundParam = url.searchParams.get('round');
+  const season = seasonParam && seasonParam.trim() ? seasonParam.trim() : undefined;
+  const round = roundParam && roundParam.trim() ? roundParam.trim() : undefined;
   const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 100));
   const result = {};
   const errors = {};
@@ -18,5 +20,8 @@ export async function GET(request) {
       errors[type] = error instanceof Error ? error.message : String(error);
     }
   }
-  return Response.json({ ok: Object.keys(errors).length === 0, ...result, errors, db: multiDbStatus() }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  return Response.json(
+    { ok: Object.keys(errors).length === 0, ...result, errors, db: multiDbStatus() },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  );
 }
