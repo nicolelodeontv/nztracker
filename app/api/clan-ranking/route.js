@@ -25,16 +25,23 @@ async function fetchLiveRanking() {
     },
   });
   if (!response.ok) throw new Error(`Game ranking source returned HTTP ${response.status}`);
-  const fetchedAt = new Date().toISOString();
+  const serverNow = new Date().toISOString();
   const parsed = parseRankingHtml(await response.text());
   if (!parsed.rows?.length) throw new Error('Game ranking source returned no usable clan rows');
-  return { ...parsed, fetchedAt, source: SOURCE, seasonEndsAt: seasonEndsAt(parsed.countdown, fetchedAt) };
+  return {
+    ...parsed,
+    serverNow,
+    fetchedAt: serverNow,
+    source: SOURCE,
+    seasonEndsAt: seasonEndsAt(parsed.countdown, serverNow),
+  };
 }
 
 function responseFor(snapshot, sourceStatus, extra = {}) {
   const fetchedAt = snapshot?.fetchedAt || snapshot?.updatedAt || null;
   return {
     ok: true,
+    serverNow: snapshot?.serverNow || fetchedAt || new Date().toISOString(),
     season: snapshot?.season || 'Season 2',
     seasonEndsAt: snapshot?.seasonEndsAt || seasonEndsAt(snapshot?.countdown, fetchedAt) || FALLBACK_SEASON_END,
     countdown: snapshot?.countdown || null,
