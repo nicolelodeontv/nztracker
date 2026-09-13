@@ -44,7 +44,7 @@ export default function NZTrackerDashboard() {
   const [clanA, setClanA] = useState('');
   const [clanB, setClanB] = useState('');
   const [comparison, setComparison] = useState(null);
-  const [clock, setClock] = useState(Date.now());
+  const [clock, setClock] = useState(null);
   const [error, setError] = useState('');
 
   async function refresh() {
