@@ -1,8 +1,3 @@
 {
-  "crons": [
-    {
-      "path": "/api/sync-clans",
-      "schedule": "*/5 * * * *"
-    }
-  ]
+  "crons": []
 }
