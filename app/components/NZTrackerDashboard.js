@@ -172,7 +172,7 @@ export default function NZTrackerDashboard() {
 
       {selected && <div className="nz4-modal-bg" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}><div className="nz4-modal"><div className="nz4-modal-head"><div><span className="nz4-kicker">CLAN PROFILE</span><h2>#{selectedRow?.rank} {selectedRow?.clan}</h2><p>{selectedRow?.master || '—'} · {selectedRow?.memberCurrent}/{selectedRow?.memberMax} · {fmt(selectedRow?.reputation)} REP</p></div><button className="nz4-btn" onClick={() => setSelected(null)}>CLOSE</button></div><ClanIntelligence clan={selectedRow} rows={intelRows} intel={intel} events={events} alerts={alerts} periodHours={periodHours} setPeriodHours={setPeriodHours} eventFilter={eventFilter} setEventFilter={setEventFilter} /></div></div>}
 
-      <footer className="nz4-footer"><span>Independent game-data tracker</span><span>Source: ninjazenshin.online</span><span>{new Date(clock).toLocaleTimeString()}</span></footer>
+      <footer className="nz4-footer"><span>Independent game-data tracker</span><span>Source: ninjazenshin.online</span><span>{clock ? new Date(clock).toLocaleTimeString() : '—'}</span></footer>
 
       <style jsx global>{`
         :root{--nz4-bg:#07090c;--nz4-panel:#0d1117;--nz4-panel2:#10161d;--nz4-line:#27313b;--nz4-text:#f5f7fa;--nz4-muted:#9da8b5;--nz4-accent:#e6edf3;--nz4-good:#56d364;--nz4-warn:#d29922;--nz4-bad:#f85149}
