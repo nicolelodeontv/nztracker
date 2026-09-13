@@ -1,12 +1,7 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "devCommand": "npm run dev",
   "crons": [
     {
-      "path": "/api/monitor",
+      "path": "/api/sync-clans",
       "schedule": "*/5 * * * *"
     }
   ]
