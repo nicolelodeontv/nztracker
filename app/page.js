@@ -1,10 +1,10 @@
-import NZTrackerDashboard from './components/NZTrackerDashboard';
+import RepTrackerDashboard from './components/RepTrackerDashboard';
 
 export const metadata = {
-  title: 'Ninja Zenshin Tracker',
-  description: 'Multi-source player, clan, PvE and PvP tracking for Ninja Zenshin.',
+  title: 'CHAOS REP Tracker',
+  description: 'Live Ninja Zenshin clan reputation operations tracker.',
 };
 
 export default function Page() {
-  return <NZTrackerDashboard />;
+  return <RepTrackerDashboard initialView="dashboard" />;
 }
