@@ -1,6 +1,8 @@
-name: Ninja Zenshin Full Sync (manual)
+name: Ninja Zenshin Full Sync (scheduled + manual)
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,9 +15,9 @@ jobs:
           TRACKER_URL: https://chaoszenshintracker.vercel.app/api/sync-all
         run: |
           set -euo pipefail
-          echo "Running manual Ninja Zenshin full sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "Running Ninja Zenshin full sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           response="$(curl --fail --silent --show-error --max-time 240 \
             -H 'Accept: application/json' \
-            -H 'User-Agent: NinjaZenshinGitHubManualSync/6.0' \
+            -H 'User-Agent: NinjaZenshinGitHubSync/6.0' \
             "$TRACKER_URL")"
           echo "$response"
