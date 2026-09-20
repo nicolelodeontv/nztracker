@@ -68,7 +68,16 @@ function normalizeMember(member, index) {
   const name = String(member?.name ?? '').trim();
   const id = String(member?.id || name || `member-${index}`);
   const rep = Number(member?.reputation ?? member?.rep ?? 0);
-  return { id, name, level: Number(member?.level || 0), rep: Number.isFinite(rep) ? rep : 0 };
+  const donatedGold = Number(member?.donatedGold ?? member?.donated_gold);
+  const donatedToken = Number(member?.donatedToken ?? member?.donated_token);
+  return {
+    id,
+    name,
+    level: Number(member?.level || 0),
+    rep: Number.isFinite(rep) ? rep : 0,
+    donatedGold: Number.isFinite(donatedGold) ? donatedGold : null,
+    donatedToken: Number.isFinite(donatedToken) ? donatedToken : null,
+  };
 }
 
 function cleanPoints(points, cutoff) {
@@ -96,10 +105,10 @@ export async function recordMemberSnapshot({ clanId, season, members, capturedAt
       const last = points[points.length - 1];
       const shouldAdd = !last || now - Number(last.t) >= HISTORY_SAMPLE_MS || Number(last.r) !== member.rep;
       if (shouldAdd) {
-        points.push({ t: now, r: member.rep, level: member.level, name: member.name });
+        points.push({ t: now, r: member.rep, level: member.level, name: member.name, g: member.donatedGold, k: member.donatedToken });
         changed = true;
       }
-      nextMembers[member.id] = { name: member.name, level: member.level, points, lastSeenAt: now };
+      nextMembers[member.id] = { name: member.name, level: member.level, donatedGold: member.donatedGold, donatedToken: member.donatedToken, points, lastSeenAt: now };
     }
     seasonData.members = nextMembers;
     seasonData.updatedAt = new Date(now).toISOString();
