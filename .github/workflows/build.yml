@@ -20,5 +20,44 @@ jobs:
         run: npm install
       - name: Unit tests
         run: npm test
+      - name: Inspect live AMF member payload
+        run: |
+          node --input-type=module <<'NODE'
+          import { buildMemberRequest, parseMemberResponse, AMF_ORIGIN, SERVICE, RESPONSE_TARGET } from './app/lib/ninja-source.mjs';
+          const response = await fetch(AMF_ORIGIN, {
+            method: 'POST',
+            body: buildMemberRequest('3'),
+            headers: {
+              Accept: '*/*',
+              'Cache-Control': 'no-cache',
+              'Content-Type': 'application/x-amf',
+              Origin: 'https://ninjazenshin.online',
+              Pragma: 'no-cache',
+              Referer: 'https://ninjazenshin.online/?panel=clan-ranking',
+              'User-Agent': 'NinjaZenshinRawPayloadProbe/3.0',
+            },
+          });
+          console.log('AMF_ORIGIN:', AMF_ORIGIN);
+          console.log('SERVICE:', SERVICE);
+          console.log('RESPONSE_TARGET:', RESPONSE_TARGET);
+          console.log('HTTP:', response.status, response.statusText);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          console.log('Response bytes:', bytes.length);
+          if (!response.ok) throw new Error('AMF request failed with HTTP ' + response.status);
+          const data = parseMemberResponse(bytes);
+          console.log('Top-level fields:', Object.keys(data || {}));
+          const members = Array.isArray(data?.result) ? data.result : Array.isArray(data?.members) ? data.members : [];
+          console.log('Raw member count:', members.length);
+          if (!members.length) {
+            console.log('FULL DECODED RESPONSE:');
+            console.log(JSON.stringify(data, null, 2));
+            process.exit(2);
+          }
+          console.log('Raw member field names:', Object.keys(members[0]));
+          console.log('FULL RAW MEMBER RECORD:');
+          console.log(JSON.stringify(members[0], null, 2));
+          console.log('Field names across first 5:', [...new Set(members.slice(0, 5).flatMap(m => Object.keys(m || {})))]);
+          NODE
+
       - name: Production build
         run: npm run build
