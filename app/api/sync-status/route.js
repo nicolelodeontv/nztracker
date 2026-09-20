@@ -1,4 +1,5 @@
 import { readSyncStatus, storageHealth } from '../../lib/member-history';
+import { readLatestDonationStatus } from '../../lib/donation-history';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,10 @@ const DELAYED_MAX_AGE_MS = 20 * 60 * 1000;
 export async function GET() {
   try {
     const storage = storageHealth();
-    const sync = await readSyncStatus();
+    const [sync, donations] = await Promise.all([
+      readSyncStatus(),
+      readLatestDonationStatus(),
+    ]);
     const now = Date.now();
     const lastRunAtMs = sync?.lastRunAt ? new Date(sync.lastRunAt).getTime() : NaN;
     const ageMs = Number.isFinite(lastRunAtMs) ? Math.max(0, now - lastRunAtMs) : null;
@@ -40,6 +44,10 @@ export async function GET() {
       error: sync?.error || null,
       durable: storage.durable,
       storageProvider: storage.provider,
+      donations: {
+        lastSnapshotAt: donations?.lastSnapshotAt || null,
+        memberCount: Number(donations?.memberCount || 0),
+      },
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
     const storage = storageHealth();
