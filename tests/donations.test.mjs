@@ -13,12 +13,29 @@ function request(body, headers = {}) {
   });
 }
 
-test('POST rejects a missing ingest key with 401', async () => {
+test('POST omitting the ingest header returns 401', async () => {
   const response = await POST(request({
     clanId: '3', season: 'Season 3',
     members: [{ id: '1', name: 'Alpha', donated_gold: 100, donated_token: 2 }],
   }));
   assert.equal(response.status, 401);
+});
+
+test('POST returns 503 when INGEST_KEY env var is unset and does not echo the key', async () => {
+  const originalKey = process.env.INGEST_KEY;
+  delete process.env.INGEST_KEY;
+  try {
+    const response = await POST(request(
+      { clanId: '3', season: 'Season 3', members: [{ id: '1', name: 'Alpha', donated_gold: 100, donated_token: 2 }] },
+      { 'X-Ingest-Key': 'test-ingest-key' },
+    ));
+    assert.equal(response.status, 503);
+    const text = await response.text();
+    assert.equal(text.includes('test-ingest-key'), false);
+    assert.equal(text.includes('secret-ingest-key'), false);
+  } finally {
+    process.env.INGEST_KEY = originalKey;
+  }
 });
 
 test('POST rejects a wrong ingest key with 401 and never echoes it', async () => {
