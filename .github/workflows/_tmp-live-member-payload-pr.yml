@@ -1,0 +1,71 @@
+name: Temporary Live Member Payload Inspection
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check out PR source
+        uses: actions/checkout@v4
+
+      - name: Inspect raw AMF member payload
+        run: |
+          node --input-type=module <<'NODE'
+          import { buildMemberRequest, parseMemberResponse, AMF_ORIGIN, SERVICE, RESPONSE_TARGET } from './app/lib/ninja-source.mjs';
+
+          const clanId = '3';
+          const response = await fetch(AMF_ORIGIN, {
+            method: 'POST',
+            cache: 'no-store',
+            body: buildMemberRequest(clanId),
+            headers: {
+              Accept: '*/*',
+              'Cache-Control': 'no-cache',
+              'Content-Type': 'application/x-amf',
+              Origin: 'https://ninjazenshin.online',
+              Pragma: 'no-cache',
+              Referer: 'https://ninjazenshin.online/?panel=clan-ranking',
+              'User-Agent': 'NinjaZenshinPayloadInspector/1.0',
+            },
+          });
+
+          console.log('AMF_ORIGIN:', AMF_ORIGIN);
+          console.log('SERVICE:', SERVICE);
+          console.log('RESPONSE_TARGET:', RESPONSE_TARGET);
+          console.log('HTTP:', response.status, response.statusText);
+
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          console.log('Response bytes:', bytes.length);
+
+          if (!response.ok) throw new Error('AMF request failed with HTTP ' + response.status);
+          if (!bytes.length) throw new Error('AMF response was empty');
+
+          const bodyData = parseMemberResponse(bytes);
+          console.log('Top-level decoded response fields:', Object.keys(bodyData || {}));
+
+          const rawMembers =
+            Array.isArray(bodyData?.result) ? bodyData.result :
+            Array.isArray(bodyData?.members) ? bodyData.members :
+            [];
+
+          console.log('Raw member count:', rawMembers.length);
+
+          if (!rawMembers.length) {
+            console.log('Decoded response (no raw member array):');
+            console.log(JSON.stringify(bodyData, null, 2));
+            process.exit(2);
+          }
+
+          console.log('Raw member field names:', Object.keys(rawMembers[0]));
+          console.log('FULL RAW MEMBER RECORD (unmodified):');
+          console.log(JSON.stringify(rawMembers[0], null, 2));
+          NODE
