@@ -34,7 +34,8 @@ test('POST returns 503 when INGEST_KEY env var is unset and does not echo the ke
     assert.equal(text.includes('test-ingest-key'), false);
     assert.equal(text.includes('secret-ingest-key'), false);
   } finally {
-    process.env.INGEST_KEY = originalKey;
+    if (originalKey === undefined) delete process.env.INGEST_KEY;
+    else process.env.INGEST_KEY = originalKey;
   }
 });
 
