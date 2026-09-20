@@ -26,6 +26,26 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function extractRawMembers(body) {
+  const looksLikeMember = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) &&
+    ('name' in value || 'username' in value);
+
+  const fromContainer = (container) => {
+    if (Array.isArray(container)) return container.filter(looksLikeMember);
+    if (!container || typeof container !== 'object') return [];
+    return Object.entries(container)
+      .filter(([key, value]) => /^\d+$/.test(key) && looksLikeMember(value))
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([, value]) => value);
+  };
+
+  for (const container of [body?.result, body?.clan_members, body?.members]) {
+    const found = fromContainer(container);
+    if (found.length) return found;
+  }
+  return [];
+}
 async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
@@ -236,7 +256,7 @@ async function fromAmf(clanId) {
   if (!bodyData || typeof bodyData !== 'object') throw new Error('AMF response did not contain an object result.');
   if (bodyData.status && String(bodyData.status) !== '1') throw new Error(`Ninja Zenshin member service returned status ${bodyData.status}.`);
 
-  const rawMembers = Array.isArray(bodyData.result) ? bodyData.result : Array.isArray(bodyData.members) ? bodyData.members : [];
+  const rawMembers = extractRawMembers(bodyData);
   const members = normalizeMembers(rawMembers);
   if (!members.length) throw new Error('AMF member result contained no members.');
 
@@ -347,33 +367,33 @@ async function fetchFreshMembers(clanId) {
 
   const request = (async () => {
     try {
-      return await fromLegacy(clanId);
-    } catch (legacyError) {
+      return await fromAmf(clanId);
+    } catch (amfError) {
       try {
         return {
-          ...(await fromAmf(clanId)),
-          fallbackReason: legacyError instanceof Error ? legacyError.message : String(legacyError),
+          ...(await fromLegacy(clanId)),
+          fallbackReason: amfError instanceof Error ? amfError.message : String(amfError),
         };
-      } catch (amfError) {
-        const legacyMessage = legacyError instanceof Error ? legacyError.message : String(legacyError);
+      } catch (legacyError) {
         const amfMessage = amfError instanceof Error ? amfError.message : String(amfError);
+        const legacyMessage = legacyError instanceof Error ? legacyError.message : String(legacyError);
         const cached = getMemberCache(clanId);
         if (cached && cached.ageMs <= LAST_KNOWN_MAX_AGE_MS) {
           console.warn('Serving last-known Ninja Zenshin member data', {
             clanId,
             cacheAgeSeconds: Math.round(cached.ageMs / 1000),
-            legacy: legacyMessage,
             amf: amfMessage,
+            legacy: legacyMessage,
           });
           return cloneCachedPayload(cached.payload, {
             stale: true,
-            failure: `Live sources failed. Legacy: ${legacyMessage} AMF: ${amfMessage}`,
+            failure: `Live sources failed. AMF: ${amfMessage} Legacy: ${legacyMessage}`,
           });
         }
         console.error('All Ninja Zenshin member sources failed', {
           clanId,
-          legacy: legacyMessage,
           amf: amfMessage,
+          legacy: legacyMessage,
         });
         throw new Error(amfMessage);
       }
