@@ -1,0 +1,190 @@
+name: Temporary Raw AMF Payload Probe
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Query live Ninja Zenshin AMF member service
+        run: |
+          node <<'NODE'
+          const { TextEncoder, TextDecoder } = require('node:util');
+          const textEncoder = new TextEncoder();
+          const textDecoder = new TextDecoder();
+          const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
+          const GAME_SOURCE_ORIGIN = 'https://ninjazenshin.online';
+          const SERVICE = 'ClanService.getMemberList';
+          const RESPONSE_TARGET = '/1';
+          const clanId = '3';
+
+          const clean = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+
+          function pushU16(target, value) {
+            target.push((value >>> 8) & 255, value & 255);
+          }
+          function pushU32(target, value) {
+            target.push((value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255);
+          }
+          function pushUtf(target, value) {
+            const bytes = textEncoder.encode(String(value ?? ''));
+            pushU16(target, bytes.length);
+            target.push(...bytes);
+          }
+          function buildMemberRequest(clanId) {
+            const output = [];
+            output.push(0, 0);
+            pushU16(output, 0);
+            pushU16(output, 1);
+            pushUtf(output, SERVICE);
+            pushUtf(output, RESPONSE_TARGET);
+            pushU32(output, 0xffffffff);
+            output.push(0x0a);
+            pushU32(output, 1);
+            output.push(2);
+            pushUtf(output, clanId);
+            return new Uint8Array(output);
+          }
+
+          class Reader {
+            constructor(bytes) {
+              this.bytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+              this.view = new DataView(this.bytes.buffer, this.bytes.byteOffset, this.bytes.byteLength);
+              this.offset = 0;
+              this.references = [];
+            }
+            ensure(count) {
+              if (this.offset + count > this.bytes.byteLength) throw new Error('Invalid AMF response: truncated at byte ' + this.offset + '.');
+            }
+            u8() { this.ensure(1); return this.view.getUint8(this.offset++); }
+            u16() { this.ensure(2); const value = this.view.getUint16(this.offset); this.offset += 2; return value; }
+            u32() { this.ensure(4); const value = this.view.getUint32(this.offset); this.offset += 4; return value; }
+            f64() { this.ensure(8); const value = this.view.getFloat64(this.offset); this.offset += 8; return value; }
+            readBytes(count) { this.ensure(count); const value = this.bytes.slice(this.offset, this.offset + count); this.offset += count; return value; }
+            string16() { return textDecoder.decode(this.readBytes(this.u16())); }
+            string32() { return textDecoder.decode(this.readBytes(this.u32())); }
+            amf0() {
+              const type = this.u8();
+              switch (type) {
+                case 0: return this.f64();
+                case 1: return this.u8() === 1;
+                case 2: return this.string16();
+                case 3: return this.object();
+                case 5:
+                case 6: return null;
+                case 7: return this.references[this.u16()] ?? null;
+                case 8: this.u32(); return this.object();
+                case 10: return this.array();
+                case 11: this.f64(); this.u16(); return null;
+                case 12: return this.string32();
+                case 16: {
+                  const className = this.string16();
+                  const value = this.object();
+                  if (value && typeof value === 'object') value.__className = className;
+                  return value;
+                }
+                case 17: throw new Error('Ninja Zenshin returned AMF3 data.');
+                default: throw new Error('Unsupported AMF0 type 0x' + type.toString(16).padStart(2, '0') + '.');
+              }
+            }
+            object() {
+              const result = {};
+              this.references.push(result);
+              while (true) {
+                const keyLength = this.u16();
+                if (keyLength === 0) {
+                  const marker = this.u8();
+                  if (marker === 9) break;
+                  throw new Error('Invalid AMF object terminator 0x' + marker.toString(16) + '.');
+                }
+                const key = textDecoder.decode(this.readBytes(keyLength));
+                result[key] = this.amf0();
+              }
+              return result;
+            }
+            array() {
+              const length = this.u32();
+              const result = [];
+              this.references.push(result);
+              for (let index = 0; index < length; index++) result.push(this.amf0());
+              return result;
+            }
+          }
+
+          function parseMemberResponse(buffer) {
+            const reader = new Reader(buffer);
+            const version = reader.u8();
+            reader.u8();
+            if (version !== 0) throw new Error('Unsupported AMF message version ' + version + '.');
+            const headerCount = reader.u16();
+            for (let i = 0; i < headerCount; i++) {
+              reader.string16(); reader.u8(); reader.u32(); reader.amf0();
+            }
+            const bodyCount = reader.u16();
+            if (bodyCount < 1) throw new Error('Ninja Zenshin returned an AMF packet with no bodies.');
+            const bodies = [];
+            for (let i = 0; i < bodyCount; i++) {
+              const target = reader.string16();
+              const response = reader.string16();
+              const length = reader.u32();
+              const data = reader.amf0();
+              bodies.push({ target, response, length, data });
+            }
+            return bodies[0]?.data;
+          }
+
+          const response = await fetch(AMF_ORIGIN, {
+            method: 'POST',
+            body: buildMemberRequest(clanId),
+            headers: {
+              Accept: '*/*',
+              'Cache-Control': 'no-cache',
+              'Content-Type': 'application/x-amf',
+              Origin: GAME_SOURCE_ORIGIN,
+              Pragma: 'no-cache',
+              Referer: GAME_SOURCE_ORIGIN + '/?panel=clan-ranking',
+              'User-Agent': 'NinjaZenshinRawPayloadProbe/1.0',
+            },
+          });
+
+          console.log('AMF_ORIGIN:', AMF_ORIGIN);
+          console.log('GAME_SOURCE_ORIGIN:', GAME_SOURCE_ORIGIN);
+          console.log('SERVICE:', SERVICE);
+          console.log('RESPONSE_TARGET:', RESPONSE_TARGET);
+          console.log('HTTP:', response.status, response.statusText);
+
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          console.log('Response bytes:', bytes.length);
+          if (!response.ok) throw new Error('AMF request failed with HTTP ' + response.status);
+          if (!bytes.length) throw new Error('AMF response was empty.');
+
+          const bodyData = parseMemberResponse(bytes);
+          console.log('Top-level decoded response field names:', Object.keys(bodyData || {}));
+
+          const rawMembers =
+            Array.isArray(bodyData?.result) ? bodyData.result :
+            Array.isArray(bodyData?.members) ? bodyData.members :
+            [];
+
+          console.log('Raw member count:', rawMembers.length);
+          if (!rawMembers.length) {
+            console.log('FULL DECODED RESPONSE (no member array):');
+            console.log(JSON.stringify(bodyData, null, 2));
+            process.exit(2);
+          }
+
+          const first = rawMembers[0];
+          console.log('Raw member field names:', Object.keys(first));
+          console.log('FULL RAW MEMBER RECORD (unmodified decoded AMF object):');
+          console.log(JSON.stringify(first, null, 2));
+
+          const firstFewFieldNames = [...new Set(rawMembers.slice(0, 5).flatMap((m) => Object.keys(m || {})))];
+          console.log('Field names across first 5 raw member records:', firstFewFieldNames);
+          NODE
