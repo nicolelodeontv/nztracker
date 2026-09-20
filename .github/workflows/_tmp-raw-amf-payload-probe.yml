@@ -2,7 +2,7 @@ name: Temporary Raw AMF Payload Probe
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     branches: [main]
 
 permissions:
@@ -15,8 +15,7 @@ jobs:
     steps:
       - name: Query live Ninja Zenshin AMF member service
         run: |
-          node <<'NODE'
-          const { TextEncoder, TextDecoder } = require('node:util');
+          node --input-type=module <<'NODE'
           const textEncoder = new TextEncoder();
           const textDecoder = new TextDecoder();
           const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
