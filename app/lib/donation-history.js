@@ -74,7 +74,7 @@ async function withLock(key, task) {
 export function normalizeDonationMember(member, index = 0) {
   const source = member && typeof member === 'object' ? member : {};
   const name = clean(source.name ?? source.username ?? source.player ?? source.character);
-  const id = clean(source.id ?? source.memberId ?? source.member_id ?? name || `member-${index}`);
+  const id = clean((source.id ?? source.memberId ?? source.member_id ?? name) || `member-${index}`);
   const level = Number(source.level);
   const donatedGold = safeInteger(source.donated_gold ?? source.donatedGold ?? source.gold_donated);
   const donatedToken = safeInteger(source.donated_token ?? source.donatedToken ?? source.token_donated);
