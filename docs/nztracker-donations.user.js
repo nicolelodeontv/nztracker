@@ -12,6 +12,11 @@
 (() => {
   'use strict';
 
+  const DEBUG = true;
+  const debugLog = (...args) => {
+    if (DEBUG) console.debug('[nztracker]', ...args);
+  };
+
   const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
   const TRACKER_ENDPOINT = 'https://chaoszenshintracker.vercel.app/api/donations';
 
@@ -19,6 +24,7 @@
   const INGEST_KEY = 'REPLACE_WITH_VERCEL_INGEST_KEY';
 
   const seen = new Set();
+  let amfResponsesSeen = 0;
 
   class Reader {
     constructor(bytes) {
@@ -157,6 +163,8 @@
     const name = String(member?.name ?? member?.username ?? member?.player ?? member?.character ?? '').trim();
     const id = String(member?.id ?? member?.memberId ?? member?.member_id ?? name).trim();
     const level = Number(member?.level);
+    const stamina = Number(member?.stamina ?? member?.current_stamina ?? member?.currentStamina);
+    const reputationGain = Number(member?.reputation_gain ?? member?.reputationGain);
     const gold = Number(member?.donated_gold ?? member?.donatedGold ?? member?.gold_donated);
     const token = Number(member?.donated_token ?? member?.donatedToken ?? member?.token_donated);
     if (!name || !Number.isSafeInteger(gold) || gold < 0 || !Number.isSafeInteger(token) || token < 0) return null;
@@ -164,6 +172,8 @@
       id,
       name,
       level: Number.isFinite(level) ? Math.trunc(level) : 0,
+      stamina: Number.isFinite(stamina) ? Math.trunc(stamina) : null,
+      reputation_gain: Number.isFinite(reputationGain) ? Math.trunc(reputationGain) : null,
       donated_gold: gold,
       donated_token: token,
     };
@@ -193,21 +203,32 @@
       headers: { 'Content-Type': 'application/json', 'X-Ingest-Key': INGEST_KEY },
       data: JSON.stringify({ clanId, season: detectSeason(), members }),
       timeout: 15000,
-      onload: () => {},
-      onerror: () => {},
-      ontimeout: () => {},
+      onload: (response) => {
+        debugLog(`POST status: ${response.status}`);
+      },
+      onerror: (error) => {
+        debugLog(`POST error: ${error?.error || error?.message || 'request failed'}`);
+      },
+      ontimeout: () => {
+        debugLog('POST timeout');
+      },
     });
   }
 
   async function processResponse(url, bytes, requestBody) {
     if (!url || !url.startsWith(AMF_ORIGIN) || !bytes?.length) return;
+    amfResponsesSeen += 1;
+    debugLog(`AMF responses seen: ${amfResponsesSeen}`);
     try {
       const body = decodePacket(bytes);
       const members = extractMembers(body);
       if (!members.length) return;
+      debugLog(`parsed ${members.length} members`);
       const clanId = await decodeRequestClanId(requestBody);
       if (clanId) sendSnapshot(clanId, members);
-    } catch {}
+    } catch (error) {
+      debugLog(`decode error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   const originalFetch = window.fetch;
@@ -223,7 +244,9 @@
         const bytes = new Uint8Array(await clone.arrayBuffer());
         const requestBody = await requestBodyPromise;
         processResponse(requestUrl, bytes, requestBody);
-      } catch {}
+      } catch (error) {
+        debugLog(`response read error: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     return response;
   };
@@ -238,7 +261,9 @@
     this.__nztrackerBody = body;
     this.addEventListener('load', () => {
       if (!this.__nztrackerUrl.startsWith(AMF_ORIGIN)) return;
-      toBytes(this.response).then((bytes) => processResponse(this.__nztrackerUrl, bytes, this.__nztrackerBody)).catch(() => {});
+      toBytes(this.response)
+        .then((bytes) => processResponse(this.__nztrackerUrl, bytes, this.__nztrackerBody))
+        .catch((error) => debugLog(`response read error: ${error instanceof Error ? error.message : String(error)}`));
     });
     return originalSend.apply(this, arguments);
   };
