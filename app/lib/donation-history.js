@@ -3,7 +3,7 @@ import { del, get, list, put } from '@vercel/blob';
 export const DONATION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 const DONATION_PREFIX = 'nztracker/donations';
-const DONATION_STATUS_PATH = \`\${DONATION_PREFIX}/status/latest.json\`;
+const DONATION_STATUS_PATH = `${DONATION_PREFIX}/status/latest.json`;
 const locks = new Map();
 
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -23,13 +23,13 @@ const hasBlobAuthConfig = () => Boolean(
   (process.env.VERCEL === '1' && process.env.BLOB_STORE_ID)
 );
 
-export const donationLatestPath = (clanId) => \`\${DONATION_PREFIX}/\${normalizeClanId(clanId)}/latest.json\`;
-export const donationSnapshotPrefix = (clanId) => \`\${DONATION_PREFIX}/\${normalizeClanId(clanId)}/snapshots/\`;
+export const donationLatestPath = (clanId) => `${DONATION_PREFIX}/${normalizeClanId(clanId)}/latest.json`;
+export const donationSnapshotPrefix = (clanId) => `${DONATION_PREFIX}/${normalizeClanId(clanId)}/snapshots/`;
 
 const donationSnapshotPath = (clanId, capturedAt) => {
   const date = new Date(capturedAt);
   const day = date.toISOString().slice(0, 10);
-  return \`\${donationSnapshotPrefix(clanId)}\${day}/\${capturedAt}.json\`;
+  return `${donationSnapshotPrefix(clanId)}${day}/${capturedAt}.json`;
 };
 
 async function readJson(pathname) {
@@ -74,7 +74,7 @@ async function withLock(key, task) {
 export function normalizeDonationMember(member, index = 0) {
   const source = member && typeof member === 'object' ? member : {};
   const name = clean(source.name ?? source.username ?? source.player ?? source.character);
-  const id = clean(source.id ?? source.memberId ?? source.member_id ?? name || \`member-\${index}\`);
+  const id = clean(source.id ?? source.memberId ?? source.member_id ?? name || `member-${index}`);
   const level = Number(source.level);
   const donatedGold = safeInteger(source.donated_gold ?? source.donatedGold ?? source.gold_donated);
   const donatedToken = safeInteger(source.donated_token ?? source.donatedToken ?? source.token_donated);
@@ -154,7 +154,7 @@ async function pruneOldSnapshots(clanId, cutoff) {
   const folded = await list({ prefix: root, mode: 'folded', limit: 100 });
   const oldFolders = (folded.folders || []).filter((folder) => {
     const day = dateFromFolder(folder);
-    return day && new Date(\`\${day}T23:59:59.999Z\`).getTime() < cutoff;
+    return day && new Date(`${day}T23:59:59.999Z`).getTime() < cutoff;
   });
 
   for (const folder of oldFolders) {
@@ -228,7 +228,7 @@ export async function recordDonationSnapshot({ clanId, season, members }) {
     return { stored: false, changed: false, reason: 'Invalid donation snapshot.' };
   }
 
-  return withLock(\`donations:\${key}\`, async () => {
+  return withLock(`donations:${key}`, async () => {
     const capturedAt = Date.now();
     const seasonKey = normalizeSeason(season);
     const normalizedMembers = members.map((member, index) => normalizeDonationMember(member, index));
