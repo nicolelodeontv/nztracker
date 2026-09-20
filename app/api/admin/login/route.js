@@ -7,6 +7,10 @@ export async function POST(request) {
   const body = await request.json().catch(() => ({}));
   const password = String(body.password || '');
   const configured = process.env.ADMIN_PASSWORD;
+  const sessionSecret = process.env.ADMIN_SESSION_SECRET || process.env.CR0N_SECRET || process.env.CRON_SECRET;
+  if (!sessionSecret) {
+    return Response.json({ error: 'Admin authentication is not configured. Set ADMIN_SESSION_SECRET in the production environment.' }, { status: 503 });
+  }
   if (!configured || !password || password.length !== configured.length || password !== configured) {
     return Response.json({ error: 'Invalid admin password.' }, { status: 401 });
   }
