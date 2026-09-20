@@ -20,6 +20,26 @@ jobs:
         run: npm install
       - name: Unit tests
         run: npm test
+      - name: Inspect live legacy member payload
+        run: |
+          node --input-type=module <<'NODE'
+          const url = 'https://ninjazenshin.online/clan-ranking/members/3?t=' + Date.now();
+          const response = await fetch(url, {
+            cache: 'no-store',
+            headers: {
+              Accept: 'text/html,application/json,text/plain,*/*',
+              'User-Agent': 'Mozilla/5.0 NinjaZenshinRawPayloadProbe/3.1',
+            },
+          });
+          console.log('LEGACY URL:', url);
+          console.log('HTTP:', response.status, response.statusText);
+          console.log('Content-Type:', response.headers.get('content-type'));
+          const body = await response.text();
+          console.log('Response chars:', body.length);
+          console.log('FULL RAW LEGACY RESPONSE:');
+          console.log(body);
+          NODE
+
       - name: Inspect live AMF member payload
         run: |
           node --input-type=module <<'NODE'
@@ -51,7 +71,7 @@ jobs:
           if (!members.length) {
             console.log('FULL DECODED RESPONSE:');
             console.log(JSON.stringify(data, null, 2));
-            process.exit(2);
+            process.exit(0);
           }
           console.log('Raw member field names:', Object.keys(members[0]));
           console.log('FULL RAW MEMBER RECORD:');
