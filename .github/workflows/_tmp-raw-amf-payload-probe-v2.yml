@@ -1,0 +1,83 @@
+name: Temporary Raw AMF Payload Probe V2
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Query live Ninja Zenshin AMF member service
+        run: |
+          node --input-type=module <<'NODE'
+          const enc = new TextEncoder();
+          const dec = new TextDecoder();
+          const AMF_ORIGIN = 'https://amf.ninjazenshin.online/';
+          const SOURCE = 'https://ninjazenshin.online';
+          const SERVICE = 'ClanService.getMemberList';
+          const RESPONSE = '/1';
+          const clanId = '3';
+
+          const u16 = (a, n) => a.push((n >>> 8) & 255, n & 255);
+          const u32 = (a, n) => a.push((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
+          const str = (a, s) => { const b = enc.encode(String(s ?? '')); u16(a, b.length); a.push(...b); };
+          function build() {
+            const a = [0, 0]; u16(a, 0); u16(a, 1); str(a, SERVICE); str(a, RESPONSE);
+            u32(a, 0xffffffff); a.push(10); u32(a, 1); a.push(2); str(a, clanId); return new Uint8Array(a);
+          }
+
+          class R {
+            constructor(b) { this.b=b; this.v=new DataView(b.buffer,b.byteOffset,b.byteLength); this.o=0; this.refs=[]; }
+            need(n){ if(this.o+n>this.b.byteLength) throw new Error('truncated AMF at '+this.o); }
+            u8(){this.need(1);return this.v.getUint8(this.o++);}
+            u16(){this.need(2);const x=this.v.getUint16(this.o);this.o+=2;return x;}
+            u32(){this.need(4);const x=this.v.getUint32(this.o);this.o+=4;return x;}
+            f64(){this.need(8);const x=this.v.getFloat64(this.o);this.o+=8;return x;}
+            bytes(n){this.need(n);const x=this.b.slice(this.o,this.o+n);this.o+=n;return x;}
+            s16(){return dec.decode(this.bytes(this.u16()));}
+            s32(){return dec.decode(this.bytes(this.u32()));}
+            val(){
+              const t=this.u8();
+              if(t===0)return this.f64(); if(t===1)return this.u8()===1; if(t===2)return this.s16();
+              if(t===3)return this.obj(); if(t===5||t===6)return null; if(t===7)return this.refs[this.u16()]??null;
+              if(t===8){this.u32();return this.obj();} if(t===10)return this.arr(); if(t===11){this.f64();this.u16();return null;}
+              if(t===12)return this.s32();
+              if(t===16){const cls=this.s16();const x=this.obj();if(x&&typeof x==='object')x.__className=cls;return x;}
+              throw new Error('unsupported AMF0 type '+t);
+            }
+            obj(){const x={};this.refs.push(x);for(;;){const n=this.u16();if(n===0){if(this.u8()===9)return x;throw new Error('bad AMF object terminator');}const k=dec.decode(this.bytes(n));x[k]=this.val();}}
+            arr(){const n=this.u32(),x=[];this.refs.push(x);for(let i=0;i<n;i++)x.push(this.val());return x;}
+          }
+          function parse(buf){
+            const r=new R(buf); if(r.u8()!==0)throw new Error('not AMF0'); r.u8(); const hc=r.u16();
+            for(let i=0;i<hc;i++){r.s16();r.u8();r.u32();r.val();}
+            const bc=r.u16();if(!bc)throw new Error('no AMF bodies');
+            const bodies=[];for(let i=0;i<bc;i++)bodies.push({target:r.s16(),response:r.s16(),length:r.u32(),data:r.val()});
+            return bodies[0]?.data;
+          }
+
+          const res=await fetch(AMF_ORIGIN,{method:'POST',body:build(),headers:{
+            Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',
+            Origin:SOURCE,Pragma:'no-cache',Referer:SOURCE+'/?panel=clan-ranking',
+            'User-Agent':'NinjaZenshinRawPayloadProbe/2.0'
+          }});
+          console.log('HTTP:',res.status,res.statusText);
+          const raw=new Uint8Array(await res.arrayBuffer());
+          console.log('Response bytes:',raw.length);
+          if(!res.ok)throw new Error('HTTP '+res.status);
+          const data=parse(raw);
+          console.log('Top-level fields:',Object.keys(data||{}));
+          const members=Array.isArray(data?.result)?data.result:Array.isArray(data?.members)?data.members:[];
+          console.log('Raw member count:',members.length);
+          if(!members.length){console.log('FULL DECODED RESPONSE:');console.log(JSON.stringify(data,null,2));process.exit(2);}
+          console.log('Raw member field names:',Object.keys(members[0]));
+          console.log('FULL RAW MEMBER RECORD:');
+          console.log(JSON.stringify(members[0],null,2));
+          console.log('Field names across first 5:',[...new Set(members.slice(0,5).flatMap(x=>Object.keys(x||{})))]);
+          NODE
