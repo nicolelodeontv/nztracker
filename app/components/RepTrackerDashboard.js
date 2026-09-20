@@ -35,7 +35,14 @@ function LineChart({ points }) {
   return <svg className="chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="REP progression"><path d="M 0 96 L 100 96" className="chart-axis"/><path d={path} className="chart-line" /></svg>;
 }
 
-function MemberDrawer({ member, onClose }) {
+function donationPair(gain) {
+  if (!gain) return '— / —';
+  const gold = gain.gold === null || gain.gold === undefined ? '—' : `${gain.gold > 0 ? '+' : ''}${fmt(gain.gold)}`;
+  const token = gain.token === null || gain.token === undefined ? '—' : `${gain.token > 0 ? '+' : ''}${fmt(gain.token)}`;
+  return `${gold} / ${token}`;
+}
+
+function MemberDrawer({ member, donation, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => { if (!member) return; api(`/api/members?id=${encodeURIComponent(member.id)}`).then(setData).catch(e => setError(e.message)); }, [member]);
@@ -45,6 +52,7 @@ function MemberDrawer({ member, onClose }) {
     {error && <div className="notice bad">{error}</div>}
     {!data ? <div className="loading">LOADING HISTORY…</div> : <>
       <div className="mini-stats"><div><span>CURRENT REP</span><b>{fmt(member.rep)}</b></div><div><span>SEASON GAIN</span><b>+{fmt(member.gain)}</b></div><div><span>TODAY</span><b>+{fmt(member.todayGain)}</b></div><div><span>REP / HR</span><b>{fmt(member.repPerHour)}</b></div></div>
+      <div className="panel inset"><div className="section-title"><div><span className="eyebrow">DONATIONS</span><h3>GOLD / TOKEN</h3></div><span>{donation?.updatedAt ? new Date(donation.updatedAt).toLocaleString() : 'NO SNAPSHOT'}</span></div><div className="mini-stats donation"><div><span>DONATED GOLD</span><b>{donation ? fmt(donation.donated_gold) : '—'}</b></div><div><span>DONATED TOKEN</span><b>{donation ? fmt(donation.donated_token) : '—'}</b></div><div><span>1H GAIN</span><b>{donationPair(donation?.gains?.oneHour)}</b></div><div><span>6H GAIN</span><b>{donationPair(donation?.gains?.sixHour)}</b></div><div><span>24H GAIN</span><b>{donationPair(donation?.gains?.twentyFourHour)}</b></div><div><span>PREVIOUS</span><b>{donationPair(donation?.gains?.previous)}</b></div></div></div>
       <div className="panel inset"><div className="section-title"><div><span className="eyebrow">PROGRESSION</span><h3>REP OVER TIME</h3></div><span>{data.points?.length || 0} snapshots</span></div><LineChart points={data.points}/></div>
       <div className="panel inset"><div className="section-title"><div><span className="eyebrow">HISTORY</span><h3>RECENT SNAPSHOTS</h3></div></div><div className="timeline">{(data.points || []).slice(-30).reverse().map((p, i, arr) => { const next = arr[i+1]; const delta = next ? Number(p.reputation)-Number(next.reputation) : 0; return <div className="timeline-row" key={`${p.captured_at}-${i}`}><time>{new Date(p.captured_at).toLocaleString()}</time><b>{fmt(p.reputation)}</b><em className={delta > 0 ? 'up' : delta < 0 ? 'down' : ''}>{delta > 0 ? `+${fmt(delta)}` : delta < 0 ? fmt(delta) : '—'}</em></div>; })}</div></div>
     </>}
@@ -54,6 +62,7 @@ function MemberDrawer({ member, onClose }) {
 export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [view, setView] = useState(initialView);
   const [data, setData] = useState(null);
+  const [donations, setDonations] = useState(null);
   const [history, setHistory] = useState([]);
   const [finalizations, setFinalizations] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -76,6 +85,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       if (withSync) await api('/api/sync', { method: 'GET' }).catch(() => null);
       const current = await api('/api/dashboard');
       setData(current);
+      if (current?.config?.clan_id) {
+        api(`/api/donations?clanId=${encodeURIComponent(current.config.clan_id)}&season=${encodeURIComponent(current.season || current.config.current_season || '')}`).then(setDonations).catch(() => setDonations(null));
+      }
       const fins = await api('/api/finalize');
       setFinalizations(fins.finalizations || []);
       if (current?.config) {
@@ -86,7 +98,18 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   };
   useEffect(() => { refresh(true); const t = setInterval(() => refresh(false), 30000); return () => clearInterval(t); }, []);
 
-  const rows = data?.rows || [];
+  const donationMap = useMemo(() => {
+    const map = new Map();
+    for (const donation of donations?.members || []) {
+      if (donation?.id) map.set(`id:${String(donation.id)}`, donation);
+      if (donation?.name) map.set(`name:${String(donation.name).normalize('NFC').toLocaleLowerCase()}`, donation);
+    }
+    return map;
+  }, [donations]);
+  const rows = useMemo(() => (data?.rows || []).map((row) => ({
+    ...row,
+    donation: donationMap.get(`id:${String(row.id || '')}`) || donationMap.get(`name:${String(row.member || '').normalize('NFC').toLocaleLowerCase()}`) || null,
+  })), [data?.rows, donationMap]);
   const top = useMemo(() => [...rows].sort((a,b) => b.todayGain - a.todayGain).slice(0,5), [rows]);
   const activity = data?.activity || [];
   const latestFinal = finalizations[0];
@@ -112,12 +135,12 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
     {view==='dashboard'&&<>
       <section className="season-band"><div><span className="eyebrow">SEASON</span><h1>{data.season}</h1><p>Clan {data.config.clan_name} · ID {data.config.clan_id} {data.config.current_round?`· Round ${data.config.current_round}`:''}</p></div><div className="season-box"><span>FINAL DAY IN</span><Countdown target={data.config.final_day_at}/></div><div className="season-box"><span>SERVER TIME</span><b>{new Date(data.serverTime).toLocaleString()}</b></div></section>
       <section className="stats-grid"><div><span>TOTAL CLAN REP</span><b>{fmt(data.stats.totalRep)}</b></div><div><span>TODAY'S GAIN</span><b className="up">+{fmt(data.stats.todayGain)}</b></div><div><span>SEASON GAIN</span><b>+{fmt(data.stats.totalGain)}</b></div><div><span>ACTIVE MEMBERS</span><b>{data.stats.activeMembers}</b></div><div><span>TRACKED HOURS</span><b>{fmtHours(data.stats.totalHours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(data.stats.avgRepPerHour)}</b></div></section>
-      <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th><th>HOURS</th><th>REP / HR</th><th>STATUS</th></tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} onClick={()=>setSelected(r)}><td>#{i+1}</td><td className="member-name">{r.member}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':''}>{r.gain>0?`+${fmt(r.gain)}`:fmt(r.gain)}</td><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td><td><span className={`status ${r.status}`}>{r.suspicious?'SUSPICIOUS':r.status.toUpperCase()}</span></td></tr>)}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
+      <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th><th>DONATED GOLD</th><th>DONATED TOKEN</th><th>1H G/T</th><th>6H G/T</th><th>24H G/T</th><th>HOURS</th><th>REP / HR</th><th>STATUS</th></tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} onClick={()=>setSelected(r)}><td>#{i+1}</td><td className="member-name">{r.member}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':''}>{r.gain>0?`+${fmt(r.gain)}`:fmt(r.gain)}</td><td>{r.donation ? fmt(r.donation.donated_gold) : '—'}</td><td>{r.donation ? fmt(r.donation.donated_token) : '—'}</td><td>{donationPair(r.donation?.gains?.oneHour)}</td><td>{donationPair(r.donation?.gains?.sixHour)}</td><td>{donationPair(r.donation?.gains?.twentyFourHour)}</td><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td><td><span className={`status ${r.status}`}>{r.suspicious?'SUSPICIOUS':r.status.toUpperCase()}</span></td></tr>)}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
       <section className="two-col"><div className="panel"><div className="section-title"><div><span className="eyebrow">RECENT REP ACTIVITY</span><h3>LATEST GAINS</h3></div></div><div className="activity">{activity.map((e,i)=><div key={i}><b>{e.member}</b><span className="up">+{fmt(e.gain)}</span><time>{new Date(e.at).toLocaleTimeString()}</time></div>)}{!activity.length&&<div className="chart-empty">NO GAIN EVENTS STORED</div>}</div></div><div className="panel"><div className="section-title"><div><span className="eyebrow">TOP GAINERS TODAY</span><h3>PERFORMANCE</h3></div></div><div className="top-list">{top.map((r,i)=><div key={r.id}><b>{String(i+1).padStart(2,'0')}</b><span>{r.member}</span><strong>+{fmt(r.todayGain)}</strong><em>{fmt(r.repPerHour)}/h</em></div>)}</div></div></section>
       {data.stats.suspiciousCount>0&&<section className="notice bad">{data.stats.suspiciousCount} suspicious REP decrease snapshot(s) retained for audit. No value was discarded.</section>}
     </>}
 
-    {view==='members'&&<section><div className="page-head"><div><span className="eyebrow">ROSTER</span><h1>MEMBER INTELLIGENCE</h1><p>Stable member IDs preserve history even when an IGN changes.</p></div></div><div className="member-grid">{rows.map(r=><button className="member-card" key={r.id} onClick={()=>setSelected(r)}><span className="eyebrow">#{rows.indexOf(r)+1} · LV {r.level}</span><h3>{r.member}</h3><b>{fmt(r.rep)} REP</b><div><span>+{fmt(r.gain)} season</span><span>{fmtHours(r.hours)}h tracked</span></div></button>)}</div></section>}
+    {view==='members'&&<section><div className="page-head"><div><span className="eyebrow">ROSTER</span><h1>MEMBER INTELLIGENCE</h1><p>Stable member IDs preserve history even when an IGN changes.</p></div></div><div className="member-grid">{rows.map(r=><button className="member-card" key={r.id} onClick={()=>setSelected(r)}><span className="eyebrow">#{rows.indexOf(r)+1} · LV {r.level}</span><h3>{r.member}</h3><b>{fmt(r.rep)} REP</b><div><span>+{fmt(r.gain)} season</span><span>{r.donation ? `${fmt(r.donation.donated_gold)} G · ${fmt(r.donation.donated_token)} T` : 'Donations —'}</span></div></button>)}</div></section>}
 
     {view==='history'&&<section><div className="page-head"><div><span className="eyebrow">SEASON HISTORY</span><h1>IMMUTABLE REPORTS</h1><p>Previous finalized versions remain available for audit.</p></div></div>{finalizations.length?<div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>SEASON</th><th>VERSION</th><th>FINAL TIMESTAMP</th><th>MEMBERS</th><th>FINAL REP</th><th>GAIN</th><th>HOURS</th><th>REP/H</th></tr></thead><tbody>{finalizations.map(f=><tr key={`${f.season}-${f.version}`}><td>{f.season}</td><td>v{f.version}</td><td>{new Date(f.final_timestamp).toLocaleString()}</td><td>{f.member_count}</td><td>{fmt(f.total_rep)}</td><td>+{fmt(f.season_gain)}</td><td>{fmtHours(f.total_hours)}</td><td>{fmt(f.avg_rep_per_hour)}</td></tr>)}</tbody></table></div></div>:<div className="empty-state compact"><h3>NO FINALIZED SEASONS</h3><p>A final snapshot appears here only after a verified live sync is locked.</p></div>}</section>}
 
@@ -126,7 +149,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
     {view==='admin'&&<section><div className="page-head"><div><span className="eyebrow">ADMINISTRATION</span><h1>CONTROL ROOM</h1><p>Protected actions. Historical snapshots are never silently replaced.</p></div></div><div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={startSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={baseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className="btn danger full" onClick={lockFinal} disabled={!admin||busy||Boolean(latestFinal)}>LOCK FINAL DAY</button></div></div></section>}
 
     <footer>Ninja Zenshin Clan REP Tracker · Independent clan administration tool</footer>
-    {selected&&<MemberDrawer member={selected} onClose={()=>setSelected(null)}/>} 
+    {selected&&<MemberDrawer member={selected} donation={rows.find((row)=>String(row.id)===String(selected.id))?.donation || null} onClose={()=>setSelected(null)}/>} 
     {loginOpen&&<div className="modal-backdrop"><div className="modal"><button className="icon-btn close" onClick={()=>setLoginOpen(false)}>×</button><span className="eyebrow">SECURE ADMIN</span><h3>ADMIN ACCESS</h3><p>Admin actions modify persistent tracking state and finalization status.</p><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password" onKeyDown={e=>e.key==='Enter'&&login()}/><button className="btn primary full" onClick={login} disabled={busy}>SIGN IN</button></div></div>}
   </main>;
 }
