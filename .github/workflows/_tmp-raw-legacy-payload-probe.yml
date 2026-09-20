@@ -1,0 +1,30 @@
+name: Temporary Raw Legacy Member Probe
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Query live legacy member endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://ninjazenshin.online/clan-ranking/members/3?t=$(date +%s%3N)"
+          curl -sS -L --max-time 20             -D /tmp/headers.txt             -H 'Accept: text/html,application/json,text/plain,*/*'             -H 'User-Agent: Mozilla/5.0 NinjaZenshinRawPayloadProbe/4.0'             "$url"             -o /tmp/body.txt
+          echo "LEGACY URL: $url"
+          echo "HEADERS:"
+          cat /tmp/headers.txt
+          echo "BODY LENGTH: $(wc -c < /tmp/body.txt)"
+          echo "FULL RAW RESPONSE:"
+          cat /tmp/body.txt
+          echo
+          echo "FIRST RAW MEMBER ROW/TAG CANDIDATES:"
+          grep -o '<tr[^>]*>[^<]*\(<[^>]*>[^<]*\)\{1,20\}</tr>' /tmp/body.txt | head -n 5 || true
