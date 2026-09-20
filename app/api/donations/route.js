@@ -3,8 +3,8 @@ import {
   recordDonationSnapshot,
   readLatestDonationStatus,
   validateDonationPayload,
-} from '../../lib/donation-history';
-import { storageHealth } from '../../lib/member-history';
+} from '../../lib/donation-history.js';
+import { storageHealth } from '../../lib/member-history.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
