@@ -71,6 +71,7 @@
         const key = this.decoder.decode(this.bytes(keyLength));
         result[key] = this.amf0();
       }
+      return result;
     }
     array() {
       const length = this.u32();
@@ -212,12 +213,15 @@
   const originalFetch = window.fetch;
   window.fetch = async function(input, init) {
     const requestUrl = typeof input === 'string' ? input : input?.url || '';
-    const requestBody = init?.body ?? null;
+    const requestBodyPromise = input instanceof Request
+      ? input.clone().arrayBuffer().catch(() => null)
+      : Promise.resolve(init?.body ?? null);
     const response = await originalFetch.apply(this, arguments);
     if (requestUrl.startsWith(AMF_ORIGIN)) {
       try {
         const clone = response.clone();
         const bytes = new Uint8Array(await clone.arrayBuffer());
+        const requestBody = await requestBodyPromise;
         processResponse(requestUrl, bytes, requestBody);
       } catch {}
     }
