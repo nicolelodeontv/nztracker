@@ -11,13 +11,21 @@ This package includes everything needed to:
 - ✅ Track sync history and errors
 - ✅ Optional: Track clan ranking changes over time
 
+## Reliability
+
+Production syncing is handled by **GitHub Actions**, not Vercel Cron. The `Ninja Zenshin Full Sync` workflow runs every 5 minutes via a scheduled trigger and keeps `workflow_dispatch` available for manual runs. Each run calls `GET https://chaoszenshintracker.vercel.app/api/sync-all`.
+
+`vercel.json` intentionally keeps Git-based deployments disabled; production deployments continue through the dedicated Vercel Production Deploy GitHub Action.
+
+> The `/api/sync-all` route only requires an `Authorization: Bearer <CRON_SECRET>` header when `CRON_SECRET` is configured in the deployment environment. The scheduled workflow currently calls the endpoint without that header, so `CRON_SECRET` must remain unset unless the workflow is updated to supply the matching GitHub Actions secret.
+
 ## Files Overview
 
 ```
 ├── SETUP_GUIDE.md              👈 START HERE - Full step-by-step guide
 ├── SCRAPER_DEBUG.md            Troubleshooting + testing the scraper
 ├── schema.sql                  Database table structure
-├── vercel.json                 Cron job schedule (every 5 min)
+├── vercel.json                 Vercel project/deployment settings
 ├── .env.local.example          Environment variables template
 ├── package.json.snippet        Dependencies to add
 │
@@ -26,7 +34,7 @@ This package includes everything needed to:
 │   └── db.js                   Supabase database operations
 │
 ├── pages/api/
-│   ├── sync-clans.js           Runs every 5 min (Vercel Cron)
+│   ├── sync-clans.js           Legacy sync endpoint
 │   └── clans.js                Frontend API endpoint
 │
 ├── components/
@@ -54,9 +62,9 @@ Ninja Zenshin Game
         ↓
 [Scraper] (parses HTML)
         ↓
-[Vercel Cron] (every 5 min)
+[GitHub Actions] (every 5 min)
         ↓
-[API: /api/sync-clans]
+[API: /api/sync-all]
         ↓
 [Supabase DB]
         ↓
@@ -73,9 +81,8 @@ Ninja Zenshin Game
 - Returns structured JSON
 
 ### `pages/api/sync-clans.js`
-- Called by Vercel Cron every 5 minutes
-- Runs scraper, saves data to Supabase
-- Logs success/errors to sync_log table
+- Legacy sync endpoint from the original implementation
+- The current scheduled workflow uses `/api/sync-all` instead
 
 ### `pages/api/clans.js`
 - Your frontend calls this to get latest clan data
@@ -90,13 +97,13 @@ Ninja Zenshin Game
 
 ## What Happens After Deploy
 
-1. **First Cron Run** (5 min after deploy)
+1. **First scheduled run** (at the next 5-minute GitHub Actions interval)
    - Scraper fetches clan data
    - Saves to Supabase
    - Frontend starts showing real data
 
 2. **Every 5 Minutes**
-   - Cron job runs automatically
+   - GitHub Actions runs automatically
    - Database updates with latest rankings
    - Your site shows fresh data
 
@@ -125,9 +132,8 @@ node -e "import('./lib/scraper.js').then(m => m.fetchClanData(true))"
 # 3. Check database connection
 node -e "import('./lib/db.js').then(m => m.getLatestClans(5))"
 
-# 4. Manual cron test (after deploy)
-curl -X POST https://your-site.vercel.app/api/sync-clans \
-  -H "Authorization: Bearer YOUR_CRON_SECRET"
+# 4. Manual sync test
+curl https://chaoszenshintracker.vercel.app/api/sync-all
 ```
 
 ## Common Issues
@@ -135,7 +141,7 @@ curl -X POST https://your-site.vercel.app/api/sync-clans \
 | Problem | Solution |
 |---------|----------|
 | Scraper returns 0 clans | HTML structure changed → see `SCRAPER_DEBUG.md` |
-| Cron not running | Check `vercel.json` in root, env vars in Vercel |
+| Scheduled sync not running | Check **GitHub Actions** → **Ninja Zenshin Full Sync** and verify the workflow is enabled |
 | "Unauthorized" error | Verify `CRON_SECRET` matches in Vercel env |
 | Database connection fails | Check Supabase URL/key, ensure project is active |
 | Frontend shows "No data" | Cron may not have run yet (wait 5 min), check sync_log table |
