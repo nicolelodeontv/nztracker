@@ -115,10 +115,8 @@ Ninja Zenshin Game
 ## Costs
 
 - **Supabase**: Free (up to ~500K rows/month)
-- **Vercel Crons**: Free (5-min minimum)
+- **GitHub Actions**: Uses repository Actions minutes/quota
 - **Bandwidth**: ~1KB per sync (negligible)
-
-**Total**: $0/month ✓
 
 ## Testing Before Deploy
 
@@ -142,9 +140,9 @@ curl https://chaoszenshintracker.vercel.app/api/sync-all
 |---------|----------|
 | Scraper returns 0 clans | HTML structure changed → see `SCRAPER_DEBUG.md` |
 | Scheduled sync not running | Check **GitHub Actions** → **Ninja Zenshin Full Sync** and verify the workflow is enabled |
-| "Unauthorized" error | Verify `CRON_SECRET` matches in Vercel env |
+| "Unauthorized" error | If `CRON_SECRET` is configured, the caller must send the matching `Authorization: Bearer ...` header |
 | Database connection fails | Check Supabase URL/key, ensure project is active |
-| Frontend shows "No data" | Cron may not have run yet (wait 5 min), check sync_log table |
+| Frontend shows "No data" | The scheduled workflow may not have run yet; check the GitHub Actions run and `sync_log` table |
 
 ## Next Steps (Upgrades)
 
