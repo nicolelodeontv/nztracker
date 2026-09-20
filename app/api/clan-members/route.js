@@ -26,7 +26,7 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function extractRawMembers(body) {
+export function extractRawMembers(body) {
   const looksLikeMember = (value) =>
     value && typeof value === 'object' && !Array.isArray(value) &&
     ('name' in value || 'username' in value);
@@ -165,7 +165,7 @@ class Reader {
   }
 }
 
-function parseMemberResponse(buffer) {
+export function parseMemberResponse(buffer) {
   const reader = new Reader(buffer);
   const version = reader.u8();
   reader.u8();
@@ -193,7 +193,7 @@ function parseMemberResponse(buffer) {
   return bodies[0]?.data;
 }
 
-function normalizeMembers(rawMembers) {
+export function normalizeMembers(rawMembers) {
   const seen = new Set();
   return (Array.isArray(rawMembers) ? rawMembers : []).map((member) => {
     const source = member && typeof member === 'object' ? member : {};
