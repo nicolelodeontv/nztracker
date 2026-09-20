@@ -56,7 +56,7 @@
           if (value && typeof value === 'object') value.__className = className;
           return value;
         }
-        default: throw new Error(\`Unsupported AMF0 type 0x\${type.toString(16)}.\`);
+        default: throw new Error(`Unsupported AMF0 type 0x${type.toString(16)}.`);
       }
     }
     object() {
@@ -176,7 +176,7 @@
   }
 
   function signature(clanId, members) {
-    return \`\${clanId}:\${members.map((m) => [m.id, m.donated_gold, m.donated_token]).join('|')}\`;
+    return `${clanId}:${members.map((m) => [m.id, m.donated_gold, m.donated_token]).join('|')}`;
   }
 
   function sendSnapshot(clanId, members) {
