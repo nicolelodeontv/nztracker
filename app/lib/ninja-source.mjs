@@ -102,7 +102,87 @@ export function normalizeMembers(rawMembers){
 async function fromAmf(clanId){const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:RANKING_SOURCE,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}}),bytes=new Uint8Array(await response.arrayBuffer());if(!response.ok)throw new Error(`AMF service returned HTTP ${response.status}.`);if(!bytes.length)throw new Error('AMF service returned an empty response.');const bodyData=parseMemberResponse(bytes);if(!bodyData||typeof bodyData!=='object')throw new Error('AMF response did not contain an object result.');if(bodyData.status&&String(bodyData.status)!=='1')throw new Error(`Member service returned status ${bodyData.status}.`);const rawMembers=Array.isArray(bodyData.result)?bodyData.result:Array.isArray(bodyData.members)?bodyData.members:[];const members=normalizeMembers(rawMembers);if(!members.length)throw new Error('AMF member result contained no valid members.');return{clanId,members,count:members.length,fetchedAt:new Date().toISOString(),source:AMF_ORIGIN,service:SERVICE,stale:false};}
 function parseLegacyMemberHtml(text){const rows=text.match(/<tr[\s\S]*?<\/tr>/gi)||[],parsed=[];for(const row of rows){const cells=(row.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi)||[]).map((cell)=>clean(cell.replace(/<[^>]+>/g,' ')));if(cells.length<2)continue;const lower=cells.map((cell)=>cell.toLowerCase());if(lower.includes('member')||lower.includes('reputation'))continue;const name=clean(cells[1]||cells[0]);if(!name)continue;parsed.push({id:'',name,level:toNumber(cells[2])??0,reputation:toNumber(cells[3])});}return parsed;}
 async function fromLegacy(clanId){const target=`${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}?t=${Date.now()}`,response=await fetchWithTimeout(target,{cache:'no-store',headers:{Accept:'text/html,application/json,text/plain,*/*','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}});if(!response.ok)throw new Error(`Legacy member source returned HTTP ${response.status}.`);const text=await response.text();let members;try{const payload=JSON.parse(text),rawMembers=Array.isArray(payload?.members)?payload.members:Array.isArray(payload)?payload:[];members=normalizeMembers(rawMembers);}catch{members=normalizeMembers(parseLegacyMemberHtml(text));}if(!members.length)throw new Error('Legacy member source returned no valid members.');return{clanId,members,count:members.length,fetchedAt:new Date().toISOString(),source:target,service:'legacy-live',stale:false};}
-export async function fetchLiveMembers(clanId){const key=String(clanId||'').trim();if(!key||!/^[a-zA-Z0-9_-]+$/.test(key))throw new Error('A valid Ninja Zenshin clanId is required.');const active=inflight.get(key);if(active)return active;const request=(async()=>{try{return await fromAmf(key);}catch(amfError){try{return{...(await fromLegacy(key)),fallbackReason:amfError instanceof Error?amfError.message:String(amfError)};}catch(legacyError){const error=new Error(`Live member sources failed. AMF: ${amfError instanceof Error?amfError.message:String(amfError)} Legacy: ${legacyError instanceof Error?legacyError.message:String(legacyError)}`);error.cause=amfError;throw error;}}})();inflight.set(key,request);try{return await request;}finally{inflight.delete(key);}}
+async function timeSource(label, task){
+  const startedAt=Date.now();
+  try{
+    const payload=await task();
+    return {
+      payload,
+      diagnostic:{
+        source:label,
+        status:'healthy',
+        latencyMs:Date.now()-startedAt,
+        service:payload?.service||null,
+        sourceUrl:payload?.source||null,
+        error:null
+      }
+    };
+  }catch(error){
+    return {
+      payload:null,
+      diagnostic:{
+        source:label,
+        status:'error',
+        latencyMs:Date.now()-startedAt,
+        service:label==='amf'?SERVICE:'legacy-live',
+        sourceUrl:label==='amf'?AMF_ORIGIN:LEGACY_MEMBER_API,
+        error:error instanceof Error?error.message:String(error)
+      },
+      error
+    };
+  }
+}
+
+export async function fetchLiveMembers(clanId){
+  const key=String(clanId||'').trim();
+  if(!key||!/^[a-zA-Z0-9_-]+$/.test(key))throw new Error('A valid Ninja Zenshin clanId is required.');
+  const active=inflight.get(key);
+  if(active)return active;
+
+  const request=(async()=>{
+    const amf=await timeSource('amf',()=>fromAmf(key));
+    if(amf.payload){
+      return {
+        ...amf.payload,
+        sourceStatus:'primary',
+        sourceDiagnostics:{
+          status:'healthy',
+          selected:'amf',
+          amf:amf.diagnostic,
+          legacy:null
+        }
+      };
+    }
+
+    const legacy=await timeSource('legacy',()=>fromLegacy(key));
+    if(legacy.payload){
+      return {
+        ...legacy.payload,
+        fallbackReason:amf.diagnostic.error,
+        sourceStatus:'degraded',
+        sourceDiagnostics:{
+          status:'degraded',
+          selected:'legacy',
+          amf:amf.diagnostic,
+          legacy:legacy.diagnostic
+        }
+      };
+    }
+
+    const error=new Error(`Live member sources failed. AMF: ${amf.diagnostic.error} Legacy: ${legacy.diagnostic.error}`);
+    error.cause=amf.error||legacy.error;
+    error.sourceDiagnostics={
+      status:'down',
+      selected:null,
+      amf:amf.diagnostic,
+      legacy:legacy.diagnostic
+    };
+    throw error;
+  })();
+
+  inflight.set(key,request);
+  try{return await request;}finally{inflight.delete(key);}
+}
 
 function storeMemberCache(clanId,payload){
   memberCache.set(String(clanId),{savedAt:Date.now(),payload});
