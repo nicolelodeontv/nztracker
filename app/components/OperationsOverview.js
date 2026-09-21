@@ -11,11 +11,14 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
     .filter((row)=>['NO GAIN','IDLE','MISSING','RESET'].includes(row.status))
     .sort((a,b)=>Number(a.gain||0)-Number(b.gain||0))
     .slice(0,6);
-  const hourly=rows.reduce((sum,row)=>sum+Number(row.gainPerHour||0),0);
+  const hourly=rows.length?rows.reduce((sum,row)=>sum+Number(row.gainPerHour||0),0)/rows.length:0;
   const projectedDaily=Number(global?.projectedDailyGain||0);
   const eta=Number.isFinite(Number(global?.targetEtaHours))?Number(global.targetEtaHours):null;
 
   return <section className="ops-overview" aria-label="Operations overview">
+    <div className="ops-tabs" role="tablist" aria-label="Operations sections">
+      <button className={data?.activeOpsPanel==='overview'?'active':''} role="tab" aria-selected={data?.activeOpsPanel==='overview'}>OVERVIEW</button>
+    </div>
     <div className="ops-overview-grid">
       <article className="op-card op-hero">
         <span className="eyebrow">GLOBAL POSITION</span>
@@ -24,7 +27,6 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
         <span className="op-meta">{fmt(global?.reputation)} REP · {global?.members ?? 0}/{global?.maxMembers ?? 0} MEMBERS</span>
         {global?.above ? <div className="op-target"><span>NEXT TARGET · #{global.above.rank}</span><strong>{global.above.clan}</strong><em>{fmt(global.above.gap)} REP GAP</em></div> : <div className="op-target"><span>GLOBAL POSITION</span><strong>TOP RANK</strong><em>No higher ranked clan in the current snapshot.</em></div>}
       </article>
-
       <article className="op-card">
         <span className="eyebrow">PACE ESTIMATE</span>
         <strong className="op-number">+{fmt(projectedDaily)}</strong>
@@ -33,7 +35,6 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
         <div className="op-stat-row"><span>Member avg period rate</span><b>{fmt(hourly)} /h</b></div>
         <div className="op-stat-row"><span>Target ETA</span><b>{eta===null?'—':eta<1?'<1h':eta.toFixed(1)+'h'}</b></div>
       </article>
-
       <article className="op-card">
         <span className="eyebrow">RANK TARGET</span>
         <strong className="op-number">{global?.above ? '#'+global.above.rank : '—'}</strong>
@@ -77,7 +78,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
             {ranking.map((row)=><tr key={row.clanId} className={String(row.clanId)===String(data?.config?.clan_id)?'is-chaos':''}>
               <td>#{row.rank}</td><td className="member-name">{row.clan}</td><td>{row.master||'—'}</td><td>{row.memberCurrent}/{row.memberMax}</td><td className="num">{fmt(row.reputation)}</td>
               <td className={(row.change?.rankDelta||0)>0?'up':(row.change?.rankDelta||0)<0?'down':''}>{row.change?.rankDelta>0?'↑'+row.change.rankDelta:row.change?.rankDelta<0?'↓'+Math.abs(row.change.rankDelta):'—'}</td>
-              <td>{row.rank>1?fmt(rowankingGap(row,ranking)):'—'}</td>
+              <td>{row.rank>1?rowankingGap(row,ranking):'—'}</td>
             </tr>)}
           </tbody>
         </table>
@@ -87,6 +88,9 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
 }
 
 function rowankingGap(row,ranking){
+  const above=ranking.find((candidate)=>Number(candidate.rank)===Number(row.rank)-1);
+  return above?Math.max(0,Number(above.reputation||0)-Number(row.reputation||0)):0;
+}function rowankingGap(row,ranking){
   const above=ranking.find((candidate)=>Number(candidate.rank)===Number(row.rank)-1);
   return above?Math.max(0,Number(above.reputation||0)-Number(row.reputation||0)):0;
 }
