@@ -18,6 +18,15 @@ test('extractRawMembers handles numeric-keyed AMF result objects', () => {
   assert.deepEqual(extractRawMembers(body).map((member) => member.name), ['Alpha', 'Beta']);
 });
 
+test('normalization ignores member_number and drops members without their own numeric id', () => {
+  const members = normalizeMembers([
+    { name: 'No ID', member_number: 29, reputation: 100 },
+    { name: 'CHAOS Mango', id: 6252, reputation: 200 },
+  ]);
+
+  assert.deepEqual(members.map((member) => member.id), ['6252']);
+});
+
 test('real member-list fixture decodes 29 members with stable IDs and donation fields', async () => {
   const encoded = (await readFile(fixturePath, 'utf8')).replace(/\s+/g, '');
   const bytes = Buffer.from(encoded, 'base64');
