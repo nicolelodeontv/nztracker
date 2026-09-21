@@ -132,7 +132,7 @@ export default function ClanIntelligence({ clan, rows, intel, events, alerts, pe
                   <td>{donationPair(m.donationGainGold6H, m.donationGainToken6H)}</td>
                   <td>{donationPair(m.donationGainGold24H, m.donationGainToken24H)}</td>
                 </tr>
-              )) : <tr><td colSpan="5" className="nz-empty-row">No member intelligence data available yet.</td></tr>}
+              )) : <tr><td colSpan="11" className="nz-empty-row">No member intelligence data available yet.</td></tr>}
             </tbody>
           </table>
         </div>
