@@ -16,8 +16,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "Running Ninja Zenshin full sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          response="$(curl --fail --silent --show-error --max-time 240 \
-            -H 'Accept: application/json' \
-            -H 'User-Agent: NinjaZenshinGitHubSync/6.0' \
-            "$TRACKER_URL")"
+          response="$(curl --fail --silent --show-error --max-time 240             -H 'Accept: application/json'             -H 'User-Agent: NinjaZenshinGitHubSync/7.0'             "$TRACKER_URL")"
           echo "$response"
+          echo "$response" | jq -e '(.membersSeen // 0) > 0' >/dev/null
