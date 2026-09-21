@@ -32,7 +32,7 @@ export async function GET() {
     const sources = Object.fromEntries(sourceNames.map((name) => [name, {
       status: name === 'clanRanking' ? 'database' : 'unknown',
       rows: name === 'clanRanking' ? sourceRows : 0,
-      clans: name === 'clanMembers' ? 0 : 0,
+      clans: name === 'clanMembers' ? 0 : sourceRows,
       members: name === 'clanMembers' ? sourceMembers : 0,
       errors: 0,
       error: null
@@ -50,7 +50,7 @@ export async function GET() {
       clans: sourceRows,
       members: sourceMembers,
       memberErrors: 0,
-      rankingStored: true,
+      rankingStored: Boolean(latestDb),
       rosterStored: false,
       historyClansStored: 0,
       leaderboards: {},
