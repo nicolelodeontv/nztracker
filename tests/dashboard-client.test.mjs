@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../app/lib/dashboard-client.mjs';
+import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, HEAVY_DASHBOARD_REFRESH_INTERVAL_MS } from '../app/lib/dashboard-client.mjs';
 
 test('refresh gate uses the near-realtime dashboard interval', async () => {
   assert.equal(DASHBOARD_REFRESH_INTERVAL_MS, 5000);
+  assert.equal(LIVE_REFRESH_INTERVAL_MS, 5000);
+  assert.equal(HEAVY_DASHBOARD_REFRESH_INTERVAL_MS, 60000);
 
   let now = 1_000;
   const gate = createRefreshGate({ now: () => now });
@@ -64,7 +66,9 @@ test('dashboard lifecycle regression guard uses declared refresh state and one m
   const component = source.slice(componentStart);
   const mountEffect = component.match(/useEffect\(\(\) => \{[\s\S]*?\n  \}, \[\]\);/);
   assert.ok(mountEffect, 'dashboard mount effect must use an empty dependency array');
-  assert.equal((mountEffect[0].match(/setInterval\(/g) || []).length, 1);
+  assert.equal((mountEffect[0].match(/setInterval\(/g) || []).length, 2);
+  assert.match(mountEffect[0], /setInterval\(refreshLive, LIVE_REFRESH_INTERVAL_MS\)/);
+  assert.match(mountEffect[0], /setInterval\(\(\) => refresh\(\), HEAVY_DASHBOARD_REFRESH_INTERVAL_MS\)/);
   assert.ok(mountEffect[0].indexOf('readDashboardCache()') > mountEffect[0].indexOf('useEffect(() => {'));
   assert.equal((mountEffect[0].match(/readDashboardCache\(\)/g) || []).length, 1);
 
