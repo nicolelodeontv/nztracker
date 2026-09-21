@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-// The Supabase scheduler runs this monitor once per minute.
+// The Supabase scheduler runs this monitor every 10 seconds.
 const SYNC_INTERVAL_MS = MONITOR_WINDOW_MS;
 
 export async function GET(request) {
@@ -51,7 +51,7 @@ export async function GET(request) {
     let rankingCache = { stored: false };
     let rankingCacheError = null;
     const ranking = result.discovery?.ranking;
-    if (!result.reused && Array.isArray(ranking?.rows) && ranking.rows.length) {
+    if (!result.reused && !result.discovery?.fromCache && Array.isArray(ranking?.rows) && ranking.rows.length) {
       try {
         rankingCache = await recordRankingSnapshot(ranking);
       } catch (error) {
@@ -74,19 +74,26 @@ export async function GET(request) {
       ? { [memberSource]: 1 }
       : (result.lastDetails?.memberSource ? { [result.lastDetails.memberSource]: 1 } : {});
 
+    const sourceStatus=result.live?.sourceStatus||(
+      memberSource==='legacy'?'degraded':memberSource==='amf'?'primary':'unknown'
+    );
     const overallOutcome =
       status==='error'
         ? 'error'
-        : (rankingCacheError || result.discoveryError || memberSource==='legacy' ? 'warning' : 'success');
+        : (rankingCacheError || result.discoveryError ? 'warning' : 'success');
     await recordSyncHealth({
       outcome:overallOutcome,
       at:finishedAt.toISOString(),
       error:rankingCacheError||result.discoveryError||null,
       memberStatus,
       memberSource,
+      sourceStatus,
+      sourceDiagnostics:result.live?.sourceDiagnostics||null,
       discoveryStatus,
       rankingStatus,
-      durationMs:result.durationMs||null
+      durationMs:result.durationMs||null,
+      sourceStatus,
+      sourceDiagnostics:result.live?.sourceDiagnostics||null
     }).catch((error)=>console.warn('Unable to record sync health',error));
 
     await recordSyncStatus({
@@ -110,6 +117,8 @@ export async function GET(request) {
       memberSources,
       memberStatus,
       memberSource,
+      sourceStatus,
+      sourceDiagnostics:result.live?.sourceDiagnostics||null,
       discoveryStatus,
       rankingStatus,
       syncDurationMs: result.durationMs || null,
