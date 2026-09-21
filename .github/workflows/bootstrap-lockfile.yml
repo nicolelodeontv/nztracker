@@ -26,7 +26,13 @@ jobs:
 
       - name: Commit lockfile
         run: |
-          if git diff --quiet -- package-lock.json; then
+          if [ ! -f package-lock.json ]; then
+            echo "npm did not generate package-lock.json" >&2
+            exit 1
+          fi
+          if git status --short -- package-lock.json | grep -q '^'; then
+            echo "package-lock.json needs to be committed"
+          else
             echo "package-lock.json is already current"
             exit 0
           fi
