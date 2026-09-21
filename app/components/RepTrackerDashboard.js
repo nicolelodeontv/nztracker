@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createRefreshGate } from '../lib/dashboard-client.mjs';
+import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
 import OperationsOverview from './OperationsOverview.js';
 
@@ -11,6 +11,7 @@ const age = (s) => s == null ? '—' : s < 60 ? `${s}s ago` : s < 3600 ? `${Math
 const DASHBOARD_CACHE_KEY = 'nztracker:last-dashboard';
 const SYNC_LOCK_KEY = 'nztracker:sync-lock';
 const SYNC_LOCK_MS = 20000;
+const LIVE_HISTORY_REFRESH_INTERVAL_MS = 10000;
 
 function readDashboardCache() {
   if (typeof window === 'undefined') return null;
@@ -136,7 +137,7 @@ function MemberDrawer({member,onClose}) {
   useEffect(()=>{
     if(!member)return;
     load();
-    const timer=setInterval(()=>load({silent:true}),60000);
+    const timer=setInterval(()=>load({silent:true}),LIVE_HISTORY_REFRESH_INTERVAL_MS);
     drawerRef.current?.focus();
     const onKey=(event)=>{if(event.key==='Escape')onClose();};
     window.addEventListener('keydown',onKey);
@@ -285,7 +286,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     } else {
       refresh({ initial: true, force: true }).then(() => triggerBackgroundSync());
     }
-    const t = setInterval(() => refresh(), 30000);
+    const t = setInterval(() => refresh(), DASHBOARD_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.removeEventListener('admin-session-expired', onExpired);
@@ -303,7 +304,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       } catch {}
     };
     loadPeriods();
-    const timer = setInterval(loadPeriods, 60000);
+    const timer = setInterval(loadPeriods, 10000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [data?.configured, data?.config?.clan_id, data?.season]);
 
