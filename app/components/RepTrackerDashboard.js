@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createRefreshGate } from '../lib/dashboard-client.mjs';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
 const fmtHours = (n) => Number(n || 0).toFixed(2);
@@ -106,7 +107,11 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [adminLoading, setAdminLoading] = useState(true);
   const [dashboardLoading, setDashboardLoading] = useState(!initialData && !initialError);
   const [dashboardError, setDashboardError] = useState(initialError);
+  const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const syncInFlight = useRef(false);
+  const refreshGate = useRef(null);
+  if (!refreshGate.current) refreshGate.current = createRefreshGate();
   const [seasonName, setSeasonName] = useState('');
   const [finalDay, setFinalDay] = useState('');
   const [hoursMember, setHoursMember] = useState('');
@@ -116,34 +121,39 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [hoursBreak, setHoursBreak] = useState('0');
   const [hoursNotes, setHoursNotes] = useState('');
 
-  const refresh = async ({ initial = false } = {}) => {
-    if (initial) {
-      setDashboardLoading(true);
-      setDashboardError('');
-    }
-    try {
-      const current = await api('/api/dashboard');
-      setData(current);
-      setDashboardError('');
-      if (current?.config) {
-        setSeasonName(current.config.current_season || '');
-        setFinalDay(current.config.final_day_at ? new Date(current.config.final_day_at).toISOString().slice(0,16) : '');
+  const refresh = ({ initial = false, force = false } = {}) =>
+    refreshGate.current.run(async () => {
+      if (initial) {
+        setDashboardLoading(true);
+        setDashboardError('');
+      } else {
+        setDashboardRefreshing(true);
       }
+
       try {
-        const fins = await api('/api/finalize');
-        setFinalizations(fins.finalizations || []);
+        const current = await api('/api/dashboard');
+        setData(current);
+        writeDashboardCache(current);
+        setDashboardError('');
+        if (current?.config) {
+          setSeasonName(current.config.current_season || '');
+          setFinalDay(current.config.final_day_at ? new Date(current.config.final_day_at).toISOString().slice(0,16) : '');
+        }
+        try {
+          const fins = await api('/api/finalize');
+          setFinalizations(fins.finalizations || []);
+        } catch (e) {
+          setMessage(e.message);
+        }
+        return current;
       } catch (e) {
-        setMessage(e.message);
+        setDashboardError(e.message || 'Unable to load the dashboard.');
+        return null;
+      } finally {
+        if (initial) setDashboardLoading(false);
+        if (!initial) setDashboardRefreshing(false);
       }
-      return current;
-    } catch (e) {
-      setDashboardError(e.message || 'Unable to load the dashboard.');
-      return null;
-    } finally {
-      if (initial) setDashboardLoading(false);
-      setDashboardRefreshing(false);
-    }
-  };
+    }, { initial, force });
 
   const triggerBackgroundSync = async () => {
     if (syncInFlight.current || !acquireSyncLock()) return;
@@ -151,10 +161,8 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     setSyncing(true);
     try {
       await api('/api/sync', { method: 'GET' });
-      const refreshed = await refresh();
-      if (!refreshed) throw new Error('Dashboard refresh failed after sync.');
     } catch (e) {
-      setDashboardError(e.message || 'Live update failed.');
+      setMessage('LIVE SYNC FAILED · ' + (e.message || 'Unable to sync live data.'));
     } finally {
       setSyncing(false);
       syncInFlight.current = false;
@@ -188,14 +196,14 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     const cached = readDashboardCache();
     if (initialData) {
       writeDashboardCache(initialData);
-      refresh().then(() => triggerBackgroundSync());
+      refresh({ force: true }).then(() => triggerBackgroundSync());
     } else if (cached?.data) {
       setData(cached.data);
       setDashboardError('');
       setDashboardLoading(false);
-      refresh().then(() => triggerBackgroundSync());
+      refresh({ force: true }).then(() => triggerBackgroundSync());
     } else {
-      refresh({ initial: true }).then(() => triggerBackgroundSync());
+      refresh({ initial: true, force: true }).then(() => triggerBackgroundSync());
     }
     const t = setInterval(() => refresh(), 30000);
     return () => {
@@ -212,7 +220,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
 
   async function login() { setBusy(true); try { await api('/api/admin/login',{method:'POST',body:JSON.stringify({password}),headers:{'Content-Type':'application/json'}}); setAdmin(true); setLoginOpen(false); setPassword(''); setMessage('Admin session active.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
   async function logout() { setBusy(true); try { await api('/api/admin/login',{method:'DELETE'}); setAdmin(false); setLoginOpen(false); setPassword(''); setMessage('Admin session ended.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
-  async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh();setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+  async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh({force:true});setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function baseline(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'baseline'})});await refresh();setMessage('Season baseline created from the live roster.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function startSeason(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',season:seasonName,finalDayAt:finalDay?new Date(finalDay).toISOString():null})});await refresh();setMessage('New season started.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function addHours(){setBusy(true);try{let total=0;if(hoursStart&&hoursEnd){total=(new Date(`1970-01-01T${hoursEnd}:00Z`).getTime()-new Date(`1970-01-01T${hoursStart}:00Z`).getTime())/3600000-(Number(hoursBreak)||0)/60;if(total<0)total+=24;} await api('/api/hours',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({season:data.season,clanId:data.config.clan_id,memberId:hoursMember,workDate:hoursDate,startTime:hoursStart?`${hoursDate}T${hoursStart}:00+08:00`:null,endTime:hoursEnd?`${hoursDate}T${hoursEnd}:00+08:00`:null,breakMinutes:Number(hoursBreak)||0,totalHours:Number(total.toFixed(2)),source:'MANUAL',notes:hoursNotes})});await refresh();setMessage('Hours session added.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
