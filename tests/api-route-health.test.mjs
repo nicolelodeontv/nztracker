@@ -39,6 +39,9 @@ mock.module(f('app/lib/ranking-cache.js'),{exports:{
   recordRankingSnapshot:async()=>({stored:true,rowCount:1}),
   readRankingSnapshot:async()=>ranking,
 }});
+mock.module(f('app/lib/ninja-source.mjs'),{exports:{
+  discoverChaos:async()=>({ranking}),
+}});
 
 mock.module(f('app/lib/monitor-status.mjs'),{exports:{getMonitorStatus:()=> 'success'}});
 mock.module(f('app/lib/sync-health.mjs'),{exports:{

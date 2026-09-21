@@ -6,7 +6,7 @@ Complete system to automatically sync Ninja Zenshin clan rankings and tracked-me
 
 - Automatically sync the tracked clan every 10 seconds
 - Store current rankings, member state, sync status, ranking history, and REP history in Supabase Postgres
-- Display live, updated clan rankings and Chaos operations on the site
+- Display near-real-time member REP updates without repeatedly loading the heavy dashboard payload
 - Track member REP changes with live member heartbeats
 - Retain member and ranking history for 30 days
 - Keep sync history and errors auditable
@@ -31,7 +31,7 @@ Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server 
 - `/api/sync-all` — production full sync called by Supabase pg_cron.
 - `/api/sync-clans` — protected legacy sync endpoint.
 - `/api/monitor` — protected manual diagnostic endpoint.
-- `/api/source-debug` — protected upstream source diagnostic endpoint.
+- `/api/source-debug` — admin-only persisted upstream source diagnostic endpoint.
 - `/api/monitor-health` — protected external health-check endpoint used by the GitHub backup workflow.
 
 When `CRON_SECRET` is unset, these endpoints remain open for backwards compatibility and emit a server-side warning. Once `CRON_SECRET` is configured, requests without the exact `Authorization: Bearer <secret>` header return HTTP 401.
@@ -66,7 +66,7 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 ## Reliability
 
-Production syncing is handled by **Supabase pg_cron**, with the `nztracker-full-sync-5m` job running every 10 seconds and calling `/api/monitor`. The member pipeline is now a near-real-time path; ranking/discovery refreshes remain cached for 5 minutes so a temporary ranking-page outage does not block member REP tracking.
+Production syncing is handled by **Supabase pg_cron**, with the `nztracker-full-sync-5m` job running every 10 seconds and calling `/api/monitor`. The member pipeline is the near-real-time path; discovery remains cached for about 5 minutes, while the stored global ranking is independently refreshed at most once per minute so ranking work cannot dominate the ten-second member cadence.
 
 The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary. A separate Supabase HTTP-health job records the actual `/api/monitor` response from `pg_net`, because a successful cron enqueue is not the same as a successful application response.
 
@@ -159,7 +159,7 @@ Health monitoring checks:
 - `/api/dashboard` for configured canonical data.
 - `/api/monitor-health` with the cron secret for missed syncs, member/ranking health, and the persisted actual HTTP response from `pg_net`.
 
-The member source uses AMF first, then the public member endpoint as a live fallback, and retries transient upstream errors before failing.
+The member source uses AMF first, then the public member endpoint as a live fallback, and retries transient upstream errors before failing. A valid legacy fallback is treated as a successful data sync with `sourceHealth: degraded`, rather than as a failed sync, while the original AMF error/timing remains visible to admins.
 
 
 ## Canonical data model
@@ -170,7 +170,9 @@ The older multi-source ranking, leaderboard, and sync tables are retired by `202
 
 The dashboard exposes:
 - ten-second sync countdown and freshness
-- sync health strip with member/ranking state, actual HTTP status, sync completion rate, missed intervals, and last recorded error
+- sync health strip with member/ranking state, actual HTTP status, sync completion rate, missed intervals, source health, and last recorded error
+- 5-second lightweight live refreshes with a 60-second full dashboard refresh cadence
+- persisted AMF/legacy source diagnostics and explicit degraded-fallback state
 - compact operations tabs for overview, REP pace/attention, and global ranking
 - member filtering, search, and sorting
 - global clan rank, gap to the next rank, and pace estimate

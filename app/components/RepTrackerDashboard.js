@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
+import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, PERIOD_HISTORY_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
 import OperationsOverview from './OperationsOverview.js';
 
@@ -99,7 +99,8 @@ function SyncHealthStrip({data}) {
     <div><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
     <div><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
     <div><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
-    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource || (stats.sourceCounts?.legacy>0 && !stats.sourceCounts?.amf ? 'LEGACY' : stats.sourceCounts?.amf>0 ? 'AMF' : '—')).toUpperCase()}</b></div>
+    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':health.lastSourceHealth==='degraded'?'warn-text':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource || (stats.sourceCounts?.legacy>0 && !stats.sourceCounts?.amf ? 'LEGACY' : stats.sourceCounts?.amf>0 ? 'AMF' : '—')).toUpperCase()}</b></div>
+    <div><span>SOURCE HEALTH</span><b className={health.lastSourceHealth==='degraded'?'warn-text':health.lastSourceHealth==='down'?'down':'up'}>{String(health.lastSourceHealth||'UNKNOWN').toUpperCase()}</b></div>
     <div className="sync-health-error"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
   </section>;
 }
@@ -184,6 +185,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [dashboardLoading, setDashboardLoading] = useState(!initialData && !initialError);
   const [dashboardError, setDashboardError] = useState(initialError);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
+  const [liveRefreshing, setLiveRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [periodHistory, setPeriodHistory] = useState(null);
   const [periodHours, setPeriodHours] = useState(6);
@@ -236,6 +238,37 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       }
     }, { initial, force });
 
+  const refreshLive = async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    setLiveRefreshing(true);
+    try {
+      const current = await api('/api/live');
+      if (!current?.configured) return;
+      setData((previous) => {
+        if (!previous) return current;
+        const liveById = new Map((current.rows || []).map((row) => [String(row.id), row]));
+        const mergedRows = (previous.rows || []).map((row) => {
+          const live = liveById.get(String(row.id));
+          return live ? { ...row, ...live, gain: row.gain, todayGain: row.todayGain, hours: row.hours, repPerHour: row.repPerHour, suspicious: row.suspicious, status: current.freshness?.status || row.status } : row;
+        });
+        return {
+          ...previous,
+          rows: mergedRows.sort((a, b) => Number(b.rep || 0) - Number(a.rep || 0)),
+          freshness: current.freshness || previous.freshness,
+          lastSuccessfulSyncAt: current.lastSuccessfulSyncAt || previous.lastSuccessfulSyncAt,
+          syncHealth: current.syncHealth || previous.syncHealth,
+          syncStatus: current.syncStatus || previous.syncStatus,
+          httpHealth: current.httpHealth || previous.httpHealth,
+          serverTime: current.serverTime || previous.serverTime
+        };
+      });
+    } catch (e) {
+      // The full dashboard refresh will surface a persistent failure; keep the last known live view during transient errors.
+    } finally {
+      setLiveRefreshing(false);
+    }
+  };
+
   const triggerBackgroundSync = async () => {
     if (syncInFlight.current || !acquireSyncLock()) return;
     syncInFlight.current = true;
@@ -286,11 +319,13 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     } else {
       refresh({ initial: true, force: true }).then(() => triggerBackgroundSync());
     }
-    const t = setInterval(() => refresh(), DASHBOARD_REFRESH_INTERVAL_MS);
+    const dashboardTimer = setInterval(() => refresh(), DASHBOARD_REFRESH_INTERVAL_MS);
+    const liveTimer = setInterval(() => refreshLive(), LIVE_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.removeEventListener('admin-session-expired', onExpired);
-      clearInterval(t);
+      clearInterval(dashboardTimer);
+      clearInterval(liveTimer);
     };
   }, []);
 
@@ -304,7 +339,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       } catch {}
     };
     loadPeriods();
-    const timer = setInterval(loadPeriods, 10000);
+    const timer = setInterval(loadPeriods, PERIOD_HISTORY_REFRESH_INTERVAL_MS);
     return () => { cancelled = true; clearInterval(timer); };
   }, [data?.configured, data?.config?.clan_id, data?.season]);
 
@@ -356,7 +391,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   } else {
     adminContent = (
       <>
-        <div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={startSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={baseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className="btn danger full" onClick={lockFinal} disabled={!admin||busy||Boolean(latestFinal)}>LOCK FINAL DAY</button></div></div>
+        <div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={startSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={baseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className="btn danger full" onClick={lockFinal} disabled={!admin||busy||Boolean(latestFinal)}>LOCK FINAL DAY</button></div>
+          <div className="panel source-diagnostic-panel"><span className="eyebrow">SOURCE DIAGNOSTICS</span><h3>AMF → LEGACY failover</h3><p className={data.syncHealth?.lastSourceHealth==='degraded'?'warn-text':''}>{data.syncHealth?.lastSourceWarning || (data.syncHealth?.lastMemberSource==='amf'?'AMF is active and healthy.':'Using the last recorded source state.')}</p><div className="source-diagnostic-grid"><div><span>AMF</span><b>{String(data.syncHealth?.sourceDiagnostics?.amf?.status || '—').toUpperCase()}</b><small>{data.syncHealth?.sourceDiagnostics?.amf?.durationMs != null ? data.syncHealth.sourceDiagnostics.amf.durationMs+'ms' : 'No sample'}</small></div><div><span>LEGACY</span><b>{String(data.syncHealth?.sourceDiagnostics?.legacy?.status || '—').toUpperCase()}</b><small>{data.syncHealth?.sourceDiagnostics?.legacy?.durationMs != null ? data.syncHealth.sourceDiagnostics.legacy.durationMs+'ms' : 'No sample'}</small></div><div><span>FAILOVER</span><b>{data.syncHealth?.lastSourceHealth==='degraded'?'ACTIVE':'READY'}</b><small>{data.syncHealth?.consecutiveSourceWarnings||0} consecutive</small></div></div><small>Server-side source timings and fallback state only; no upstream response body is exposed.</small></div>
+        </div>
         <div className="actions"><button className="btn" onClick={logout} disabled={busy}>LOG OUT</button></div>
       </>
     );
@@ -380,6 +417,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     {data&&<SyncHealthStrip data={data}/>} 
     {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
     {syncing&&data&&!dashboardRefreshing&&<div className="notice good">UPDATING LIVE DATA…</div>}
+    {liveRefreshing&&data&&!syncing&&<div className="live-refresh-indicator" aria-live="polite"><span className="live-dot"></span>LIVE CHECK</div>}
     {dashboardError&&data&&<div className="notice bad">UPDATE FAILED · {dashboardError}<button onClick={()=>refresh()}>RETRY</button></div>}
     {message&&<div className={`notice ${/fail|error|blocked|stale|missing/i.test(message)?'bad':'good'}`}>{message}<button onClick={()=>setMessage('')}>×</button></div>}
 
