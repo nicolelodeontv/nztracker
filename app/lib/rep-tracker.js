@@ -453,13 +453,6 @@ export async function dashboardData(){
     db.from('rep_tracker_kv').select('value').eq('key','monitor:http-latest').maybeSingle().then(({data})=>data?.value||null),
     db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season),
     db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season),
-    db.from('rep_tracker_member_points')
-      .select('member_id,rep,captured_at')
-      .eq('clan_id',config.clan_id)
-      .eq('season',season)
-      .gte('captured_at',startOfTodayManila().toISOString())
-      .order('captured_at',{ascending:true})
-      .range(0,4999),
     db.from('rep_tracker_sync_runs')
       .select('status,members_returned,started_at,completed_at,duration_ms,details,error_message')
       .eq('clan_id',config.clan_id)
