@@ -5,7 +5,7 @@ const root = new URL('../', import.meta.url);
 const f = (p) => new URL(p, root).href;
 const secret = 'x'.repeat(32);
 const members = Array.from({length: 30}, (_, i) => ({ id: String(i + 1), name: `M${i + 1}`, level: 90, reputation: 1000 + i }));
-const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], season: 'Season 3', capturedAt: '2026-09-21T07:40:03.000Z', source: 'test' };
+const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], season: 'Season 3', capturedAt: new Date(Date.now() - 60_000).toISOString(), source: 'test' };
 const config = { clan_id: '3', clan_name: 'Chaos', current_season: 'Season 3', expected_member_count: 30 };
 
 mock.module(f('app/lib/rep-tracker.js'), { exports: {
@@ -96,7 +96,7 @@ test('monitor rejects missing and wrong headers', async () => {
   assert.equal((await monitorGET(request('/api/monitor', 'wrong'))).status, 401);
 });
 
-test('monitor executes with the correct header and when the secret is unset', async () => {
+test('monitor executes with the correct header and rejects when the secret is unset', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => String(input).startsWith('https://ninjazenshin.online/')
     ? { ok: true, text: async () => '<html>test</html>' }
@@ -108,8 +108,8 @@ test('monitor executes with the correct header and when the secret is unset', as
     assert.equal((await body(ok)).membersSeen, 30);
 
     delete process.env.CRON_SECRET;
-    const open = await monitorGET(request('/api/monitor'));
-    assert.equal(open.status, 200);
+    const denied = await monitorGET(request('/api/monitor'));
+    assert.equal(denied.status, 401);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.CRON_SECRET;
