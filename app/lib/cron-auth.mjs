@@ -25,8 +25,6 @@ export function requireCronSecret(request, routeName) {
 
   return null;
 }
-
-
 export function requireRequiredCronSecret(request, routeName) {
   const secret = process.env.CRON_SECRET;
 
