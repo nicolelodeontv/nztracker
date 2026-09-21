@@ -1,6 +1,9 @@
 import { get, put } from '@vercel/blob';
 
 const RANKING_PATH = 'nztracker/ranking/latest.json';
+const RANKING_CACHE_TTL_MS = 30 * 1000;
+const rankingReadCache = { value: null, expiresAt: 0 };
+let lastRankingStorageError = null;
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
 
 function canUseBlob() {
@@ -24,28 +27,42 @@ export async function recordRankingSnapshot(parsed) {
     source: parsed?.source || SOURCE,
     updatedAt: new Date().toISOString(),
   };
-  await put(RANKING_PATH, JSON.stringify(payload), {
-    access: 'private',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: 'application/json',
-  });
-  return { stored: true, updatedAt: payload.updatedAt, rowCount: payload.rows.length };
+  try {
+    await put(RANKING_PATH, JSON.stringify(payload), {
+      access: 'private',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: 'application/json',
+    });
+    rankingReadCache.value = payload;
+    rankingReadCache.expiresAt = Date.now() + RANKING_CACHE_TTL_MS;
+    lastRankingStorageError = null;
+    return { stored: true, updatedAt: payload.updatedAt, rowCount: payload.rows.length };
+  } catch (error) {
+    lastRankingStorageError = error instanceof Error ? error.message : String(error);
+    return { stored: false, error: lastRankingStorageError, updatedAt: payload.updatedAt, rowCount: payload.rows.length };
+  }
 }
 
 export async function readRankingSnapshot() {
-  if (!canUseBlob()) return null;
+  if (!canUseBlob()) return rankingReadCache.value || null;
+  const now = Date.now();
+  if (rankingReadCache.value && rankingReadCache.expiresAt > now) return structuredClone(rankingReadCache.value);
   try {
     const result = await get(RANKING_PATH, { access: 'private', useCache: false });
-    if (!result) return null;
+    if (!result) return rankingReadCache.value || null;
     const text = await new Response(result.stream).text();
     const parsed = JSON.parse(text);
-    if (!parsed || !Array.isArray(parsed.rows)) return null;
-    return parsed;
+    if (!parsed || !Array.isArray(parsed.rows)) return rankingReadCache.value || null;
+    rankingReadCache.value = parsed;
+    rankingReadCache.expiresAt = now + RANKING_CACHE_TTL_MS;
+    lastRankingStorageError = null;
+    return structuredClone(parsed);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/not found|404|does not exist/i.test(message)) return null;
-    throw error;
+    lastRankingStorageError = error instanceof Error ? error.message : String(error);
+    const message = lastRankingStorageError;
+    if (/not found|404|does not exist/i.test(message)) return rankingReadCache.value || null;
+    return rankingReadCache.value || null;
   }
 }
 
@@ -56,5 +73,5 @@ export function rankingStorageHealth() {
     process.env.VERCEL_OIDC_TOKEN ||
     (process.env.VERCEL === '1' && process.env.BLOB_STORE_ID)
   );
-  return { configured, authenticated, durable: configured && authenticated, provider: 'vercel-blob-private' };
+  return { configured, authenticated, durable: configured && authenticated, provider: 'vercel-blob-private', error: lastRankingStorageError };
 }
