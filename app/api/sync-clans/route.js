@@ -1,16 +1,10 @@
 import { scrapeClans } from '../../../lib/scraper.mjs';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
+import { requireCronSecret } from '../../../lib/cron-auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-function authorized(request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  const auth = request.headers.get('authorization');
-  return auth === `Bearer ${secret}`;
-}
 
 function memberTotal(rows) {
   return rows.reduce((total, row) => total + Math.max(0, Number(row.memberCurrent) || 0), 0);
@@ -18,7 +12,8 @@ function memberTotal(rows) {
 
 export async function GET(request) {
   const startedAt = new Date().toISOString();
-  if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  const denied = requireCronSecret(request, '/api/sync-clans');
+  if (denied) return denied;
 
   try {
     const ranking = await scrapeClans();
