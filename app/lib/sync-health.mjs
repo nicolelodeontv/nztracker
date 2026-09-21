@@ -20,25 +20,30 @@ export async function recordSyncHealth({
   memberSource=null,
   discoveryStatus='unknown',
   rankingStatus='unknown',
-  durationMs=null
+  durationMs=null,
+  sourceStatus=null,
+  sourceDiagnostics=null
 }={}){
   const db=supabaseAdmin();
   const previous=await readSyncHealth();
-  const isHealthy=outcome==='success';
+  const memberHealthy=memberStatus==='success'&&outcome!=='error';
   const next={
     version:2,
     lastRunAt:at,
-    lastHealthyAt:isHealthy?at:(previous?.lastHealthyAt||null),
+    lastHealthyAt:memberHealthy?at:(previous?.lastHealthyAt||null),
     lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||null),
-    lastError:outcome==='error'?String(error||'Sync failed.'):(previous?.lastError||null),
+    lastError:outcome==='error'?String(error||'Sync failed.'):null,
+    lastFailureError:outcome==='error'?String(error||'Sync failed.'):(previous?.lastFailureError||null),
     lastMemberSuccessAt:memberStatus==='success'?at:(previous?.lastMemberSuccessAt||null),
     lastRankingFreshAt:rankingStatus==='fresh'?at:(previous?.lastRankingFreshAt||null),
     lastMemberSource:memberSource||previous?.lastMemberSource||null,
+    lastSourceStatus:sourceStatus||previous?.lastSourceStatus||null,
+    lastSourceDiagnostics:sourceDiagnostics||previous?.lastSourceDiagnostics||null,
     lastMemberStatus:memberStatus,
     lastDiscoveryStatus:discoveryStatus,
     lastRankingStatus:rankingStatus,
     lastDurationMs:Number.isFinite(Number(durationMs))?Number(durationMs):(previous?.lastDurationMs||null),
-    consecutiveSuccesses:isHealthy?Number(previous?.consecutiveSuccesses||0)+1:0,
+    consecutiveSuccesses:memberHealthy?Number(previous?.consecutiveSuccesses||0)+1:0,
     consecutiveFailures:outcome==='error'?Number(previous?.consecutiveFailures||0)+1:0,
     consecutiveWarnings:outcome==='warning'?Number(previous?.consecutiveWarnings||0)+1:0,
     updatedAt:at,
