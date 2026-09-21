@@ -9,13 +9,10 @@ jobs:
       - name: Query production API
         shell: bash
         run: |
-          set -euo pipefail
-
-          sync="$(curl -fsSL --max-time 20 'https://nztracker.vercel.app/api/sync-status')"
-          members="$(curl -fsSL --max-time 20 'https://nztracker.vercel.app/api/clan-members?clanId=3')"
+          set -u
 
           echo '--- sync-status ---'
-          echo "$sync" | jq '{error, memberSources, lastRunAt, stale, ageMs, donations}'
+          curl -sS -L --max-time 20 -w '\nHTTP:%{http_code}\n' 'https://nztracker.vercel.app/api/sync-status'
 
           echo '--- clan-members ---'
-          echo "$members" | jq '{error, details, source, service, count, stale, fetchedAt, firstTwoMembers: (.members // [] | .[0:2] | map({id,name,level,reputation,reputationGain,stamina,maxStamina,donatedGold,donatedToken}))}'
+          curl -sS -L --max-time 20 -w '\nHTTP:%{http_code}\n' 'https://nztracker.vercel.app/api/clan-members?clanId=3'
