@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startOfTodayManila } from '../app/lib/rep-tracker.js';
+import { startOfTodayManila } from '../app/lib/dashboard-time.mjs';
 
 test('dashboard today starts at midnight Asia/Manila', () => {
   const beforeManilaMidnight = new Date('2026-09-20T15:59:59.000Z');
