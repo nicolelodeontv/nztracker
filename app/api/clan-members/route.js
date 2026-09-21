@@ -173,9 +173,9 @@ function parseMemberResponse(buffer) {
   return bodies[0]?.data;
 }
 
-function normalizeMembers(rawMembers) {
+export function normalizeMembers(rawMembers) {
   const seen = new Set();
-  return (Array.isArray(rawMembers) ? rawMembers : []).map((member) => {
+  const normalized = (Array.isArray(rawMembers) ? rawMembers : []).map((member) => {
     const source = member && typeof member === 'object' ? member : {};
     const nested = source?.stats || source?.attributes || source?.status || {};
     const name = clean(source.name ?? source.username ?? source.player ?? source.character);
@@ -203,9 +203,15 @@ function normalizeMembers(rawMembers) {
       drainFloor: maxStamina * 0.50,
       bleeding: stamina <= maxStamina * 0.70
     };
-  }).filter((member) => {
-    if (!member.name) return false;
-    const key = member.id ? `id:${member.id}` : `name:${member.name.normalize('NFC').toLocaleLowerCase()}`;
+  });
+
+  const hasStableIds = normalized.some((member) => Boolean(member.id));
+  return normalized.map((member) => ({
+    ...member,
+    id: member.id || (hasStableIds ? '' : member.name.normalize('NFC').toLocaleLowerCase())
+  })).filter((member) => {
+    if (!member.name || !member.id) return false;
+    const key = `id:${member.id}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
