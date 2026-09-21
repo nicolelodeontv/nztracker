@@ -1,0 +1,33 @@
+name: Production Health Check
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check sync status
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30             https://chaoszenshintracker.vercel.app/api/sync-status > sync-status.json
+          jq -e '
+            (.status == "active")
+            or (
+              (.lastRunAt // "") != ""
+              and (
+                try ((.lastRunAt | fromdateiso8601) >= (now - 900))
+                catch false
+              )
+            )
+          ' sync-status.json > /dev/null
+          echo "sync-status healthy"
+
+      - name: Check dashboard
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30             https://chaoszenshintracker.vercel.app/api/dashboard > dashboard.json
+          jq -e '.configured == true' dashboard.json > /dev/null
+          echo "dashboard configured"
