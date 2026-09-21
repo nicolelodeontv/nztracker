@@ -11,13 +11,19 @@ jobs:
       - name: Run full multi-source sync
         env:
           TRACKER_URL: https://chaoszenshintracker.vercel.app/api/sync-all
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
           echo "Running Ninja Zenshin full sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          if [ -z "$CRON_SECRET" ]; then
+            echo "GitHub Actions secret CRON_SECRET is not configured." >&2
+            exit 1
+          fi
           set +e
           http_code="$(curl --silent --show-error --max-time 240 -o response.json -w '%{http_code}' \
             -H 'Accept: application/json' \
-            -H 'User-Agent: NinjaZenshinGitHubSync/7.0' \
+            -H 'User-Agent: NinjaZenshinGitHubSync/7.0' \\
+            -H "Authorization: Bearer $CRON_SECRET" \\
             "$TRACKER_URL")"
           curl_exit=$?
           set -e
