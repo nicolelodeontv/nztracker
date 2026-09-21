@@ -97,7 +97,4 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
 function rowankingGap(row,ranking){
   const above=ranking.find((candidate)=>Number(candidate.rank)===Number(row.rank)-1);
   return above?Math.max(0,Number(above.reputation||0)-Number(row.reputation||0)):0;
-}function rowankingGap(row,ranking){
-  const above=ranking.find((candidate)=>Number(candidate.rank)===Number(row.rank)-1);
-  return above?Math.max(0,Number(above.reputation||0)-Number(row.reputation||0)):0;
 }
