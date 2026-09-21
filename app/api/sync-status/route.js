@@ -35,7 +35,8 @@ export async function GET() {
 
   let repDrift = null;
   try {
-    repDrift = await readRepDrift((sync?.trackedMemberClanIds || [])[0] || '3');
+    const clanId = (sync?.trackedMemberClanIds || [])[0];
+    if (clanId) repDrift = await readRepDrift(clanId);
   } catch (error) {
     readErrors.latestSync = readErrors.latestSync || (error instanceof Error ? error.message : String(error));
   }
