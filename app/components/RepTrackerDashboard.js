@@ -73,6 +73,40 @@ async function api(url, options) {
   return data;
 }
 
+function SourceDiagnosticsPanel({data, probe, busy, onRefresh, onTest}) {
+  const current=probe?.sourceDiagnostics||data?.sourceDiagnostics||data?.syncHealth?.lastSourceDiagnostics||{};
+  const selected=probe?.selected||current.selected||null;
+  const renderSource=(label,item)=>{
+    const status=item?.status||'unknown';
+    return <div className="source-diag-card">
+      <div className="source-diag-head"><b>{label}</b><span className={status==='healthy'?'up':status==='error'?'down':'warn-text'}>{status.toUpperCase()}</span></div>
+      <strong>{item?.latencyMs==null?'—':item.latencyMs+'ms'}</strong>
+      <small>{item?.error||item?.sourceUrl||'No diagnostic error recorded.'}</small>
+    </div>;
+  };
+  return <section className="panel source-diagnostic-panel">
+    <div className="section-title">
+      <div><span className="eyebrow">UPSTREAM DIAGNOSTICS</span><h3>SOURCE HEALTH</h3></div>
+      <span>{selected?'SELECTED '+String(selected).toUpperCase():'NO PROBE RUN'}</span>
+    </div>
+    <div className="source-diag-summary">
+      <div><span>STATE</span><b className={data?.sourceStatus==='degraded'?'warn-text':data?.sourceStatus==='down'?'down':'up'}>{String(data?.sourceStatus||'unknown').toUpperCase()}</b></div>
+      <div><span>LAST MEMBER</span><b>{data?.syncHealth?.lastMemberSuccessAt?age(Math.max(0,Math.floor((Date.now()-Date.parse(data.syncHealth.lastMemberSuccessAt))/1000))):'—'}</b></div>
+      <div><span>LAST FAILURE</span><b>{data?.syncHealth?.lastErrorAt?age(Math.max(0,Math.floor((Date.now()-Date.parse(data.syncHealth.lastErrorAt))/1000))):'NONE'}</b></div>
+    </div>
+    <div className="source-diag-grid">
+      {renderSource('AMF',current.amf)}
+      {renderSource('LEGACY',current.legacy)}
+    </div>
+    <div className="source-diag-actions">
+      <button className="btn" onClick={onRefresh} disabled={busy}>REFRESH STATUS</button>
+      <button className="btn primary" onClick={onTest} disabled={busy}>{busy?'TESTING…':'TEST LIVE SOURCE'}</button>
+    </div>
+    {probe?.ok===false&&<div className="notice bad">SOURCE TEST FAILED · {probe.error||'Live source test failed.'}</div>}
+    {probe?.ok===true&&<div className="notice good">SOURCE TEST OK · {String(probe.selected||'unknown').toUpperCase()} · {probe.memberCount||0} MEMBERS</div>}
+  </section>;
+}
+
 function Countdown({ target }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
@@ -377,6 +411,19 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
 
   async function login() { setBusy(true); try { await api('/api/admin/login',{method:'POST',body:JSON.stringify({password}),headers:{'Content-Type':'application/json'}}); setAdmin(true); setLoginOpen(false); setPassword(''); setMessage('Admin session active.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
   async function logout() { setBusy(true); try { await api('/api/admin/login',{method:'DELETE'}); setAdmin(false); setLoginOpen(false); setPassword(''); setMessage('Admin session ended.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
+  async function loadSourceDiagnostics(test=false){
+    if(sourceDiagnosticsLoading) return;
+    setSourceDiagnosticsLoading(true);
+    try{
+      const result=await api('/api/admin/source-diagnostics'+(test?'?test=1':''));
+      setSourceDiagnostics(result);
+    }catch(e){
+      setMessage(e.message||'Unable to load source diagnostics.');
+    }finally{
+      setSourceDiagnosticsLoading(false);
+    }
+  }
+
   async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh({force:true});setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function baseline(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'baseline'})});await refresh();setMessage('Season baseline created from the live roster.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function startSeason(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',season:seasonName,finalDayAt:finalDay?new Date(finalDay).toISOString():null})});await refresh();setMessage('New season started.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
@@ -394,6 +441,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     adminContent = (
       <>
         <div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={startSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={baseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className="btn danger full" onClick={lockFinal} disabled={!admin||busy||Boolean(latestFinal)}>LOCK FINAL DAY</button></div></div>
+        <SourceDiagnosticsPanel data={data} probe={sourceDiagnostics} busy={sourceDiagnosticsLoading} onRefresh={()=>loadSourceDiagnostics(false)} onTest={()=>loadSourceDiagnostics(true)} />
         <div className="actions"><button className="btn" onClick={logout} disabled={busy}>LOG OUT</button></div>
       </>
     );
