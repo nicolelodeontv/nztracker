@@ -9,7 +9,7 @@ const ranking = { rows:[{clanId:'3',clan:'Chaos',memberCurrent:30}], season:'Sea
 const config={clan_id:'3',clan_name:'Chaos',current_season:'Season 3',expected_member_count:30};
 let monitorMode='success';
 let heartbeatPayloads=[];
-let rankingWrites=0;
+let rankingWritesByMode={amf:0,legacy:0,cached:0};
 let monitorDiscoveryCached=false;
 let syncHealthState={consecutiveSuccesses:4,lastHealthyAt:ranking.capturedAt,lastAlertKey:null,lastMemberStatus:'success',lastRankingStatus:'fresh'};
 let httpHealthState={statusCode:200,timedOut:false,errorMsg:null,created:ranking.capturedAt};
@@ -33,13 +33,13 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
 }});
 
 mock.module(f('app/lib/member-history.js'),{exports:{
-  readSyncStatus:async()=>({lastRunAt:ranking.capturedAt,membersSeen:30,memberErrors:0,overall:'success',intervalMs:10000,nextExpectedAt:new Date(Date.now()+10000).toISOString()}),
+  readSyncStatus:async()=>({lastRunAt:new Date(Date.now()-5000).toISOString(),membersSeen:30,memberErrors:0,overall:'success',intervalMs:10000,nextExpectedAt:new Date(Date.now()+10000).toISOString()}),
   recordSyncStatus:async(payload)=>{heartbeatPayloads.push(payload);return{stored:true};},
   storageHealth:()=>({provider:'supabase',configured:true,authenticated:true,durable:true})
 }});
 
 mock.module(f('app/lib/ranking-cache.js'),{exports:{
-  recordRankingSnapshot:async()=>{rankingWrites+=1;return{stored:true,rowCount:1};},
+  recordRankingSnapshot:async()=>{const key=monitorDiscoveryCached?'cached':monitorMode==='legacy'?'legacy':'amf';rankingWritesByMode[key]+=1;return{stored:true,rowCount:1};},
   readRankingSnapshot:async()=>ranking,
 }});
 
@@ -114,7 +114,7 @@ test('monitor executes with correct secret',async()=>{
   assert.equal(b.membersSeen,30);
   assert.equal(b.rankingRows,1);
   assert.equal(b.rankingCache.stored,true);
-  assert.equal(rankingWrites,1);
+  assert.equal(rankingWritesByMode.amf,1);
   assert.equal(heartbeatPayloads.at(-1)?.intervalMs,10000);
   delete process.env.CRON_SECRET;
 });
@@ -126,7 +126,7 @@ test('monitor does not rewrite cached ranking data on every ten-second sync',asy
   const b=await body(r);
   assert.equal(r.status,200);
   assert.equal(b.membersSeen,30);
-  assert.equal(rankingWrites,1);
+  assert.equal(rankingWritesByMode.cached,0);
   delete process.env.CRON_SECRET;
 });
 
@@ -139,6 +139,7 @@ test('monitor keeps legacy source fallback as a healthy sync',async()=>{
     assert.equal(r.status,200);
     assert.equal(b.status,'success');
     assert.equal(b.sourceStatus,'degraded');
+    assert.equal(rankingWritesByMode.legacy,1);
   }finally{
     monitorMode='success';
     delete process.env.CRON_SECRET;
