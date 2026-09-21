@@ -1,4 +1,4 @@
-import { adminCookieOptions, issueAdminCookie, isAdmin, ADMIN_COOKIE_NAME } from '../../../lib/admin-auth';
+import { adminCookieOptions, issueAdminCookie, isAdmin, ADMIN_COOKIE_NAME } from '../../../lib/admin-auth.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
