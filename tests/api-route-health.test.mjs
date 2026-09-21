@@ -56,6 +56,7 @@ mock.module(f('lib/multisource-db.mjs'), { exports: {
 }});
 mock.module(f('app/lib/monitor-status.mjs'), { exports: { getMonitorStatus: () => 'success' }});
 mock.module(f('app/lib/monitor-idempotency.mjs'), { exports: {
+  MONITOR_WINDOW_MS: 60 * 1000,
   claimMonitorWindow: async () => ({ claimed: true, key: 'monitor-window:test' }),
   completeMonitorWindow: async () => ({ key: 'monitor-window:test' }),
   releaseMonitorWindow: async () => ({ key: 'monitor-window:test', released: true }),
