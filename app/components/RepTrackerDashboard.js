@@ -84,7 +84,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       }
     } catch (e) { setMessage(e.message); }
   };
-  useEffect(() => { refresh(true); const t = setInterval(() => refresh(false), 30000); return () => clearInterval(t); }, []);
+  useEffect(() => { refresh(true); const t = setInterval(() => refresh(false), 60000); return () => clearInterval(t); }, []);
 
   const rows = data?.rows || [];
   const top = useMemo(() => [...rows].sort((a,b) => b.todayGain - a.todayGain).slice(0,5), [rows]);
