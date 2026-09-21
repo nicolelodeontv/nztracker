@@ -4,6 +4,7 @@ import { supabaseAdmin } from '../../lib/supabase-admin';
 
 export const runtime='nodejs'; export const dynamic='force-dynamic';
 export async function GET(request){
+  const denied=requireAdmin(request); if(denied)return denied;
   try {
     const p=new URL(request.url).searchParams; const clanId=p.get('clanId'); const season=p.get('season');
     if(!clanId||!season) return Response.json({ok:false,error:'clanId and season are required.'},{status:400});
