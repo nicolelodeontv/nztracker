@@ -38,6 +38,8 @@ export async function recordSyncHealth({
     lastMemberSuccessAt:memberStatus==='success'?at:(previous?.lastMemberSuccessAt||null),
     lastRankingFreshAt:rankingStatus==='fresh'?at:(previous?.lastRankingFreshAt||null),
     lastMemberSource:memberSource||previous?.lastMemberSource||null,
+    lastAmfSuccessAt:memberSource==='amf'?at:(previous?.lastAmfSuccessAt||null),
+    lastLegacySuccessAt:memberSource==='legacy'?at:(previous?.lastLegacySuccessAt||null),
     lastMemberStatus:memberStatus,
     lastSourceHealth:sourceHealth||previous?.lastSourceHealth||'healthy',
     lastSourceWarning:isSourceDegraded?(String(sourceWarning||'Member source fallback is active.')):null,
