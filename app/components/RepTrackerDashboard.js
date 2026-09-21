@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
+import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, PERIOD_HISTORY_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
 import OperationsOverview from './OperationsOverview.js';
 
@@ -99,7 +99,8 @@ function SyncHealthStrip({data}) {
     <div><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
     <div><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
     <div><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
-    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource || (stats.sourceCounts?.legacy>0 && !stats.sourceCounts?.amf ? 'LEGACY' : stats.sourceCounts?.amf>0 ? 'AMF' : '—')).toUpperCase()}</b></div>
+    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':health.lastSourceHealth==='degraded'?'warn-text':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource || (stats.sourceCounts?.legacy>0 && !stats.sourceCounts?.amf ? 'LEGACY' : stats.sourceCounts?.amf>0 ? 'AMF' : '—')).toUpperCase()}</b></div>
+    <div><span>SOURCE HEALTH</span><b className={health.lastSourceHealth==='degraded'?'warn-text':health.lastSourceHealth==='down'?'down':'up'}>{String(health.lastSourceHealth||'UNKNOWN').toUpperCase()}</b></div>
     <div className="sync-health-error"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
   </section>;
 }
@@ -184,6 +185,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [dashboardLoading, setDashboardLoading] = useState(!initialData && !initialError);
   const [dashboardError, setDashboardError] = useState(initialError);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
+  const [liveRefreshing, setLiveRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [periodHistory, setPeriodHistory] = useState(null);
   const [periodHours, setPeriodHours] = useState(6);
@@ -236,6 +238,37 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       }
     }, { initial, force });
 
+  const refreshLive = async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    setLiveRefreshing(true);
+    try {
+      const current = await api('/api/live');
+      if (!current?.configured) return;
+      setData((previous) => {
+        if (!previous) return current;
+        const liveById = new Map((current.rows || []).map((row) => [String(row.id), row]));
+        const mergedRows = (previous.rows || []).map((row) => {
+          const live = liveById.get(String(row.id));
+          return live ? { ...row, ...live, gain: row.gain, todayGain: row.todayGain, hours: row.hours, repPerHour: row.repPerHour, suspicious: row.suspicious, status: current.freshness?.status || row.status } : row;
+        });
+        return {
+          ...previous,
+          rows: mergedRows.sort((a, b) => Number(b.rep || 0) - Number(a.rep || 0)),
+          freshness: current.freshness || previous.freshness,
+          lastSuccessfulSyncAt: current.lastSuccessfulSyncAt || previous.lastSuccessfulSyncAt,
+          syncHealth: current.syncHealth || previous.syncHealth,
+          syncStatus: current.syncStatus || previous.syncStatus,
+          httpHealth: current.httpHealth || previous.httpHealth,
+          serverTime: current.serverTime || previous.serverTime
+        };
+      });
+    } catch (e) {
+      // The full dashboard refresh will surface a persistent failure; keep the last known live view during transient errors.
+    } finally {
+      setLiveRefreshing(false);
+    }
+  };
+
   const triggerBackgroundSync = async () => {
     if (syncInFlight.current || !acquireSyncLock()) return;
     syncInFlight.current = true;
@@ -286,11 +319,13 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     } else {
       refresh({ initial: true, force: true }).then(() => triggerBackgroundSync());
     }
-    const t = setInterval(() => refresh(), DASHBOARD_REFRESH_INTERVAL_MS);
+    const dashboardTimer = setInterval(() => refresh(), DASHBOARD_REFRESH_INTERVAL_MS);
+    const liveTimer = setInterval(() => refreshLive(), LIVE_REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.removeEventListener('admin-session-expired', onExpired);
-      clearInterval(t);
+      clearInterval(dashboardTimer);
+      clearInterval(liveTimer);
     };
   }, []);
 
@@ -304,7 +339,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       } catch {}
     };
     loadPeriods();
-    const timer = setInterval(loadPeriods, 10000);
+    const timer = setInterval(loadPeriods, PERIOD_HISTORY_REFRESH_INTERVAL_MS);
     return () => { cancelled = true; clearInterval(timer); };
   }, [data?.configured, data?.config?.clan_id, data?.season]);
 
@@ -380,6 +415,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     {data&&<SyncHealthStrip data={data}/>} 
     {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
     {syncing&&data&&!dashboardRefreshing&&<div className="notice good">UPDATING LIVE DATA…</div>}
+    {liveRefreshing&&data&&!syncing&&<div className="live-refresh-indicator" aria-live="polite"><span className="live-dot"></span>LIVE CHECK</div>}
     {dashboardError&&data&&<div className="notice bad">UPDATE FAILED · {dashboardError}<button onClick={()=>refresh()}>RETRY</button></div>}
     {message&&<div className={`notice ${/fail|error|blocked|stale|missing/i.test(message)?'bad':'good'}`}>{message}<button onClick={()=>setMessage('')}>×</button></div>}
 
