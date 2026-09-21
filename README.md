@@ -7,6 +7,7 @@ Complete system to automatically sync Ninja Zenshin clan rankings and tracked-me
 - Automatically sync the tracked clan every 10 seconds
 - Refresh the dashboard live view every 5 seconds while keeping heavy analytics on a slower cadence
 - Store current rankings, member state, sync status, ranking history, and REP history in Supabase Postgres
+- Separate the lightweight live member feed from heavier dashboard analytics to reduce database/API work
 - Display live, updated clan rankings and Chaos operations on the site
 - Track member REP changes with live member heartbeats
 - Retain member and ranking history for 30 days
