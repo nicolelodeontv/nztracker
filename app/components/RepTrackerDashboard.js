@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
+import { createRefreshGate, LIVE_REFRESH_INTERVAL_MS, HEAVY_DASHBOARD_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
 import OperationsOverview from './OperationsOverview.js';
 
@@ -12,6 +12,22 @@ const DASHBOARD_CACHE_KEY = 'nztracker:last-dashboard';
 const SYNC_LOCK_KEY = 'nztracker:sync-lock';
 const SYNC_LOCK_MS = 20000;
 const LIVE_HISTORY_REFRESH_INTERVAL_MS = 10000;
+
+function mergeLiveData(current, live) {
+  if (!current || !live?.configured) return current;
+  return {
+    ...current,
+    rows: live.rows || current.rows || [],
+    stats: { ...(current.stats || {}), ...(live.stats || {}) },
+    freshness: live.freshness || current.freshness,
+    lastSuccessfulSyncAt: live.lastSuccessfulSyncAt || current.lastSuccessfulSyncAt,
+    syncHealth: live.syncHealth || current.syncHealth,
+    syncStatus: live.syncStatus || current.syncStatus,
+    sourceStatus: live.sourceStatus || current.sourceStatus,
+    sourceDiagnostics: live.sourceDiagnostics || current.sourceDiagnostics,
+    serverTime: live.serverTime || current.serverTime
+  };
+}
 
 function readDashboardCache() {
   if (typeof window === 'undefined') return null;
@@ -100,6 +116,7 @@ function SyncHealthStrip({data}) {
     <div><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
     <div><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
     <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource || (stats.sourceCounts?.legacy>0 && !stats.sourceCounts?.amf ? 'LEGACY' : stats.sourceCounts?.amf>0 ? 'AMF' : '—')).toUpperCase()}</b></div>
+    <div><span>SOURCE STATE</span><b className={health.lastSourceStatus==='degraded'?'warn-text':health.lastSourceStatus==='down'?'down':'up'}>{String(health.lastSourceStatus||data?.sourceStatus||'—').toUpperCase()}</b></div>
     <div className="sync-health-error"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
   </section>;
 }
@@ -185,6 +202,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [dashboardError, setDashboardError] = useState(initialError);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const liveInFlight = useRef(false);
+  const [sourceDiagnostics, setSourceDiagnostics] = useState(null);
+  const [sourceDiagnosticsLoading, setSourceDiagnosticsLoading] = useState(false);
   const [periodHistory, setPeriodHistory] = useState(null);
   const [periodHours, setPeriodHours] = useState(6);
   const [memberFilter, setMemberFilter] = useState('ALL');
@@ -236,6 +256,20 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       }
     }, { initial, force });
 
+  const refreshLive = async () => {
+    if (liveInFlight.current || !data?.configured) return;
+    liveInFlight.current = true;
+    try {
+      const current = await api('/api/live');
+      setData((previous) => mergeLiveData(previous, current));
+      setDashboardError('');
+    } catch (e) {
+      if (!data) setDashboardError(e.message || 'Unable to load live data.');
+    } finally {
+      liveInFlight.current = false;
+    }
+  };
+
   const triggerBackgroundSync = async () => {
     if (syncInFlight.current || !acquireSyncLock()) return;
     syncInFlight.current = true;
@@ -286,11 +320,14 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     } else {
       refresh({ initial: true, force: true }).then(() => triggerBackgroundSync());
     }
-    const t = setInterval(() => refresh(), DASHBOARD_REFRESH_INTERVAL_MS);
+    const liveTimer = setInterval(refreshLive, LIVE_REFRESH_INTERVAL_MS);
+    const heavyTimer = setInterval(() => refresh(), HEAVY_DASHBOARD_REFRESH_INTERVAL_MS);
+    refreshLive();
     return () => {
       cancelled = true;
       window.removeEventListener('admin-session-expired', onExpired);
-      clearInterval(t);
+      clearInterval(liveTimer);
+      clearInterval(heavyTimer);
     };
   }, []);
 
