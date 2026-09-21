@@ -1,7 +1,8 @@
 import { scrapeClans, scrapeGame } from '../../../lib/scraper.mjs';
 import { recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
+import { fetchLiveMembers } from '../../../app/lib/ninja-source.mjs';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
-import { recordClanHistory, upsertLeaderboardRows } from '../../../lib/multisource-db.mjs';
+import { recordClanHistory, upsertLeaderboardRows, upsertMemberRoster, upsertRepTrackerSnapshots } from '../../../lib/multisource-db.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,66 @@ function errorText(error) {
   try { return JSON.stringify(error); } catch { return String(error); }
 }
 
+export function summarizeMemberRecording(clans, memberData) {
+  const byClan = new Map((Array.isArray(memberData) ? memberData : []).map((data) => [String(data.clanId), data]));
+  const issues = (Array.isArray(clans) ? clans : [])
+    .filter((clan) => Number(clan?.memberCurrent || 0) > 0)
+    .map((clan) => {
+      const data = byClan.get(String(clan.clanId));
+      const recorded = Number(data?.recordableCount || 0);
+      return recorded > 0 ? null : {
+        clanId: String(clan.clanId),
+        clan: clan.clan,
+        expected: Number(clan.memberCurrent || 0),
+        recorded,
+        error: data?.error || '0 members recorded'
+      };
+    })
+    .filter(Boolean);
+  return {
+    status: issues.length ? 'warning' : 'success',
+    issues,
+    error: issues.length
+      ? issues.map((issue) => `${issue.clan} (${issue.clanId}): ${issue.error || '0 members recorded'}`).join(' | ')
+      : null
+  };
+}
+
+async function fetchMembers(clan) {
+  try {
+    const payload = await fetchLiveMembers(String(clan.clanId));
+    const members = Array.isArray(payload?.members) ? payload.members : [];
+    const recordableCount = members.filter((member) => member?.id && !member?.identityAmbiguous && member?.name).length;
+    const ambiguousMembers = members.filter((member) => member?.identityAmbiguous).map((member) => String(member.name || '').trim()).filter(Boolean);
+    return {
+      ...payload,
+      clanId: String(clan.clanId),
+      clan: clan.clan,
+      expectedMemberCount: Number(clan.memberCurrent || 0),
+      members,
+      count: members.length,
+      recordableCount,
+      ambiguousMembers,
+      ambiguousCount: ambiguousMembers.length,
+      error: null
+    };
+  } catch (error) {
+    return {
+      clanId: String(clan.clanId),
+      clan: clan.clan,
+      expectedMemberCount: Number(clan.memberCurrent || 0),
+      members: [],
+      count: 0,
+      recordableCount: 0,
+      ambiguousMembers: [],
+      ambiguousCount: 0,
+      stale: false,
+      source: 'error',
+      error: errorText(error)
+    };
+  }
+}
+
 export async function GET(request) {
   const startedAt = new Date();
   if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
@@ -30,8 +91,8 @@ export async function GET(request) {
     pve: { status: 'waiting', rows: 0, error: null },
     pvp: { status: 'waiting', rows: 0, error: null },
     clanMembers: {
-      status: 'on-demand', clans: 0, members: 0, errors: 0,
-      note: 'Fetched live when a clan is opened; not bulk-scraped.'
+      status: 'waiting', clans: 0, members: 0, errors: 0, ambiguous: 0,
+      note: 'Fetched live from each ranked clan and recorded in Supabase.'
     }
   };
 
@@ -119,22 +180,55 @@ export async function GET(request) {
   sourceStatus.pvp.stored = Boolean(pvpStore.stored);
   sourceStatus.pvp.storageError = pvpStore.error || null;
 
+  const clansWithIds = ranking?.rows?.filter((clan) => clan?.clanId) || [];
+  const memberResults = await Promise.all(clansWithIds.map((clan) => fetchMembers(clan)));
+  const memberSummary = summarizeMemberRecording(clansWithIds, memberResults);
+  const memberCount = memberResults.reduce((sum, result) => sum + Number(result.recordableCount || 0), 0);
+  const memberErrors = memberSummary.issues.length;
+  const ambiguousCount = memberResults.reduce((sum, result) => sum + Number(result.ambiguousCount || 0), 0);
+  sourceStatus.clanMembers = {
+    status: memberSummary.status,
+    clans: memberResults.filter((result) => Number(result.recordableCount || 0) > 0).length,
+    members: memberCount,
+    errors: memberErrors,
+    ambiguous: ambiguousCount,
+    expectedMembers: clansWithIds.reduce((sum, clan) => sum + Number(clan.memberCurrent || 0), 0),
+    error: memberSummary.error
+  };
+
+  const roster = await upsertMemberRoster({
+    season: ranking?.season || 'Unknown',
+    snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
+    clanResults: memberResults
+  });
+  const snapshots = await upsertRepTrackerSnapshots({
+    season: ranking?.season || 'Unknown',
+    snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
+    clanResults: memberResults
+  });
+  sourceStatus.clanMembers.rosterStored = Boolean(roster?.stored);
+  sourceStatus.clanMembers.snapshotsStored = Boolean(snapshots?.stored);
+  sourceStatus.clanMembers.snapshotRows = Number(snapshots?.count || 0);
+  sourceStatus.clanMembers.ambiguousNames = snapshots?.ambiguousNames || [];
+
   const finishedAt = new Date();
   const successfulSources = [sourceStatus.clanRanking, sourceStatus.pve, sourceStatus.pvp]
     .filter((source) => source.status === 'success').length;
-  const status = successfulSources === 3 && !errors.length
-    ? 'success'
-    : successfulSources > 0
-      ? 'partial'
-      : 'error';
-  const combinedError = errors.length ? errors.join(' | ') : null;
+  const status = errors.length || memberSummary.issues.length
+    ? 'warning'
+    : successfulSources === 3
+      ? 'success'
+      : successfulSources > 0
+        ? 'warning'
+        : 'error';
+  const combinedError = errors.concat(memberSummary.error ? [`Members: ${memberSummary.error}`] : []).join(' | ') || null;
 
   try {
     await recordSyncRun({
       status,
       season: ranking?.season || page?.pve?.season || page?.pvp?.season || null,
       rows: ranking?.rows?.length || 0,
-      membersCount: 0,
+      membersCount: memberCount,
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
       error: combinedError
@@ -146,22 +240,23 @@ export async function GET(request) {
   try {
     await recordSyncStatus({
       version: 4,
-      status: status === 'error' ? 'error' : 'active',
+      status: 'active',
       overall: status,
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
       intervalMs: SYNC_INTERVAL_MS,
       season: ranking?.season || null,
       clansSeen: ranking?.rows?.length || 0,
-      membersSeen: 0,
-      memberErrors: 0,
+      membersSeen: memberCount,
+      memberErrors,
+      memberSources: Object.fromEntries(memberResults.map((result) => [result.clanId, result.source || 'unknown'])),
       sources: sourceStatus,
       leaderboards: {
         pve: { season: page?.pve?.season || null, round: page?.pve?.round || '', rows: page?.pve?.rows?.length || 0, stored: Boolean(pveStore.stored) },
         pvp: { season: page?.pvp?.season || null, round: page?.pvp?.round || '', rows: page?.pvp?.rows?.length || 0, stored: Boolean(pvpStore.stored) }
       },
       rankingStored: Boolean(sourceStatus.clanRanking.storage?.stored),
-      roster: sourceStatus.clanMembers,
+      roster: { ...sourceStatus.clanMembers, stored: Boolean(roster?.stored), snapshotsStored: Boolean(snapshots?.stored) },
       error: combinedError,
       source: ranking?.source || 'https://ninjazenshin.online/'
     });
@@ -177,8 +272,12 @@ export async function GET(request) {
     pve: { season: page?.pve?.season || null, round: page?.pve?.round || '', rows: page?.pve?.rows?.length || 0, stored: Boolean(pveStore.stored), error: pveStore.error || null },
     pvp: { season: page?.pvp?.season || null, round: page?.pvp?.round || '', rows: page?.pvp?.rows?.length || 0, stored: Boolean(pvpStore.stored), error: pvpStore.error || null },
     clans: ranking?.rows?.length || 0,
-    members: 0,
-    note: 'Clan rosters are live/on-demand to avoid bulk upstream load.',
+    members: memberCount,
+    memberErrors,
+    memberAmbiguous: ambiguousCount,
+    rosterStored: Boolean(roster?.stored),
+    snapshotsStored: Boolean(snapshots?.stored),
+    note: 'Clan members are fetched live from ranked clans and recorded in Supabase; ambiguous duplicate names are excluded from gain calculations.',
     database: dbStatus(),
     storage: storageHealth(),
     errors,
