@@ -9,6 +9,7 @@ const ranking = { rows:[{clanId:'3',clan:'Chaos',memberCurrent:30}], season:'Sea
 const config={clan_id:'3',clan_name:'Chaos',current_season:'Season 3',expected_member_count:30};
 let monitorMode='success';
 let heartbeatPayloads=[];
+let rankingWrites=0;
 let syncHealthState={consecutiveSuccesses:4,lastHealthyAt:ranking.capturedAt,lastAlertKey:null,lastMemberStatus:'success',lastRankingStatus:'fresh'};
 let httpHealthState={statusCode:200,timedOut:false,errorMsg:null,created:ranking.capturedAt};
 
@@ -25,6 +26,7 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
       config,
       season:'Season 3',
       discovery:{ranking},
+      live:{members,source:'test',service:'amf',sourceStatus:'primary',sourceDiagnostics:null},
       suspiciousCount:0
     };
   }
@@ -37,7 +39,7 @@ mock.module(f('app/lib/member-history.js'),{exports:{
 }});
 
 mock.module(f('app/lib/ranking-cache.js'),{exports:{
-  recordRankingSnapshot:async()=>({stored:true,rowCount:1}),
+  recordRankingSnapshot:async()=>{rankingWrites+=1;return{stored:true,rowCount:1};},
   readRankingSnapshot:async()=>ranking,
 }});
 
@@ -112,7 +114,18 @@ test('monitor executes with correct secret',async()=>{
   assert.equal(b.membersSeen,30);
   assert.equal(b.rankingRows,1);
   assert.equal(b.rankingCache.stored,true);
+  assert.equal(rankingWrites,1);
   assert.equal(heartbeatPayloads.at(-1)?.intervalMs,10000);
+  delete process.env.CRON_SECRET;
+});
+
+test('monitor does not rewrite cached ranking data on every ten-second sync',async()=>{
+  process.env.CRON_SECRET=secret;
+  const r=await monitorGET(request('/api/monitor',secret));
+  const b=await body(r);
+  assert.equal(r.status,200);
+  assert.equal(b.membersSeen,30);
+  assert.equal(rankingWrites,2);
   delete process.env.CRON_SECRET;
 });
 
