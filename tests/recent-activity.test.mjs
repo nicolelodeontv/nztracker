@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRecentActivityEvents } from '../app/lib/rep-tracker.js';
+import { buildRecentActivityEvents } from '../app/lib/rep-tracker-utils.mjs';
 
 test('recent activity detects increases from Sannin snapshot sequence', () => {
   const points = [
