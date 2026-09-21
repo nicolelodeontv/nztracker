@@ -50,7 +50,9 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 ## Reliability
 
-Production syncing is handled by **GitHub Actions**, not Vercel Cron. The `Ninja Zenshin Full Sync` workflow runs every 5 minutes and calls `/api/sync-all`.
+Production syncing is handled by **Supabase pg_cron**, which is the single 5-minute scheduler. The `nztracker-full-sync-5m` pg_cron job runs every 5 minutes and calls `/api/sync-all`.
+
+The repository's `Ninja Zenshin Full Sync` GitHub Actions workflow is kept for **manual diagnostics only** and is not scheduled.
 
 The workflow requires the API response to report more than zero members:
 
@@ -69,7 +71,7 @@ A ranking-cache write failure is isolated from member monitoring so the member p
 ```
 Ninja Zenshin Game
         ↓
-[GitHub Actions] (every 5 min)
+[Supabase pg_cron] (every 5 min)
         ↓
 [API: /api/sync-all]
         ├── Full clan ranking → Supabase
@@ -88,7 +90,7 @@ Ninja Zenshin Game
 3. Set `TRACKED_CLAN_IDS` if you want to track one or more specific clans. If unset, `rep_tracker_config.clan_id` is used.
 4. Deploy the application.
 5. Open `/api/health` and confirm `provider: "supabase"` and a durable storage status.
-6. Open `/api/monitor` or run the scheduled `/api/sync-all` and confirm `membersSeen > 0` and history points are stored.
+6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/sync-all` every 5 minutes; verify `membersSeen > 0` and history points are stored.
 7. Open `/api/member-history?clanId=<id>&season=<season>&hours=168` to verify the history response.
 
 ## Existing Supabase Tables
@@ -121,6 +123,6 @@ The unit tests cover member-point sampling, member-history response shape, and m
 |---------|----------|
 | `/api/health` reports a Supabase connection error | Check `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in Vercel |
 | `/api/monitor` reports zero members | Check the tracked clan configuration and the live member source |
-| Sync workflow fails the jq check | Inspect the JSON response for `membersSeen`, `memberErrors`, and history errors |
+| Manual sync workflow fails the jq check | Inspect the JSON response for `membersSeen`, `memberErrors`, and history errors |
 | `/api/sync-status` returns 503 | Read `readErrors.database`; the endpoint no longer hides database read failures |
 | History has no points | Confirm the migration has been run and the service-role/secret key can access the new tables |
