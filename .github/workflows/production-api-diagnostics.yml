@@ -6,9 +6,15 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Check current Chaos roster metadata
+      - name: Compare tracker hostnames
         shell: bash
         run: |
           set -u
-          curl -sS -L --max-time 20 'https://nztracker.vercel.app/api/clans?limit=500' |
-            jq '.clans[] | select((.clanId|tostring)=="3") | {clanId,clan,members,memberCount,expectedMemberCount,capturedAt,season,seasonEndsAt}' | head -c 5000
+          for host in nztracker.vercel.app chaoszenshintracker.vercel.app; do
+            echo "--- $host /api/clan-members ---"
+            curl -sS -L --max-time 20 "https://$host/api/clan-members?clanId=3" |
+              jq '{count,source,service,stale,firstTwoMembers:(.members // [] | .[0:2] | map({id,name,level,reputation}))}'
+            echo "--- $host /api/sync-status ---"
+            curl -sS -L --max-time 20 "https://$host/api/sync-status" |
+              jq '{ok,status,error,lastRunAt,memberSources}'
+          done
