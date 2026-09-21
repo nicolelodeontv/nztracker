@@ -137,7 +137,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
         setDashboardError('');
         if (current?.config) {
           setSeasonName(current.config.current_season || '');
-          setFinalDay(current.config.final_day_at ? new Date(current.config.current_day_at).toISOString().slice(0,16) : '');
+          setFinalDay(current.config.final_day_at ? new Date(current.config.final_day_at).toISOString().slice(0,16) : '');
         }
         try {
           const fins = await api('/api/finalize');
