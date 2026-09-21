@@ -26,6 +26,17 @@ test('ID-free members use normalized names and never member_number', () => {
   assert.ok(snapshot.rows.every((row) => row.member_id !== '29' && row.member_id !== '30'));
 });
 
+test('stable source IDs are preserved and missing IDs are not replaced by member_number', () => {
+  const members = normalizeMembers([
+    { id: 6252, name: 'Stable', level: 90, rep: 100, member_number: 29 },
+    { name: 'Missing', level: 89, rep: 90, member_number: 30 }
+  ]);
+
+  assert.equal(members.length, 1);
+  assert.equal(members[0].id, '6252');
+  assert.equal(members[0].identitySource, 'id');
+});
+
 test('ambiguous duplicate names are flagged and excluded from snapshot gain calculations', () => {
   const members = normalizeMembers([
     { name: 'Same Name', level: 90, rep: 100 },
