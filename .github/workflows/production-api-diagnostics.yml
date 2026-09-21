@@ -6,20 +6,10 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect live legacy member HTML
+      - name: Inspect legacy member response
         shell: bash
         run: |
           set -u
           html="$(curl -sS -L --max-time 20 'https://ninjazenshin.online/clan-ranking/members/3')"
-
-          echo "HTML_BYTES: $(printf '%s' "$html" | wc -c)"
-          echo "TR_COUNT: $(printf '%s' "$html" | grep -oi '<tr' | wc -l)"
-          echo "TDATA_ID_COUNT: $(printf '%s' "$html" | grep -oi 'data-[a-z0-9_-]*id' | wc -l)"
-          echo "MEMBER_ID_FIELD_COUNT: $(printf '%s' "$html" | grep -oiE 'member(_|-)?id|user(_|-)?id|player(_|-)?id' | wc -l)"
-          echo "KNOWN_ID_6252_PRESENT: $(printf '%s' "$html" | grep -o '6252' | wc -l)"
-
-          echo '--- FIRST TWO ROWS ---'
-          printf '%s' "$html" |
-            grep -oiE '<tr[^>]*>[[:space:][:print:]]*?</tr>' |
-            head -n 2 |
-            cut -c1-1200
+          echo '--- RESPONSE BODY ---'
+          printf '%s\n' "$html" | cut -c1-5000
