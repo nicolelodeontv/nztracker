@@ -5,6 +5,7 @@ Complete system to automatically sync Ninja Zenshin clan rankings and tracked-me
 ## What You're Getting
 
 - Automatically sync the tracked clan every 10 seconds
+- Refresh the dashboard live view every 5 seconds while keeping heavy analytics on a slower cadence
 - Store current rankings, member state, sync status, ranking history, and REP history in Supabase Postgres
 - Display live, updated clan rankings and Chaos operations on the site
 - Track member REP changes with live member heartbeats
@@ -32,6 +33,7 @@ Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server 
 - `/api/sync-clans` — protected legacy sync endpoint.
 - `/api/monitor` — protected manual diagnostic endpoint.
 - `/api/source-debug` — protected upstream source diagnostic endpoint.
+- `/api/admin/source-diagnostics` — admin-only source health and live probe endpoint.
 - `/api/monitor-health` — protected external health-check endpoint used by the GitHub backup workflow.
 
 When `CRON_SECRET` is unset, these endpoints remain open for backwards compatibility and emit a server-side warning. Once `CRON_SECRET` is configured, requests without the exact `Authorization: Bearer <secret>` header return HTTP 401.
@@ -68,7 +70,7 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 Production syncing is handled by **Supabase pg_cron**, with the `nztracker-full-sync-5m` job running every 10 seconds and calling `/api/monitor`. The member pipeline is now a near-real-time path; ranking/discovery refreshes remain cached for 5 minutes so a temporary ranking-page outage does not block member REP tracking.
 
-The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary. A separate Supabase HTTP-health job records the actual `/api/monitor` response from `pg_net`, because a successful cron enqueue is not the same as a successful application response.
+The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary. A separate Supabase HTTP-health job records the actual `/api/monitor` response from `pg_net`, while a separate one-minute health job invokes `/api/monitor-health` for alerting. A successful cron enqueue is not the same as a successful application response.
 
 The workflow requires the API response to report more than zero members:
 
@@ -99,6 +101,8 @@ Ninja Zenshin Game
         └── actual pg_net HTTP result → rep_tracker_kv
         ↓
 [Next.js APIs / Dashboard]
+        ├── `/api/live` → lightweight 5-second current-member feed
+        └── `/api/dashboard` → heavier analytics feed, refreshed less often
 ```
 
 ## Quick Setup
