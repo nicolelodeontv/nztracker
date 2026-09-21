@@ -1,8 +1,10 @@
 import { scrapeClans, scrapeGame } from '../../../lib/scraper.mjs';
-import { recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
+import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
+import { recordRankingSnapshot } from '../../../app/lib/ranking-cache';
 import { fetchLiveMembers } from '../../../app/lib/ninja-source.mjs';
 import { buildTrackedClanTargets, parseTrackedClanIds } from '../../../app/lib/member-snapshot.mjs';
 import { summarizeMemberRecording } from '../../../app/lib/member-recording.mjs';
+import { getConfig } from '../../../app/lib/rep-tracker.js';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
 import { recordClanHistory, upsertLeaderboardRows, upsertMemberRoster, upsertRepTrackerSnapshots } from '../../../lib/multisource-db.mjs';
 
@@ -24,13 +26,16 @@ function errorText(error) {
   try { return JSON.stringify(error); } catch { return String(error); }
 }
 
-
 async function fetchMembers(clan) {
   try {
     const payload = await fetchLiveMembers(String(clan.clanId));
     const members = Array.isArray(payload?.members) ? payload.members : [];
     const recordableCount = members.filter((member) => member?.id && !member?.identityAmbiguous && member?.name).length;
-    const ambiguousMembers = members.filter((member) => member?.identityAmbiguous).map((member) => String(member.name || '').trim()).filter(Boolean);
+    const ambiguousMembers = members
+      .filter((member) => member?.identityAmbiguous)
+      .map((member) => String(member.name || '').trim())
+      .filter(Boolean);
+
     return {
       ...payload,
       clanId: String(clan.clanId),
@@ -60,26 +65,34 @@ async function fetchMembers(clan) {
   }
 }
 
+async function resolveTrackedClanIds() {
+  const config = await getConfig();
+  return parseTrackedClanIds(process.env.TRACKED_CLAN_IDS, config?.clan_id ? [String(config.clan_id)] : []);
+}
+
 export async function GET(request) {
   const startedAt = new Date();
   if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+
+  const errors = [];
+  let page = null;
+  let ranking = null;
 
   const sourceStatus = {
     clanRanking: { status: 'waiting', rows: 0, error: null },
     pve: { status: 'waiting', rows: 0, error: null },
     pvp: { status: 'waiting', rows: 0, error: null },
     clanMembers: {
-      status: 'waiting', clans: 0, members: 0, errors: 0, ambiguous: 0,
-      trackedClanIds: parseTrackedClanIds(process.env.TRACKED_CLAN_IDS),
-      note: 'Fetched live only for TRACKED_CLAN_IDS and recorded in Supabase; default is Chaos (3).'
+      status: 'waiting',
+      clans: 0,
+      members: 0,
+      errors: 0,
+      ambiguous: 0,
+      trackedClanIds: [],
+      note: 'Fetched live only for configured TRACKED_CLAN_IDS; when unset, the clan in rep_tracker_config is used.'
     }
   };
 
-  let page = null;
-  let ranking = null;
-  const errors = [];
-
-  // Fetch the public game page once. Each board is persisted independently.
   try {
     page = await scrapeGame();
   } catch (error) {
@@ -107,6 +120,7 @@ export async function GET(request) {
     ? { status: 'success', rows: page.pvp.rows.length, error: null }
     : { status: 'failed', rows: 0, error: 'PvP leaderboard was not parsed from the game source.' };
 
+  let rankingCache = { stored: false };
   if (ranking?.rows?.length) {
     try {
       sourceStatus.clanRanking.storage = await upsertClans(ranking.rows, ranking.season, ranking.capturedAt);
@@ -114,11 +128,25 @@ export async function GET(request) {
       sourceStatus.clanRanking.storageError = errorText(error);
       errors.push(`Clan ranking storage: ${sourceStatus.clanRanking.storageError}`);
     }
+
     try {
-      sourceStatus.clanRanking.history = await recordClanHistory({ rows: ranking.rows, season: ranking.season, capturedAt: ranking.capturedAt });
+      sourceStatus.clanRanking.history = await recordClanHistory({
+        rows: ranking.rows,
+        season: ranking.season,
+        capturedAt: ranking.capturedAt
+      });
     } catch (error) {
       sourceStatus.clanRanking.historyError = errorText(error);
       errors.push(`Clan history storage: ${sourceStatus.clanRanking.historyError}`);
+    }
+
+    try {
+      rankingCache = await recordRankingSnapshot(ranking);
+      sourceStatus.clanRanking.cache = rankingCache;
+    } catch (error) {
+      rankingCache = { stored: false, error: errorText(error) };
+      sourceStatus.clanRanking.cacheError = rankingCache.error;
+      errors.push(`Ranking cache storage: ${rankingCache.error}`);
     }
   }
 
@@ -159,22 +187,50 @@ export async function GET(request) {
   sourceStatus.pvp.stored = Boolean(pvpStore.stored);
   sourceStatus.pvp.storageError = pvpStore.error || null;
 
-  const trackedClanIds = parseTrackedClanIds(process.env.TRACKED_CLAN_IDS);
+  const trackedClanIds = await resolveTrackedClanIds();
   const trackedClans = buildTrackedClanTargets(ranking?.rows, trackedClanIds);
   const memberResults = await Promise.all(trackedClans.map((clan) => fetchMembers(clan)));
   const memberSummary = summarizeMemberRecording(trackedClans, memberResults);
   const memberCount = memberResults.reduce((sum, result) => sum + Number(result.recordableCount || 0), 0);
-  const memberErrors = memberSummary.issues.length;
   const ambiguousCount = memberResults.reduce((sum, result) => sum + Number(result.ambiguousCount || 0), 0);
+
+  const historyResults = await Promise.allSettled(
+    memberResults
+      .filter((result) => !result.stale && Number(result.recordableCount || 0) > 0)
+      .map((result) => recordMemberSnapshot({
+        clanId: result.clanId,
+        season: ranking?.season || 'Unknown',
+        members: result.members,
+        capturedAt: ranking?.capturedAt || startedAt.toISOString()
+      }))
+  );
+  const historyErrors = historyResults.filter((result) => result.status === 'rejected');
+  const historyStoredMembers = historyResults
+    .filter((result) => result.status === 'fulfilled' && result.value?.stored)
+    .reduce((sum, result) => sum + Number(result.value?.storedPoints || 0), 0);
+  const historyChangedClans = historyResults
+    .filter((result) => result.status === 'fulfilled' && result.value?.changed)
+    .length;
+
+  historyErrors.forEach((result) => {
+    errors.push(`Member history storage: ${errorText(result.reason)}`);
+  });
+
+  const memberErrors = memberSummary.issues.length + historyErrors.length;
   sourceStatus.clanMembers = {
-    status: memberSummary.status,
+    status: memberCount === 0 || memberErrors > 0 ? 'warning' : 'success',
     trackedClanIds,
     clans: memberResults.filter((result) => Number(result.recordableCount || 0) > 0).length,
     members: memberCount,
     errors: memberErrors,
     ambiguous: ambiguousCount,
     expectedMembers: trackedClans.reduce((sum, clan) => sum + Number(clan.memberCurrent || 0), 0),
-    error: memberSummary.error
+    error: [
+      memberSummary.error,
+      ...historyErrors.map((result) => errorText(result.reason))
+    ].filter(Boolean).join(' | ') || null,
+    historyStoredMembers,
+    historyChangedClans
   };
 
   const roster = await upsertMemberRoster({
@@ -187,6 +243,7 @@ export async function GET(request) {
     snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
     clanResults: memberResults
   });
+
   sourceStatus.clanMembers.rosterStored = Boolean(roster?.stored);
   sourceStatus.clanMembers.snapshotsStored = Boolean(snapshots?.stored);
   sourceStatus.clanMembers.snapshotRows = Number(snapshots?.count || 0);
@@ -201,14 +258,17 @@ export async function GET(request) {
   const finishedAt = new Date();
   const successfulSources = [sourceStatus.clanRanking, sourceStatus.pve, sourceStatus.pvp]
     .filter((source) => source.status === 'success').length;
-  const status = errors.length || memberSummary.issues.length
+  const status = memberCount === 0 || memberErrors > 0 || errors.length
     ? 'warning'
     : successfulSources === 3
       ? 'success'
       : successfulSources > 0
         ? 'warning'
         : 'error';
-  const combinedError = errors.concat(memberSummary.error ? [`Members: ${memberSummary.error}`] : []).join(' | ') || null;
+
+  const combinedError = errors
+    .concat(memberSummary.error ? [`Members: ${memberSummary.error}`] : [])
+    .join(' | ') || null;
 
   try {
     await recordSyncRun({
@@ -226,7 +286,7 @@ export async function GET(request) {
 
   try {
     await recordSyncStatus({
-      version: 4,
+      version: 5,
       status: 'active',
       overall: status,
       lastRunAt: finishedAt.toISOString(),
@@ -240,11 +300,32 @@ export async function GET(request) {
       memberSources: Object.fromEntries(memberResults.map((result) => [result.clanId, result.source || 'unknown'])),
       sources: sourceStatus,
       leaderboards: {
-        pve: { season: page?.pve?.season || null, round: page?.pve?.round || '', rows: page?.pve?.rows?.length || 0, stored: Boolean(pveStore.stored) },
-        pvp: { season: page?.pvp?.season || null, round: page?.pvp?.round || '', rows: page?.pvp?.rows?.length || 0, stored: Boolean(pvpStore.stored) }
+        pve: {
+          season: page?.pve?.season || null,
+          round: page?.pve?.round || '',
+          rows: page?.pve?.rows?.length || 0,
+          stored: Boolean(pveStore.stored)
+        },
+        pvp: {
+          season: page?.pvp?.season || null,
+          round: page?.pvp?.round || '',
+          rows: page?.pvp?.rows?.length || 0,
+          stored: Boolean(pvpStore.stored)
+        }
       },
       rankingStored: Boolean(sourceStatus.clanRanking.storage?.stored),
-      roster: { ...sourceStatus.clanMembers, stored: Boolean(roster?.stored), snapshotsStored: Boolean(snapshots?.stored) },
+      rankingCacheStored: Boolean(rankingCache?.stored),
+      rankingCacheError: rankingCache?.error || null,
+      roster: {
+        ...sourceStatus.clanMembers,
+        stored: Boolean(roster?.stored),
+        snapshotsStored: Boolean(snapshots?.stored)
+      },
+      history: {
+        storedPoints: historyStoredMembers,
+        changedClans: historyChangedClans,
+        errors: historyErrors.length
+      },
       error: combinedError,
       source: ranking?.source || 'https://ninjazenshin.online/'
     });
@@ -257,17 +338,34 @@ export async function GET(request) {
     status,
     season: ranking?.season || null,
     sourceStatus,
-    pve: { season: page?.pve?.season || null, round: page?.pve?.round || '', rows: page?.pve?.rows?.length || 0, stored: Boolean(pveStore.stored), error: pveStore.error || null },
-    pvp: { season: page?.pvp?.season || null, round: page?.pvp?.round || '', rows: page?.pvp?.rows?.length || 0, stored: Boolean(pvpStore.stored), error: pvpStore.error || null },
+    pve: {
+      season: page?.pve?.season || null,
+      round: page?.pve?.round || '',
+      rows: page?.pve?.rows?.length || 0,
+      stored: Boolean(pveStore.stored),
+      error: pveStore.error || null
+    },
+    pvp: {
+      season: page?.pvp?.season || null,
+      round: page?.pvp?.round || '',
+      rows: page?.pvp?.rows?.length || 0,
+      stored: Boolean(pvpStore.stored),
+      error: pvpStore.error || null
+    },
     clans: ranking?.rows?.length || 0,
     members: memberCount,
+    membersSeen: memberCount,
     memberErrors,
     memberAmbiguous: ambiguousCount,
     rosterStored: Boolean(roster?.stored),
     snapshotsStored: Boolean(snapshots?.stored),
     trackedMemberClanIds: trackedClanIds,
     memberSnapshotRetentionDays: 30,
-    note: 'Clan members are fetched live only for TRACKED_CLAN_IDS; default is Chaos (3). Ambiguous duplicate names are excluded from gain calculations.',
+    rankingCacheStored: Boolean(rankingCache?.stored),
+    rankingCacheError: rankingCache?.error || null,
+    historyStoredPoints: historyStoredMembers,
+    historyChangedClans: historyChangedClans,
+    note: 'Clan members are fetched live only for configured TRACKED_CLAN_IDS; when unset, the clan in rep_tracker_config is used. Ambiguous duplicate names are excluded from gain calculations.',
     database: dbStatus(),
     storage: storageHealth(),
     errors,
