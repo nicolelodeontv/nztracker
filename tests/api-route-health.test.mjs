@@ -26,7 +26,7 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
       config,
       season:'Season 3',
       discovery:{ranking,fromCache:monitorDiscoveryCached,stale:false},
-      live:{members,source:'test',service:'amf',sourceStatus:'primary',sourceDiagnostics:null},
+      live:{members,source:'test',service:monitorMode==='legacy'?'legacy-live':'amf',sourceStatus:monitorMode==='legacy'?'degraded':'primary',sourceDiagnostics:null},
       suspiciousCount:0
     };
   }
@@ -128,6 +128,21 @@ test('monitor does not rewrite cached ranking data on every ten-second sync',asy
   assert.equal(b.membersSeen,30);
   assert.equal(rankingWrites,1);
   delete process.env.CRON_SECRET;
+});
+
+test('monitor keeps legacy source fallback as a healthy sync',async()=>{
+  process.env.CRON_SECRET=secret;
+  monitorMode='legacy';
+  try{
+    const r=await monitorGET(request('/api/monitor',secret));
+    const b=await body(r);
+    assert.equal(r.status,200);
+    assert.equal(b.status,'success');
+    assert.equal(b.sourceStatus,'degraded');
+  }finally{
+    monitorMode='success';
+    delete process.env.CRON_SECRET;
+  }
 });
 
 test('monitor records an error heartbeat when tracker sync fails',async()=>{
