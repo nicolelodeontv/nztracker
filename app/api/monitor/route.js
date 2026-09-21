@@ -103,7 +103,6 @@ export async function GET(request) {
       sourceHealth:result.live?.sourceHealth||'healthy',
       sourceWarning:result.live?.fallbackReason||null,
       sourceDiagnostics:result.live?.sourceDiagnostics||null,
-      sourceDiagnostics:result.live?.sourceDiagnostics||null,
       discoveryStatus,
       rankingStatus,
       durationMs:result.durationMs||null
@@ -133,8 +132,6 @@ export async function GET(request) {
       sourceHealth:result.live?.sourceHealth||'healthy',
       sourceWarning:result.live?.fallbackReason||null,
       memberSource,
-      sourceHealth:result.live?.sourceHealth||'healthy',
-      sourceWarning:result.live?.fallbackReason||null,
       discoveryStatus,
       rankingStatus,
       rankingAgeMs,
