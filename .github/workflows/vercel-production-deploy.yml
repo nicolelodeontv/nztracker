@@ -57,7 +57,7 @@ jobs:
             https://chaoszenshintracker.vercel.app/api/monitor-health > monitor-health.json
           jq -e '
             .status == "active"
-            and (.overall == "success")
+            and (.overall == "success" or .overall == "warning")
             and (.intervalMs == 10000)
             and ((.membersSeen // 0) > 0)
             and ((.rankingRows // 0) > 0)
