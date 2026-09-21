@@ -18,6 +18,9 @@ export async function recordSyncHealth({
   error=null,
   memberStatus='unknown',
   memberSource=null,
+  sourceHealth='healthy',
+  sourceWarning=null,
+  sourceDiagnostics=null,
   discoveryStatus='unknown',
   rankingStatus='unknown',
   durationMs=null
@@ -25,22 +28,27 @@ export async function recordSyncHealth({
   const db=supabaseAdmin();
   const previous=await readSyncHealth();
   const isHealthy=outcome==='success';
+  const isSourceDegraded=sourceHealth==='degraded';
   const next={
-    version:2,
+    version:3,
     lastRunAt:at,
     lastHealthyAt:isHealthy?at:(previous?.lastHealthyAt||null),
-    lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||null),
-    lastError:outcome==='error'?String(error||'Sync failed.'):(previous?.lastError||null),
+    lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||previous?.lastErrorAt||null),
+    lastError:outcome==='error'?String(error||'Sync failed.'):null,
     lastMemberSuccessAt:memberStatus==='success'?at:(previous?.lastMemberSuccessAt||null),
     lastRankingFreshAt:rankingStatus==='fresh'?at:(previous?.lastRankingFreshAt||null),
     lastMemberSource:memberSource||previous?.lastMemberSource||null,
     lastMemberStatus:memberStatus,
+    lastSourceHealth:sourceHealth||previous?.lastSourceHealth||'healthy',
+    lastSourceWarning:isSourceDegraded?(String(sourceWarning||'Member source fallback is active.')):null,
+    sourceDiagnostics:sourceDiagnostics||previous?.sourceDiagnostics||null,
     lastDiscoveryStatus:discoveryStatus,
     lastRankingStatus:rankingStatus,
     lastDurationMs:Number.isFinite(Number(durationMs))?Number(durationMs):(previous?.lastDurationMs||null),
     consecutiveSuccesses:isHealthy?Number(previous?.consecutiveSuccesses||0)+1:0,
     consecutiveFailures:outcome==='error'?Number(previous?.consecutiveFailures||0)+1:0,
     consecutiveWarnings:outcome==='warning'?Number(previous?.consecutiveWarnings||0)+1:0,
+    consecutiveSourceWarnings:isSourceDegraded?Number(previous?.consecutiveSourceWarnings||0)+1:0,
     updatedAt:at,
     lastAlertKey:previous?.lastAlertKey||null,
     lastAlertAt:previous?.lastAlertAt||null
