@@ -58,7 +58,7 @@ jobs:
           jq -e '
             .status == "active"
             and (.overall == "success")
-            and (.intervalMs == 60000)
+            and (.intervalMs == 10000)
             and ((.membersSeen // 0) > 0)
             and ((.rankingRows // 0) > 0)
           ' sync-status.json > /dev/null
