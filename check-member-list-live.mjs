@@ -71,6 +71,19 @@ console.log('http:',response.status);
 console.log('bytes:',bytes.length);
 if(!response.ok)process.exit(3);
 const body=parse(bytes);
+function safe(v, depth=0){
+  if(depth>2)return '[object]';
+  if(v===null||typeof v==='number'||typeof v==='boolean')return v;
+  if(typeof v==='string')return v.length>64?'[string:'+v.length+']':v;
+  if(Array.isArray(v))return {type:'array',length:v.length};
+  if(v&&typeof v==='object'){
+    const out={};
+    for(const [k,val] of Object.entries(v).slice(0,40)) out[k]=safe(val,depth+1);
+    return out;
+  }
+  return typeof v;
+}
+console.log('body-structure:',JSON.stringify(safe(body)));
 const members=rawMembers(body);
 console.log('members:',members.length);
 const normalized=members.map(m=>({id:m.id,name:m.name,donatedGold:m.donated_gold,donatedToken:m.donated_token,stamina:m.stamina,reputationGain:m.reputation_gain}));
