@@ -1,5 +1,5 @@
 import RepTrackerDashboard from './components/RepTrackerDashboard';
-import { dashboardData, recentActivity } from './lib/rep-tracker';
+import { dashboardData } from './lib/rep-tracker';
 
 export const metadata = {
   title: 'CHAOS REP Tracker',
@@ -8,6 +8,7 @@ export const metadata = {
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 30;
 
 export default async function Page() {
   let initialData = null;
@@ -15,10 +16,9 @@ export default async function Page() {
 
   try {
     const data = await dashboardData();
-    const activity = data.configured ? await recentActivity(10, data) : [];
     initialData = {
       ...data,
-      activity,
+      activity: [],
       syncError: null,
       serverTime: new Date().toISOString(),
     };
