@@ -98,7 +98,7 @@ function SyncHealthStrip({data}) {
     <div><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
     <div><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
     <div><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
-    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource||stats.sourceCounts?.amf>0?'AMF':'—').toUpperCase()}</b></div>
+    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource || (stats.sourceCounts?.legacy>0 && !stats.sourceCounts?.amf ? 'LEGACY' : stats.sourceCounts?.amf>0 ? 'AMF' : '—')).toUpperCase()}</b></div>
     <div className="sync-health-error"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
   </section>;
 }
