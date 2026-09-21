@@ -54,9 +54,10 @@ function MemberDrawer({ member, onClose }) {
   </aside></div>;
 }
 
-export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
+export default function RepTrackerDashboard({ initialView = 'dashboard', initialData = null, initialError = '' }) {
   const [view, setView] = useState(initialView);
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(initialData);
+
   const [history, setHistory] = useState([]);
   const [finalizations, setFinalizations] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -66,8 +67,8 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [password, setPassword] = useState('');
   const [admin, setAdmin] = useState(false);
   const [adminLoading, setAdminLoading] = useState(true);
-  const [dashboardLoading, setDashboardLoading] = useState(true);
-  const [dashboardError, setDashboardError] = useState('');
+  const [dashboardLoading, setDashboardLoading] = useState(!initialData && !initialError);
+  const [dashboardError, setDashboardError] = useState(initialError);
   const syncInFlight = useRef(false);
   const [seasonName, setSeasonName] = useState('');
   const [finalDay, setFinalDay] = useState('');
@@ -142,8 +143,12 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       setMessage('Admin session expired. Please sign in again.');
     };
     window.addEventListener('admin-session-expired', onExpired);
-    refresh({ initial: true }).then(() => triggerBackgroundSync());
-    const t = setInterval(() => refresh(false), 30000);
+    if (initialData) {
+      triggerBackgroundSync();
+    } else {
+      refresh({ initial: true }).then(() => triggerBackgroundSync());
+    }
+    const t = setInterval(() => refresh(), 30000);
     return () => {
       cancelled = true;
       window.removeEventListener('admin-session-expired', onExpired);
