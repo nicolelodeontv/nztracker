@@ -10,8 +10,8 @@ function freshnessAt(iso, nowIso) {
 test('freshness classification uses the last successful sync timestamp', () => {
   const now = '2026-09-21T06:26:00.000Z';
   assert.equal(freshnessAt('2026-09-21T06:25:20.000Z', now), 'live');
-  assert.equal(freshnessAt('2026-09-21T06:20:00.000Z', now), 'aging');
-  assert.equal(freshnessAt('2026-09-21T06:10:00.000Z', now), 'stale');
+  assert.equal(freshnessAt('2026-09-21T06:17:00.000Z', now), 'aging');
+  assert.equal(freshnessAt('2026-09-21T06:09:00.000Z', now), 'stale');
 });
 
 test('dashboard source reads the latest successful rep-tracker sync', async () => {
