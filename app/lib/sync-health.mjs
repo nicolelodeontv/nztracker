@@ -54,6 +54,16 @@ export async function recordSyncHealth({
   return next;
 }
 
+export async function readMonitorHttpHealth(){
+  const db=supabaseAdmin();
+  const {data,error}=await db.from('rep_tracker_kv')
+    .select('value')
+    .eq('key','monitor:http-latest')
+    .maybeSingle();
+  if(error)throw error;
+  return data?.value&&typeof data.value==='object'?data.value:null;
+}
+
 export async function updateSyncHealthAlert({alertKey,alertAt=new Date().toISOString()}={}){
   const db=supabaseAdmin();
   const previous=await readSyncHealth()||{version:2};
