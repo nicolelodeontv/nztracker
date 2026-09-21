@@ -23,9 +23,10 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run tests
         run: npm test
@@ -39,11 +40,21 @@ jobs:
         run: npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN"
 
       - name: Production smoke test
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is required for production monitor-health smoke testing." >&2
+            exit 1
+          fi
           curl --fail --silent --show-error --max-time 30 https://chaoszenshintracker.vercel.app/api/sync-status > sync-status.json
           curl --fail --silent --show-error --max-time 30 https://chaoszenshintracker.vercel.app/api/health > health.json
           curl --fail --silent --show-error --max-time 30 https://chaoszenshintracker.vercel.app/api/dashboard > dashboard.json
+          curl --fail --silent --show-error --max-time 30 \
+            -H 'Accept: application/json' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://chaoszenshintracker.vercel.app/api/monitor-health > monitor-health.json
           jq -e '
             .status == "active"
             and (.overall == "success")
@@ -58,4 +69,5 @@ jobs:
             and .services.syncStatus.status == "ready"
           ' health.json > /dev/null
           jq -e '.ok == true and .configured == true and (.rows | length) > 0' dashboard.json > /dev/null
+          jq -e '.ok == true and .healthy == true and (.problems | length) == 0' monitor-health.json > /dev/null
           echo "production smoke test passed"
