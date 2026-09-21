@@ -127,6 +127,7 @@ test('monitor does not rewrite cached ranking data on every ten-second sync',asy
   assert.equal(r.status,200);
   assert.equal(b.membersSeen,30);
   assert.equal(rankingWritesByMode.cached,0);
+  monitorDiscoveryCached=false;
   delete process.env.CRON_SECRET;
 });
 
