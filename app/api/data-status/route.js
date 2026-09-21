@@ -1,4 +1,4 @@
-import { readSyncStatus, storageHealth } from '../../lib/member-history';
+import { readSyncStatus, storageHealth, verifyStorageConnection } from '../../lib/member-history';
 import { dbStatus, getLatestSync } from '../../../lib/supabase-db.mjs';
 
 export const runtime = 'nodejs';
@@ -15,9 +15,10 @@ function ageState(lastRunAt) {
 
 export async function GET() {
   try {
-    const [sync, latestDb] = await Promise.all([
+    const [sync, latestDb, storage] = await Promise.all([
       readSyncStatus().catch(() => null),
-      getLatestSync().catch(() => null)
+      getLatestSync().catch(() => null),
+      verifyStorageConnection().catch((error) => ({ ...storageHealth(), durable: false, error: error instanceof Error ? error.message : String(error) }))
     ]);
     const lastRunAt = sync?.lastRunAt || latestDb?.completed_at || null;
     const ageMs = lastRunAt ? Math.max(0, Date.now() - new Date(lastRunAt).getTime()) : null;
@@ -43,9 +44,9 @@ export async function GET() {
       historyClansStored: Number(sync?.historyClansStored || 0),
       leaderboards: sync?.leaderboards || {},
       sources,
-      error: sync?.error || latestDb?.error_message || null,
+      error: [sync?.error, latestDb?.error_message, storage?.error ? `Blob storage: ${storage.error}` : null].filter(Boolean).join(' | ') || null,
       durable: storageHealth().durable && dbStatus().configured,
-      storage: storageHealth(),
+      storage: storage || storageHealth(),
       database: dbStatus(),
       warning: ageMs !== null && ageMs > 60 * 60 * 1000 ? 'Game data may have changed since last sync.' : null
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
