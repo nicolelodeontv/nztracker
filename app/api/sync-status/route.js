@@ -1,6 +1,5 @@
 import { readSyncStatus, storageHealth } from '../../lib/member-history.js';
 import { getLatestSync, dbStatus } from '../../../lib/supabase-db.mjs';
-import { supabaseAdmin } from '../../lib/supabase-admin.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +17,6 @@ export async function GET() {
 
   let sync = null;
   let latestDb = null;
-  let latestMonitorSync = null;
 
   try {
     sync = await readSyncStatus();
@@ -34,24 +32,8 @@ export async function GET() {
     readErrors.database = readErrors.database || readErrors.latestSync;
   }
 
-  try {
-    const db = supabaseAdmin();
-    const result = await db.from('rep_tracker_sync_runs')
-      .select('completed_at,status,error_message,members_returned,members_expected,season')
-      .eq('status', 'success')
-      .not('completed_at', 'is', null)
-      .order('completed_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (result.error) throw result.error;
-    latestMonitorSync = result.data || null;
-  } catch (error) {
-    readErrors.latestSync = readErrors.latestSync || (error instanceof Error ? error.message : String(error));
-    readErrors.database = readErrors.database || readErrors.latestSync;
-  }
-
   const storage = storageHealth();
-  const lastRunAt = sync?.lastRunAt || latestMonitorSync?.completed_at || latestDb?.completed_at || latestDb?.finished_at || null;
+  const lastRunAt = sync?.lastRunAt || latestDb?.completed_at || latestDb?.finished_at || null;
   const lastRunAtMs = lastRunAt ? new Date(lastRunAt).getTime() : NaN;
   const ageMs = Number.isFinite(lastRunAtMs) ? Math.max(0, Date.now() - lastRunAtMs) : null;
 
@@ -76,10 +58,10 @@ export async function GET() {
     ageMs,
     ageSeconds: ageMs === null ? null : Math.floor(ageMs / 1000),
     intervalMs: INTERVAL_MS,
-    season: sync?.season || latestMonitorSync?.season || latestDb?.season || null,
+    season: sync?.season || latestDb?.season || null,
     clansSeen: Number(latestDb?.clans_count || latestDb?.clans_seen || sync?.clansSeen || 0),
     clansWithMemberData: Number(sync?.clansWithMemberData || 0),
-    membersSeen: Number(sync?.membersSeen || latestMonitorSync?.members_returned || latestDb?.members_count || 0),
+    membersSeen: Number(sync?.membersSeen || latestDb?.members_count || 0),
     memberErrors: Number(sync?.memberErrors || 0),
     historyClansStored: Number(sync?.historyClansStored || 0),
     historyClansChanged: Number(sync?.historyClansChanged || 0),
@@ -87,7 +69,7 @@ export async function GET() {
     rankingRows: Number(latestDb?.clans_count || latestDb?.clans_seen || sync?.rankingRows || 0),
     memberSources: sync?.memberSources || {},
     source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
-    error: databaseError || syncError || latestMonitorSync?.error_message || null,
+    error: databaseError || syncError,
     warning: status !== 'active' || overall === 'warning' || Boolean(databaseError),
     readErrors,
     monitorWarning: status === 'offline'
