@@ -70,7 +70,7 @@ async function resolveTrackedClanIds() {
   return parseTrackedClanIds(process.env.TRACKED_CLAN_IDS, config?.clan_id ? [String(config.clan_id)] : []);
 }
 
-export async function GET(request) {
+async function runSyncAll(request) {
   const startedAt = new Date();
   if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
 
@@ -372,4 +372,43 @@ export async function GET(request) {
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString()
   }, { status: status === 'error' ? 502 : 200, headers: { 'Cache-Control': 'no-store, max-age=0' } });
+}
+
+
+export async function GET(request) {
+  const startedAt = new Date();
+  if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+
+  try {
+    return await runSyncAll(request);
+  } catch (error) {
+    const finishedAt = new Date();
+    const message = errorText(error);
+    try {
+      await recordSyncStatus({
+        version: 5,
+        status: 'error',
+        overall: 'error',
+        lastRunAt: finishedAt.toISOString(),
+        nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
+        intervalMs: SYNC_INTERVAL_MS,
+        error: message,
+        readErrors: { database: message },
+        source: 'https://ninjazenshin.online/?panel=clan-ranking'
+      });
+    } catch (heartbeatError) {
+      console.error('Unable to persist sync-all error heartbeat', heartbeatError);
+    }
+
+    console.error('sync-all failed', error);
+    return Response.json({
+      ok: false,
+      status: 'error',
+      error: message,
+      errors: [message],
+      storage: storageHealth(),
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString()
+    }, { status: 502, headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  }
 }

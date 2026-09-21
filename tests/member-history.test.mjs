@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   HISTORY_SAMPLE_MS,
   buildMemberHistoryResponse,
-  shouldAddMemberPoint
+  shouldAddMemberPoint,
+  resolveRetentionDays
 } from '../app/lib/member-history.js';
 
 test('records the first point', () => {
@@ -48,4 +49,8 @@ test('member history response preserves the API shape', () => {
 
   assert.deepEqual(Object.keys(response).sort(), ['clanId', 'members', 'season', 'startedAt', 'stored', 'updatedAt', 'version']);
   assert.deepEqual(response.members['42'].points[0], { t: 1000, r: 500, level: 100, name: 'Test' });
+});
+
+test('does not crash when retention options are undefined', () => {
+  assert.equal(resolveRetentionDays(undefined), 30);
 });
