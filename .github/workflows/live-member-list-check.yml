@@ -2,6 +2,8 @@ name: Live member-list check
 on:
   push:
     branches: [tmp/live-member-list-check-20260921]
+  pull_request:
+    branches: [main]
 jobs:
   check:
     runs-on: ubuntu-latest
