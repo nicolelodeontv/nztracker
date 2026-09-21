@@ -144,6 +144,8 @@ export async function GET(request) {
       rankingCache,
       rankingCacheError,
       rankingRows,
+      sourceStatus,
+      sourceDiagnostics:result.live?.sourceDiagnostics||null,
       suspiciousCount: Number(result.suspiciousCount || 0),
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
