@@ -458,12 +458,15 @@ export async function liveData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config:null};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,syncStatus,syncHealth,httpHealth]=await Promise.all([
+  const [members,kvResult]=await Promise.all([
     latestMembers(config.clan_id,season),
-    db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
-    readSyncHealth().catch(()=>null),
-    db.from('rep_tracker_kv').select('value').eq('key','monitor:http-latest').maybeSingle().then(({data})=>data?.value||null)
+    db.from('rep_tracker_kv').select('key,value').in('key',['sync-status:latest','sync-health:latest','monitor:http-latest'])
   ]);
+  if(kvResult.error)throw kvResult.error;
+  const kv=new Map((kvResult.data||[]).map((row)=>[String(row.key),row.value&&typeof row.value==='object'?row.value:null]));
+  const syncStatus=kv.get('sync-status:latest')||null;
+  const syncHealth=kv.get('sync-health:latest')||null;
+  const httpHealth=kv.get('monitor:http-latest')||null;
   const freshnessState=freshness(syncHealth?.lastMemberSuccessAt||syncStatus?.lastRunAt||null);
   return{
     configured:true,
