@@ -172,7 +172,7 @@ function MemberDrawer({member,onClose}) {
           <div><span>TODAY</span><b>+{fmt(summary.todayGain)}</b></div>
           <div><span>REP / HR</span><b>{fmt(summary.repPerHour)}</b></div>
         </div>
-        <div className="drawer-live-meta"><span className="drawer-check-dot"></span><b>{refreshing?'UPDATING':'MONITORED'}</b><span>LAST CHECK {age(summary.capturedAt||data.updatedAt||null)}</span></div>
+        <div className="drawer-check-meta"><span className="drawer-check-dot"></span><b>{refreshing?'UPDATING':'MONITORED'}</b><span>LAST CHECK {age(summary.capturedAt||data.updatedAt||null)}</span></div>
         <div className="panel inset"><div className="section-title"><div><span className="eyebrow">PROGRESSION</span><h3>REP OVER TIME</h3></div><span>{data.points?.length||0} snapshots</span></div><LineChart points={data.points}/></div>
         <div className="panel inset"><div className="section-title"><div><span className="eyebrow">HISTORY</span><h3>RECENT SNAPSHOTS</h3></div></div><div className="timeline">{(data.points||[]).slice(-30).reverse().map((p,i,arr)=>{const next=arr[i+1];const delta=next?Number(p.reputation)-Number(next.reputation):0;return <div className="timeline-row" key={String(p.captured_at)+'-'+i}><time>{new Date(p.captured_at).toLocaleString()}</time><b>{fmt(p.reputation)}</b><em className={delta>0?'up':delta<0?'down':''}>{delta>0?'+'+fmt(delta):delta<0?fmt(delta):'—'}</em></div>;})}</div></div>
       </>}
