@@ -51,6 +51,7 @@ jobs:
           curl --fail --silent --show-error --max-time 30 https://chaoszenshintracker.vercel.app/api/sync-status > sync-status.json
           curl --fail --silent --show-error --max-time 30 https://chaoszenshintracker.vercel.app/api/health > health.json
           curl --fail --silent --show-error --max-time 30 https://chaoszenshintracker.vercel.app/api/dashboard > dashboard.json
+          curl --fail --silent --show-error --max-time 15 https://chaoszenshintracker.vercel.app/api/live > live.json
           curl --fail --silent --show-error --max-time 30 \
             -H 'Accept: application/json' \
             -H "Authorization: Bearer $CRON_SECRET" \
@@ -69,5 +70,6 @@ jobs:
             and .services.syncStatus.status == "ready"
           ' health.json > /dev/null
           jq -e '.ok == true and .configured == true and (.rows | length) > 0' dashboard.json > /dev/null
+          jq -e '.ok == true and .configured == true and (.rows | length) > 0 and (.syncStatus.intervalMs // 0) == 10000' live.json > /dev/null
           jq -e '.ok == true and .healthy == true and (.problems | length) == 0' monitor-health.json > /dev/null
           echo "production smoke test passed"
