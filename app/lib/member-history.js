@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './supabase-admin';
+import { supabaseAdmin } from './supabase-admin.js';
 
 export const HISTORY_SAMPLE_MS = 5 * 60 * 1000;
 export const HISTORY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
