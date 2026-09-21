@@ -4,14 +4,14 @@ import test from 'node:test';
 
 function freshnessAt(iso, nowIso) {
   const ageMs = Math.max(0, Date.parse(nowIso) - Date.parse(iso));
-  return ageMs <= 60_000 ? 'live' : ageMs <= 300_000 ? 'aging' : 'stale';
+  return ageMs <= 7 * 60_000 ? 'live' : ageMs <= 15 * 60_000 ? 'aging' : 'stale';
 }
 
 test('freshness classification uses the last successful sync timestamp', () => {
   const now = '2026-09-21T06:26:00.000Z';
   assert.equal(freshnessAt('2026-09-21T06:25:20.000Z', now), 'live');
-  assert.equal(freshnessAt('2026-09-21T06:23:30.000Z', now), 'aging');
-  assert.equal(freshnessAt('2026-09-21T05:45:29.119Z', now), 'stale');
+  assert.equal(freshnessAt('2026-09-21T06:17:00.000Z', now), 'aging');
+  assert.equal(freshnessAt('2026-09-21T06:09:00.000Z', now), 'stale');
 });
 
 test('dashboard source reads the latest successful rep-tracker sync', async () => {
