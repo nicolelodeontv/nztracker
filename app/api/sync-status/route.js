@@ -79,6 +79,7 @@ export async function GET() {
     source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
     error: databaseError || syncError,
     warning: overall === 'warning' || Boolean(databaseError),
+    repDrift,
     readErrors,
     durable: storage.durable,
     storageProvider: storage.provider,
