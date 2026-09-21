@@ -6,13 +6,20 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Query production API
+      - name: Inspect live legacy member HTML
         shell: bash
         run: |
           set -u
+          html="$(curl -sS -L --max-time 20 'https://ninjazenshin.online/clan-ranking/members/3')"
 
-          echo '--- sync-status ---'
-          curl -sS -L --max-time 20 -w '\nHTTP:%{http_code}\n' 'https://nztracker.vercel.app/api/sync-status'
+          echo "HTML_BYTES: $(printf '%s' "$html" | wc -c)"
+          echo "TR_COUNT: $(printf '%s' "$html" | grep -oi '<tr' | wc -l)"
+          echo "TDATA_ID_COUNT: $(printf '%s' "$html" | grep -oi 'data-[a-z0-9_-]*id' | wc -l)"
+          echo "MEMBER_ID_FIELD_COUNT: $(printf '%s' "$html" | grep -oiE 'member(_|-)?id|user(_|-)?id|player(_|-)?id' | wc -l)"
+          echo "KNOWN_ID_6252_PRESENT: $(printf '%s' "$html" | grep -o '6252' | wc -l)"
 
-          echo '--- clan-members ---'
-          curl -sS -L --max-time 20 -w '\nHTTP:%{http_code}\n' 'https://nztracker.vercel.app/api/clan-members?clanId=3'
+          echo '--- FIRST TWO ROWS ---'
+          printf '%s' "$html" |
+            grep -oiE '<tr[^>]*>[[:space:][:print:]]*?</tr>' |
+            head -n 2 |
+            cut -c1-1200
