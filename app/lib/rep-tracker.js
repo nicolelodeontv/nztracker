@@ -274,7 +274,6 @@ function snapshotMetricsEqual(a,b){
         const reasons=[];
         if(repDecrease)reasons.push('REP decreased from '+previousRep+' to '+currentRep+'.');
         if(largeRepJump)reasons.push('REP jumped by '+(currentRep-previousRep)+' in one sync.');
-        if(rosterChange)reasons.push(rosterChange);
         return{
           clan_id:config.clan_id,
           season,
