@@ -7,7 +7,7 @@ import { globalRankSummary, readRankingSnapshot } from './ranking-cache.js';
 import { recordMemberSnapshot } from './member-history.js';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 
-const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
+const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
 const nowIso=()=>new Date().toISOString();
 const safeText=(value)=>String(value??'').trim();
 const asInt=(value,fallback=0)=>Number.isFinite(Number(value))?Math.trunc(Number(value)):fallback;
@@ -466,7 +466,7 @@ export async function dashboardData(){
   const ids=members.map((r)=>String(r.member_id));
   const since=startOfTodayManila();
   const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
-  const syncFresh=freshness(syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
+  const syncFresh=freshness(syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
   const baselineMap=new Map((baselinesResult.data||[]).map((r)=>[String(r.member_id),r]));
 
   const hoursMap=new Map();
@@ -557,7 +557,7 @@ export async function dashboardData(){
       sourceCounts
     },
     freshness:syncFresh,
-    lastSuccessfulSyncAt:syncHealth?.lastHealthyAt||null,
+    lastSuccessfulSyncAt:syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||null,
     syncHealth:syncHealth||null,
     syncStatus:syncStatus||null,
     httpHealth:httpHealth||null,
