@@ -1,7 +1,6 @@
 import { readSyncStatus } from '../../lib/member-history.js';
-import { readSyncHealth, updateSyncHealthAlert } from '../../lib/sync-health.mjs';
+import { readSyncHealth, readMonitorHttpHealth, updateSyncHealthAlert } from '../../lib/sync-health.mjs';
 import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
-import { supabaseAdmin } from '../../lib/supabase-admin.js';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -69,18 +68,11 @@ async function sendDiscord({title,description,color=0xffc857}){
   return{sent:true};
 }
 
-async function readHttpHealth(){
-  const db=supabaseAdmin();
-  const {data,error}=await db.from('rep_tracker_kv').select('value').eq('key','monitor:http-latest').maybeSingle();
-  if(error)throw error;
-  return data?.value&&typeof data.value==='object'?data.value:null;
-}
-
 export async function GET(request){
   const denied=requireRequiredCronSecret(request,'/api/monitor-health');
   if(denied)return denied;
   try{
-    const [sync,health,http]=await Promise.all([readSyncStatus(),readSyncHealth(),readHttpHealth()]);
+    const [sync,health,http]=await Promise.all([readSyncStatus(),readSyncHealth(),readMonitorHttpHealth()]);
     const problems=problemState(sync,health,http);
     const healthy=problems.length===0;
     const alertKey=healthy?null:JSON.stringify({
