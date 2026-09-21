@@ -6,8 +6,9 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const configured = storageHealth();
   const storage = await verifyStorageConnection();
+
   return Response.json({
-    ok: true,
+    ok: storage.durable,
     service: 'nztracker',
     version: '2.0',
     generatedAt: new Date().toISOString(),
@@ -20,8 +21,16 @@ export async function GET() {
         configured: storage.configured,
         authenticated: storage.authenticated,
         provider: storage.provider,
-        error: storage.durable ? null : storage.error || null,
+        error: storage.durable ? null : storage.error || null
       },
-    },
+      rankingCache: {
+        status: storage.durable ? 'ready' : 'connection-error',
+        provider: storage.provider
+      },
+      syncStatus: {
+        status: storage.durable ? 'ready' : 'connection-error',
+        provider: storage.provider
+      }
+    }
   }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
 }
