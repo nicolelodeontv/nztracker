@@ -59,7 +59,7 @@ export async function GET() {
   if (ageMs !== null && ageMs <= ACTIVE_MAX_AGE_MS) status = 'active';
   else if (ageMs !== null && ageMs <= DELAYED_MAX_AGE_MS) status = 'delayed';
 
-  const overall = latestDb?.status || sync?.overall || null;
+  const overall = sync?.overall || latestMonitorSync?.status || latestDb?.status || null;
   const syncError = latestDb?.error_message || sync?.error || null;
   const databaseError = readErrors.database;
 
