@@ -526,11 +526,64 @@ export async function liveData(){
   };
 }
 
+async function readSyncMetrics(db,clanId,season,sinceIso){
+  const rpc=await db.rpc('rep_tracker_sync_metrics_today',{
+    p_clan_id:String(clanId),
+    p_season:String(season),
+    p_since:sinceIso
+  });
+  if(!rpc.error){
+    const row=Array.isArray(rpc.data)?(rpc.data[0]||{}):(rpc.data||{});
+    return {
+      successCount:Number(row.success_count||0),
+      failedCount:Number(row.failed_count||0),
+      avgDurationMs:Number(row.avg_duration_ms||0)||0,
+      slowSyncs:Number(row.slow_syncs||0),
+      rosterChanges:Number(row.roster_changes||0),
+      amfCount:Number(row.amf_count||0),
+      legacyCount:Number(row.legacy_count||0),
+      aggregated:true
+    };
+  }
+
+  console.warn('Sync metrics aggregate unavailable; using compatibility query',rpc.error);
+  const fallback=await db.from('rep_tracker_sync_runs')
+    .select('status,duration_ms,details')
+    .eq('clan_id',clanId)
+    .eq('season',season)
+    .gte('started_at',sinceIso);
+  if(fallback.error)throw fallback.error;
+  let successCount=0,failedCount=0,slowSyncs=0,rosterChanges=0,amfCount=0,legacyCount=0,durationTotal=0,durationCount=0;
+  for(const run of fallback.data||[]){
+    if(run.status==='success'){
+      successCount+=1;
+      if(Number(run.duration_ms)>5000)slowSyncs+=1;
+      if(Number.isFinite(Number(run.duration_ms))){durationTotal+=Number(run.duration_ms);durationCount+=1;}
+    }else{
+      failedCount+=1;
+    }
+    if(run?.details?.rosterChange)rosterChanges+=1;
+    const source=String(run?.details?.memberSource||'').toLowerCase();
+    if(source==='amf')amfCount+=1;
+    else if(source==='legacy')legacyCount+=1;
+  }
+  return{
+    successCount,
+    failedCount,
+    avgDurationMs:durationCount?Math.round(durationTotal/durationCount):0,
+    slowSyncs,
+    rosterChanges,
+    amfCount,
+    legacyCount,
+    aggregated:false
+  };
+}
+
 export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
-  const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult]=await Promise.all([
+  const db=supabaseAdmin(),season=config.current_season,since=startOfTodayManila();
+  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncMetrics]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
@@ -538,19 +591,12 @@ export async function dashboardData(){
     db.from('rep_tracker_kv').select('value').eq('key','monitor:http-latest').maybeSingle().then(({data})=>data?.value||null),
     db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season),
     db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season),
-    db.from('rep_tracker_sync_runs')
-      .select('status,members_returned,started_at,completed_at,duration_ms,details,error_message')
-      .eq('clan_id',config.clan_id)
-      .eq('season',season)
-      .gte('started_at',startOfTodayManila().toISOString())
-      .order('started_at',{ascending:true})
+    readSyncMetrics(db,config.clan_id,season,since.toISOString())
   ]);
   if(baselinesResult.error)throw baselinesResult.error;
   if(hoursResult.error)throw hoursResult.error;
-  if(syncRunsResult.error)throw syncRunsResult.error;
 
   const ids=members.map((r)=>String(r.member_id));
-  const since=startOfTodayManila();
   const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
   const syncFresh=freshness(syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
   const baselineMap=new Map((baselinesResult.data||[]).map((r)=>[String(r.member_id),r]));
@@ -602,26 +648,18 @@ export async function dashboardData(){
   const targetGap=global?.above?.gap||0;
   const targetEtaHours=targetGap>0&&hourlyPace>0?targetGap/hourlyPace:null;
 
-  const syncRuns=syncRunsResult.data||[];
-  const successRuns=syncRuns.filter((run)=>run.status==='success');
-  const errorRuns=syncRuns.filter((run)=>run.status!=='success');
   const expectedIntervalMs=Math.max(10,Number(config.sync_interval_seconds||10))*1000;
   const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-since.getTime())/expectedIntervalMs)+1);
-  const completedSyncsToday=successRuns.length;
+  const completedSyncsToday=Number(syncMetrics?.successCount||0);
   const missedSyncsToday=Math.max(0,expectedSyncsToday-completedSyncsToday);
   const syncSuccessRate=expectedSyncsToday>0?completedSyncsToday/expectedSyncsToday:0;
-  const sourceCounts={amf:0,legacy:0,other:0};
-  let rosterChangeCount=0,slowSyncCount=0;
-  let durationTotal=0,durationCount=0;
-  for(const run of successRuns){
-    const service=String(run?.details?.memberSource||run?.details?.service||'').toLowerCase();
-    if(service.includes('legacy'))sourceCounts.legacy+=1;
-    else if(service.includes('amf'))sourceCounts.amf+=1;
-    else sourceCounts.other+=1;
-    if(run?.details?.rosterChange)rosterChangeCount+=1;
-    if(Number(run.duration_ms)>5000)slowSyncCount+=1;
-    if(Number.isFinite(Number(run.duration_ms))){durationTotal+=Number(run.duration_ms);durationCount+=1;}
-  }
+  const sourceCounts={
+    amf:Number(syncMetrics?.amfCount||0),
+    legacy:Number(syncMetrics?.legacyCount||0),
+    other:Math.max(0,completedSyncsToday-Number(syncMetrics?.amfCount||0)-Number(syncMetrics?.legacyCount||0))
+  };
+  const rosterChangeCount=Number(syncMetrics?.rosterChanges||0);
+  const slowSyncCount=Number(syncMetrics?.slowSyncs||0);
 
   return{
     configured:true,config,season,rows,
@@ -637,7 +675,7 @@ export async function dashboardData(){
       syncsCompleted:completedSyncsToday,
       syncsMissed:missedSyncsToday,
       syncSuccessRate,
-      avgSyncDurationMs:durationCount?Math.round(durationTotal/durationCount):null,
+      avgSyncDurationMs:Number(syncMetrics?.avgDurationMs||0)||null,
       slowSyncs:slowSyncCount,
       rosterChanges:rosterChangeCount,
       sourceCounts
