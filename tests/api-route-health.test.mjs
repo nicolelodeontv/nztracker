@@ -15,12 +15,6 @@ mock.module(f('app/lib/rep-tracker.js'), { exports: {
   getConfig: async () => config
 }});
 
-mock.module(f('app/lib/rep-tracker.js'), { exports: {
-  dashboardData: async () => ({ configured: true, config, season: 'Season 3', rows: [], stats: {}, freshness: { status: 'live', ageSeconds: 5 }, lastSuccessfulSyncAt: ranking.capturedAt }),
-  recentActivity: async () => [],
-  freshness: () => ({ status: 'live', ageSeconds: 5 }),
-  getConfig: async () => config
-}});
 mock.module(f('app/lib/member-history.js'), { exports: {
   readSyncStatus: async () => ({ lastRunAt: ranking.capturedAt, membersSeen: 30, memberErrors: 0, overall: 'success' }),
   recordMemberSnapshot: async () => ({ stored: true, storedPoints: 30, changed: true }),
