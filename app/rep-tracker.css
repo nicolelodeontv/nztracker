@@ -5,3 +5,13 @@
 @media(max-width:720px){.ops-app{padding:12px 10px 8px}.ops-header{align-items:flex-start}.header-right{justify-content:flex-end;gap:7px}.header-right time{display:none}.ops-nav{margin-bottom:10px}.season-band{grid-template-columns:1fr}.season-band>div:first-child{grid-column:auto}.season-band h1,.page-head h1{font-size:35px}.stats-grid{grid-template-columns:repeat(2,1fr)}.stats-grid b{font-size:27px}.two-col,.admin-grid{grid-template-columns:1fr}.member-grid{grid-template-columns:1fr}.page-head{align-items:flex-start;flex-direction:column;gap:10px}.mini-stats{grid-template-columns:repeat(2,1fr)}.drawer{padding:13px}}
 @media(prefers-color-scheme:light){ }
 @media print{body{background:white;color:black}.ops-app{max-width:none;padding:0}.ops-header,.ops-nav,.actions,.notice,footer,.drawer-backdrop,.modal-backdrop{display:none!important}.panel,.stats-grid,.season-band{border-color:#bbb;background:white}.table-scroll{overflow:visible}.table-scroll table{min-width:0}.table-scroll th{position:static;background:#eee;color:#111}.table-scroll td{color:#111}.stats-grid span,.season-box span,.eyebrow{color:#555}}
+
+.dashboard-skeleton{display:grid;gap:12px;margin-top:28px}
+.skeleton-bar,.skeleton-block,.skeleton-row{background:var(--panel);border:1px solid var(--line);position:relative;overflow:hidden}
+.skeleton-bar{height:22px;width:38%}.skeleton-bar.wide{height:64px;width:52%}
+.skeleton-stats{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}
+.skeleton-block{height:82px;padding:13px}.skeleton-block span,.skeleton-block b,.skeleton-row span{display:block;background:var(--panel2);height:10px;margin:7px 0}.skeleton-block b{height:24px;width:60%}
+.skeleton-table{padding:14px}.skeleton-table>.skeleton-bar{width:28%;margin-bottom:10px}.skeleton-row{display:grid;grid-template-columns:1fr 1.6fr .5fr 1fr;gap:10px;border:0;border-top:1px solid var(--line);padding:10px 0}.skeleton-row span{margin:0}.dashboard-skeleton .skeleton-bar,.dashboard-skeleton .skeleton-block,.dashboard-skeleton .skeleton-row span{animation:skeleton-pulse 1.2s ease-in-out infinite alternate}
+@keyframes skeleton-pulse{from{opacity:.45}to{opacity:1}}
+@media(max-width:1100px){.skeleton-stats{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:720px){.skeleton-stats{grid-template-columns:repeat(2,1fr)}.skeleton-bar.wide{width:75%}}
