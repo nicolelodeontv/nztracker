@@ -4,9 +4,9 @@ import { getLatestSync, dbStatus } from '../../../lib/supabase-db.mjs';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const INTERVAL_MS = 5 * 60 * 1000;
-const ACTIVE_MAX_AGE_MS = 15 * 60 * 1000;
-const DELAYED_MAX_AGE_MS = 30 * 60 * 1000;
+const INTERVAL_MS = 60 * 1000;
+const ACTIVE_MAX_AGE_MS = 3 * 60 * 1000;
+const DELAYED_MAX_AGE_MS = 6 * 60 * 1000;
 
 export async function GET() {
   const readErrors = {
