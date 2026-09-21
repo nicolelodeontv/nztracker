@@ -685,6 +685,9 @@ export async function dashboardData(){
     syncHealth:syncHealth||null,
     syncStatus:syncStatus||null,
     httpHealth:httpHealth||null,
+    sourceStatus:syncHealth?.lastSourceStatus||null,
+    sourceDiagnostics:syncHealth?.lastSourceDiagnostics||null,
+    syncMetricsAggregated:Boolean(syncMetrics?.aggregated),
     global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null},
     globalRanking:rankedRows.map((row)=>({...row,change:rankingCache?.changes?.[String(row.clanId)]||null}))
   };
