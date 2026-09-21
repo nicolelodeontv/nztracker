@@ -6,7 +6,6 @@ import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../app/lib/das
 test('refresh gate uses the near-realtime dashboard interval', async () => {
   assert.equal(DASHBOARD_REFRESH_INTERVAL_MS, 5000);
 
-
   let now = 1_000;
   const gate = createRefreshGate({ now: () => now });
   let calls = 0;
