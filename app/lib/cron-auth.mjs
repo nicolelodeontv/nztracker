@@ -25,3 +25,20 @@ export function requireCronSecret(request, routeName) {
 
   return null;
 }
+
+
+export function requireRequiredCronSecret(request, routeName) {
+  const secret = process.env.CRON_SECRET;
+
+  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
+    return Response.json(
+      { ok: false, error: 'Unauthorized' },
+      {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store, max-age=0' }
+      }
+    );
+  }
+
+  return null;
+}
