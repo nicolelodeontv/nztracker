@@ -7,7 +7,8 @@ import { globalRankSummary, readRankingSnapshot } from './ranking-cache.js';
 import { recordMemberSnapshot } from './member-history.js';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 
-const FRESH_MS=30000,AGING_MS=90000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
+const FRESH_MS=30000,AGING_MS=90000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,SYNC_RUN_RETENTION_CHECK_INTERVAL_MS=5*60*1000,syncLocks=new Map();
+let lastSyncRunRetentionCheckAt=0;
 const nowIso=()=>new Date().toISOString();
 const safeText=(value)=>String(value??'').trim();
 const asInt=(value,fallback=0)=>Number.isFinite(Number(value))?Math.trunc(Number(value)):fallback;
@@ -71,6 +72,8 @@ async function upsertMembers({clanId,season,members,capturedAt}) {
   if(latestUpsertError)throw latestUpsertError;
 }
 async function runSyncRunRetention(db,nowMs){
+  if(nowMs-lastSyncRunRetentionCheckAt<SYNC_RUN_RETENTION_CHECK_INTERVAL_MS)return{deleted:0,skipped:true,cached:true};
+  lastSyncRunRetentionCheckAt=nowMs;
   try{
     const {data:guard,error:guardError}=await db.from('rep_tracker_kv').select('value,updated_at').eq('key',SYNC_RUN_RETENTION_KEY).maybeSingle();
     if(guardError)throw guardError;
