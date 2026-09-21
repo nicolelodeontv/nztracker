@@ -233,16 +233,31 @@ async function runSyncAll(request) {
     historyChangedClans
   };
 
-  const roster = await upsertMemberRoster({
-    season: ranking?.season || 'Unknown',
-    snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
-    clanResults: memberResults
-  });
-  const snapshots = await upsertRepTrackerSnapshots({
-    season: ranking?.season || 'Unknown',
-    snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
-    clanResults: memberResults
-  });
+  let roster = { stored: false, count: 0, joined: 0, left: 0, errors: 0 };
+  try {
+    roster = await upsertMemberRoster({
+      season: ranking?.season || 'Unknown',
+      snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
+      clanResults: memberResults
+    });
+  } catch (error) {
+    const message = errorText(error);
+    roster = { ...roster, error: message };
+    errors.push(`Member roster storage: ${message}`);
+  }
+
+  let snapshots = { stored: false, count: 0, ambiguousNames: [], retention: { deleted: 0, batches: 0 } };
+  try {
+    snapshots = await upsertRepTrackerSnapshots({
+      season: ranking?.season || 'Unknown',
+      snapshotAt: ranking?.capturedAt || startedAt.toISOString(),
+      clanResults: memberResults
+    });
+  } catch (error) {
+    const message = errorText(error);
+    snapshots = { ...snapshots, error: message };
+    errors.push(`Rep tracker snapshot storage: ${message}`);
+  }
 
   sourceStatus.clanMembers.rosterStored = Boolean(roster?.stored);
   sourceStatus.clanMembers.snapshotsStored = Boolean(snapshots?.stored);
