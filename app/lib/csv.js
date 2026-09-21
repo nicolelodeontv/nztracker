@@ -4,7 +4,13 @@ function escapeCsv(value) {
 }
 
 export function rowsToCsv(rows = []) {
-  const header = ['Member', 'Current REP', 'Before', 'Gain', 'Gain/Hour', 'Status'];
+  const header = [
+    'Member', 'Current REP', 'Before', 'Gain', 'Gain/Hour', 'Status',
+    'Donated Gold', 'Donated Token', 'Donation Gain Gold', 'Donation Gain Token',
+    'Donation Gain Gold 1H', 'Donation Gain Token 1H',
+    'Donation Gain Gold 6H', 'Donation Gain Token 6H',
+    'Donation Gain Gold 24H', 'Donation Gain Token 24H',
+  ];
   const body = (Array.isArray(rows) ? rows : []).map((row) => [
     row?.name,
     row?.current,
@@ -12,6 +18,16 @@ export function rowsToCsv(rows = []) {
     row?.gain,
     Math.round(Number(row?.gainPerHour || 0)),
     row?.status,
+    row?.donatedGold,
+    row?.donatedToken,
+    row?.donationGainGold,
+    row?.donationGainToken,
+    row?.donationGainGold1H,
+    row?.donationGainToken1H,
+    row?.donationGainGold6H,
+    row?.donationGainToken6H,
+    row?.donationGainGold24H,
+    row?.donationGainToken24H,
   ].map(escapeCsv).join(','));
 
   return [header.join(','), ...body].join('\r\n') + '\r\n';

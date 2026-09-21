@@ -168,3 +168,16 @@ See enhancements section in `SETUP_GUIDE.md`.
 **Ready?** → Open `SETUP_GUIDE.md` and follow the 8 steps.
 
 Good luck! 🎯
+
+
+## Clan donation tracking
+
+NZTracker can receive clan donation snapshots from a Tampermonkey userscript running in a player’s own Ninja Zenshin browser session. The userscript observes the game’s existing `ClanService.getMemberList` AMF response, decodes only the member fields needed for donations (`id`, `name`, `level`, `donated_gold`, and `donated_token`), and sends those parsed fields to `/api/donations`.
+
+The game session token is never sent to NZTracker and is never stored by the app. The server only receives the parsed donation snapshot and protects ingestion with the `INGEST_KEY` header. Donation history is stored in private Vercel Blob with a latest snapshot plus timestamped snapshots retained for 30 days.
+
+### Setup
+
+1. In Vercel Production environment variables, add `INGEST_KEY` with a long random value. Do not commit that value.
+2. Open `docs/nztracker-donations.user.js` and replace the `REPLACE_WITH_VERCEL_INGEST_KEY` placeholder locally with the same value. Keep the real value out of Git.
+3. Install the userscript in Tampermonkey, then use the Ninja Zenshin site normally. The script only submits snapshots after it sees a member-list AMF response.

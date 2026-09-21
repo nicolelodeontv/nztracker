@@ -52,6 +52,8 @@ export default function NZTrackerApp() {
   const [selected, setSelected] = useState(null);
   const [members, setMembers] = useState([]);
   const [history, setHistory] = useState(null);
+  const [donations, setDonations] = useState(null);
+  const [donationState, setDonationState] = useState('IDLE');
   const [memberState, setMemberState] = useState('IDLE');
   const [historyState, setHistoryState] = useState('IDLE');
   const [periodHours, setPeriodHours] = useState(5);
@@ -115,6 +117,11 @@ export default function NZTrackerApp() {
       const data = await readJson(`/api/member-history?clanId=${encodeURIComponent(clan.clanId)}&season=${encodeURIComponent(season)}&hours=168&refresh=${Date.now()}`);
       setHistory(data); setHistoryState(data.stored ? 'DURABLE' : 'LOCAL');
     } catch { setHistory(null); setHistoryState('ERROR'); }
+    try {
+      setDonationState('LOADING');
+      const data = await readJson(`/api/donations?clanId=${encodeURIComponent(clan.clanId)}&season=${encodeURIComponent(season)}&refresh=${Date.now()}`);
+      setDonations(data); setDonationState(data.stored ? 'DURABLE' : 'LOCAL');
+    } catch { setDonations(null); setDonationState('ERROR'); }
   }, [season]);
 
   useEffect(() => { refreshRanking(); const timer = setInterval(refreshRanking, RANKING_REFRESH_MS); return () => clearInterval(timer); }, [refreshRanking]);
@@ -125,7 +132,7 @@ export default function NZTrackerApp() {
 
   const syncedNow = now + clockOffsetRef.current;
   const selectedRow = useMemo(() => selected ? clans.find((clan) => String(clan.clanId) === String(selected.clanId)) || selected : null, [selected, clans]);
-  const rows = useMemo(() => buildMemberRows(members, history?.members || {}, periodHours, syncedNow), [members, history, periodHours, syncedNow]);
+  const rows = useMemo(() => buildMemberRows(members, history?.members || {}, periodHours, syncedNow, donations), [members, history, donations, periodHours, syncedNow]);
   const events = useMemo(() => deriveEvents(members, history?.members || {}, syncedNow).filter((e) => eventFilter === 'ALL' ? true : eventFilter === '+1K' ? e.gain >= 1000 : e.gain >= 5000), [members, history, syncedNow, eventFilter]);
   const alerts = useMemo(() => deriveAlerts(rows, periodHours), [rows, periodHours]);
   const intel = useMemo(() => {
@@ -197,7 +204,7 @@ export default function NZTrackerApp() {
         <div className="nz-ops-note"><b>Partial sync protection</b><span>Clans, PvE, and PvP are recorded independently. A failure in one source does not clear the others.</span></div>
       </section>}
 
-      {selected && <div className="nz-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><div className="nz-modal"><div className="nz-modal-head"><div><span className="nz-kicker">LIVE → CLAN</span><h2>{selectedRow?.clan || selected.clan}</h2><small>Members: {memberState} · History: {historyState}</small></div><button className="nz-btn" onClick={() => setSelected(null)}>CLOSE</button></div><div className="nz-modal-body"><ClanIntelligence clan={selectedRow} rows={rows} intel={intel} events={events} alerts={alerts} periodHours={periodHours} setPeriodHours={setPeriodHours} eventFilter={eventFilter} setEventFilter={setEventFilter} /></div></div></div>}
+      {selected && <div className="nz-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><div className="nz-modal"><div className="nz-modal-head"><div><span className="nz-kicker">LIVE → CLAN</span><h2>{selectedRow?.clan || selected.clan}</h2><small>Members: {memberState} · History: {historyState} · Donations: {donationState}</small></div><button className="nz-btn" onClick={() => setSelected(null)}>CLOSE</button></div><div className="nz-modal-body"><ClanIntelligence clan={selectedRow} rows={rows} intel={intel} events={events} alerts={alerts} periodHours={periodHours} setPeriodHours={setPeriodHours} eventFilter={eventFilter} setEventFilter={setEventFilter} /></div></div></div>}
     </main>
   );
 }
