@@ -43,6 +43,7 @@ export async function recordSyncHealth({
     lastMemberStatus:memberStatus,
     lastSourceHealth:sourceHealth||previous?.lastSourceHealth||'healthy',
     lastSourceWarning:isSourceDegraded?(String(sourceWarning||'Member source fallback is active.')):null,
+    lastSourceDegradedAt:isSourceDegraded?at:(previous?.lastSourceDegradedAt||null),
     sourceDiagnostics:sourceDiagnostics||previous?.sourceDiagnostics||null,
     lastDiscoveryStatus:discoveryStatus,
     lastRankingStatus:rankingStatus,
