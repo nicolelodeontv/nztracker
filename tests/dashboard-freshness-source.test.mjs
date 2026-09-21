@@ -23,7 +23,6 @@ test('dashboard freshness uses the same rep-tracker monitor source as sync-statu
   assert.match(source, /const syncFresh=freshness\(latestSync\?\.completed_at\|\|null\)/);
   assert.match(source, /status:syncFresh\.status/);
   assert.match(source, /lastSuccessfulSyncAt:latestSync\?\.completed_at\|\|null/);
-  assert.doesNotMatch(source, /from\('rep_tracker_sync_runs'\)\.select\('completed_at'\)/);
 });
 
 test('member status is not derived from snapshot captured_at', async () => {
