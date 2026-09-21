@@ -172,6 +172,7 @@ The dashboard exposes:
 - ten-second sync countdown and freshness
 - sync health strip with member/ranking state, actual HTTP status, sync completion rate, missed intervals, source health, and last recorded error
 - 5-second lightweight live refreshes with a 60-second full dashboard refresh cadence
+- Period-history polling runs every 60 seconds and pauses outside the Dashboard/Members views to reduce repeated history queries.
 - persisted AMF/legacy source diagnostics and explicit degraded-fallback state
 - compact operations tabs for overview, REP pace/attention, and global ranking
 - member filtering, search, and sorting
