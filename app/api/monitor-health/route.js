@@ -6,7 +6,7 @@ export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export const maxDuration=15;
 
-const MAX_AGE_MS=3*60*1000;
+const MAX_AGE_MS=45*1000;
 const HTTP_MONITOR_MAX_AGE_MS=3*60*1000;
 
 function problemState(sync,health,http){
