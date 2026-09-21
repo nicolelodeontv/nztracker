@@ -10,6 +10,7 @@ const config={clan_id:'3',clan_name:'Chaos',current_season:'Season 3',expected_m
 let monitorMode='success';
 let heartbeatPayloads=[];
 let rankingWrites=0;
+let monitorDiscoveryCached=false;
 let syncHealthState={consecutiveSuccesses:4,lastHealthyAt:ranking.capturedAt,lastAlertKey:null,lastMemberStatus:'success',lastRankingStatus:'fresh'};
 let httpHealthState={statusCode:200,timedOut:false,errorMsg:null,created:ranking.capturedAt};
 
@@ -22,10 +23,9 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
     if(monitorMode==='error')throw new Error('test monitor failure');
     return {
       reused:false,
-      live:{members,source:'test'},
       config,
       season:'Season 3',
-      discovery:{ranking},
+      discovery:{ranking,fromCache:monitorDiscoveryCached,stale:false},
       live:{members,source:'test',service:'amf',sourceStatus:'primary',sourceDiagnostics:null},
       suspiciousCount:0
     };
@@ -33,7 +33,7 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
 }});
 
 mock.module(f('app/lib/member-history.js'),{exports:{
-  readSyncStatus:async()=>({lastRunAt:ranking.capturedAt,membersSeen:30,memberErrors:0,overall:'success',intervalMs:60000,nextExpectedAt:new Date(Date.now()+60000).toISOString()}),
+  readSyncStatus:async()=>({lastRunAt:ranking.capturedAt,membersSeen:30,memberErrors:0,overall:'success',intervalMs:10000,nextExpectedAt:new Date(Date.now()+10000).toISOString()}),
   recordSyncStatus:async(payload)=>{heartbeatPayloads.push(payload);return{stored:true};},
   storageHealth:()=>({provider:'supabase',configured:true,authenticated:true,durable:true})
 }});
@@ -121,11 +121,12 @@ test('monitor executes with correct secret',async()=>{
 
 test('monitor does not rewrite cached ranking data on every ten-second sync',async()=>{
   process.env.CRON_SECRET=secret;
+  monitorDiscoveryCached=true;
   const r=await monitorGET(request('/api/monitor',secret));
   const b=await body(r);
   assert.equal(r.status,200);
   assert.equal(b.membersSeen,30);
-  assert.equal(rankingWrites,2);
+  assert.equal(rankingWrites,1);
   delete process.env.CRON_SECRET;
 });
 
