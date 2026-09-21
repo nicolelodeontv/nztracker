@@ -66,6 +66,8 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [password, setPassword] = useState('');
   const [admin, setAdmin] = useState(false);
   const [adminLoading, setAdminLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState('');
   const syncInFlight = useRef(false);
   const [seasonName, setSeasonName] = useState('');
   const [finalDay, setFinalDay] = useState('');
@@ -76,17 +78,32 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [hoursBreak, setHoursBreak] = useState('0');
   const [hoursNotes, setHoursNotes] = useState('');
 
-  const refresh = async () => {
+  const refresh = async ({ initial = false } = {}) => {
+    if (initial) {
+      setDashboardLoading(true);
+      setDashboardError('');
+    }
     try {
       const current = await api('/api/dashboard');
       setData(current);
-      const fins = await api('/api/finalize');
-      setFinalizations(fins.finalizations || []);
+      setDashboardError('');
       if (current?.config) {
         setSeasonName(current.config.current_season || '');
         setFinalDay(current.config.final_day_at ? new Date(current.config.final_day_at).toISOString().slice(0,16) : '');
       }
-    } catch (e) { setMessage(e.message); }
+      try {
+        const fins = await api('/api/finalize');
+        setFinalizations(fins.finalizations || []);
+      } catch (e) {
+        setMessage(e.message);
+      }
+      return current;
+    } catch (e) {
+      setDashboardError(e.message || 'Unable to load the dashboard.');
+      return null;
+    } finally {
+      if (initial) setDashboardLoading(false);
+    }
   };
 
   const triggerBackgroundSync = async () => {
@@ -125,7 +142,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       setMessage('Admin session expired. Please sign in again.');
     };
     window.addEventListener('admin-session-expired', onExpired);
-    refresh().then(() => triggerBackgroundSync());
+    refresh({ initial: true }).then(() => triggerBackgroundSync());
     const t = setInterval(() => refresh(false), 30000);
     return () => {
       cancelled = true;
@@ -142,7 +159,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   async function login() { setBusy(true); try { await api('/api/admin/login',{method:'POST',body:JSON.stringify({password}),headers:{'Content-Type':'application/json'}}); setAdmin(true); setLoginOpen(false); setPassword(''); setMessage('Admin session active.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
   async function logout() { setBusy(true); try { await api('/api/admin/login',{method:'DELETE'}); setAdmin(false); setLoginOpen(false); setPassword(''); setMessage('Admin session ended.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
   async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh();setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
-  async function baseline(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'baseline'})});await refresh(false);setMessage('Season baseline created from the live roster.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+  async function baseline(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'baseline'})});await refresh();setMessage('Season baseline created from the live roster.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function startSeason(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',season:seasonName,finalDayAt:finalDay?new Date(finalDay).toISOString():null})});await refresh();setMessage('New season started.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function addHours(){setBusy(true);try{let total=0;if(hoursStart&&hoursEnd){total=(new Date(`1970-01-01T${hoursEnd}:00Z`).getTime()-new Date(`1970-01-01T${hoursStart}:00Z`).getTime())/3600000-(Number(hoursBreak)||0)/60;if(total<0)total+=24;} await api('/api/hours',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({season:data.season,clanId:data.config.clan_id,memberId:hoursMember,workDate:hoursDate,startTime:hoursStart?`${hoursDate}T${hoursStart}:00+08:00`:null,endTime:hoursEnd?`${hoursDate}T${hoursEnd}:00+08:00`:null,breakMinutes:Number(hoursBreak)||0,totalHours:Number(total.toFixed(2)),source:'MANUAL',notes:hoursNotes})});await refresh(false);setMessage('Hours session added.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function lockFinal(){if(!confirm('FINALIZE SEASON RESULTS? This creates an immutable final snapshot.'))return;setBusy(true);try{const res=await api('/api/finalize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock'})});await refresh(false);setMessage(`FINAL DAY LOCKED · VERSION ${res.finalization.version}`);}catch(e){setMessage(e.message);}finally{setBusy(false);}}
@@ -164,12 +181,18 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   }
 
   const nav = [['dashboard','Dashboard'],['members','Members'],['history','History'],['final','Final Results'],['admin','Admin']];
-  if (!data?.configured) return <main className="ops-app"><header className="ops-header"><div className="brand"><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div><button className="btn primary" onClick={() => setLoginOpen(true)}>ADMIN SETUP</button></header><section className="empty-state"><span className="eyebrow">NO LIVE CONFIGURATION</span><h1>Waiting for a real Ninja Zenshin clan source.</h1><p>The tracker will not fabricate roster, REP, season, or countdown values. Open Admin to authenticate and run discovery.</p>{message&&<div className="notice bad">{message}</div>}</section>{loginOpen&&<div className="modal-backdrop"><div className="modal"><h3>ADMIN LOGIN</h3><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password"/><button className="btn primary full" onClick={login} disabled={busy}>SIGN IN</button></div></div>}</main>;
+  if (dashboardLoading && !data) return <main className="ops-app"><header className="ops-header"><div className="brand"><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div></header><section className="dashboard-skeleton" aria-label="Loading dashboard"><div className="skeleton-bar wide"></div><div className="skeleton-stats">{Array.from({length:6}).map((_,i)=><div className="skeleton-block" key={i}><span></span><b></b></div>)}</div><div className="panel skeleton-table"><div className="skeleton-bar"></div>{Array.from({length:8}).map((_,i)=><div className="skeleton-row" key={i}><span></span><span></span><span></span><span></span></div>)}</div></section></main>;
+
+  if (dashboardError && !data) return <main className="ops-app"><header className="ops-header"><div className="brand"><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div></header><section className="empty-state"><span className="eyebrow">DASHBOARD ERROR</span><h1>Unable to load live dashboard data.</h1><p>{dashboardError}</p><button className="btn primary" onClick={() => refresh({ initial: true })}>RETRY</button></section></main>;
+
+  if (data && data.configured === false) return <main className="ops-app"><header className="ops-header"><div className="brand"><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div><button className="btn primary" onClick={() => setLoginOpen(true)}>ADMIN SETUP</button></header><section className="empty-state"><span className="eyebrow">NO LIVE CONFIGURATION</span><h1>Waiting for a real Ninja Zenshin clan source.</h1><p>The tracker will not fabricate roster, REP, season, or countdown values. Open Admin to authenticate and run discovery.</p>{message&&<div className="notice bad">{message}</div>}</section>{loginOpen&&<div className="modal-backdrop"><div className="modal"><h3>ADMIN LOGIN</h3><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password"/></div></div>}</main>;
+
+  if (!data) return <main className="ops-app"><section className="empty-state"><span className="eyebrow">DASHBOARD ERROR</span><h1>Unable to load live dashboard data.</h1><p>{dashboardError || 'No dashboard data was returned.'}</p><button className="btn primary" onClick={() => refresh({ initial: true })}>RETRY</button></section></main>;
 
   return <main className="ops-app">
     <header className="ops-header">
       <div className="brand"><div className="mark">C</div><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div>
-      <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>{age(data.freshness?.ageSeconds)}</span></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
+      <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>LAST SYNC {age(data.freshness?.ageSeconds)}</span></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
     {message&&<div className={`notice ${/fail|error|blocked|stale|missing/i.test(message)?'bad':'good'}`}>{message}<button onClick={()=>setMessage('')}>×</button></div>}
