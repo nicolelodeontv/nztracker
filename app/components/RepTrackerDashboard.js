@@ -78,6 +78,23 @@ function LineChart({ points }) {
   return <svg className="chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="REP progression"><path d="M 0 96 L 100 96" className="chart-axis"/><path d={path} className="chart-line" /></svg>;
 }
 
+function SyncHealthStrip({data}) {
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
+  const health=data?.syncHealth||{};
+  const lastHealthy=health.lastHealthyAt?Date.parse(health.lastHealthyAt):NaN;
+  const ageSeconds=Number.isFinite(lastHealthy)?Math.max(0,Math.floor((now-lastHealthy)/1000)):null;
+  const next=data?.syncStatus?.nextExpectedAt?Date.parse(data.syncStatus.nextExpectedAt):NaN;
+  const nextSeconds=Number.isFinite(next)?Math.max(0,Math.ceil((next-now)/1000)):null;
+  return <section className="sync-health-strip" aria-label="Sync health">
+    <div><span>LAST SUCCESS</span><b>{ageSeconds===null?'—':new Date(lastHealthy).toLocaleTimeString()}</b></div>
+    <div><span>CURRENT AGE</span><b className={ageSeconds!==null&&ageSeconds<=90?'up':ageSeconds!==null&&ageSeconds<=180?'warn-text':'down'}>{ageSeconds===null?'—':age(ageSeconds)}</b></div>
+    <div><span>NEXT SYNC</span><b>{nextSeconds===null?'—':nextSeconds<60?nextSeconds+'s':Math.ceil(nextSeconds/60)+'m'}</b></div>
+    <div><span>CONSECUTIVE OK</span><b>{Number(health.consecutiveSuccesses||0)}</b></div>
+    <div className="sync-health-error"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
+  </section>;
+}
+
 function SyncCountdown({target}) {
   const [now,setNow]=useState(Date.now());
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
@@ -162,6 +179,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [syncing, setSyncing] = useState(false);
   const [periodHistory, setPeriodHistory] = useState(null);
   const [periodHours, setPeriodHours] = useState(6);
+  const [memberFilter, setMemberFilter] = useState('ALL');
+  const [memberQuery, setMemberQuery] = useState('');
+  const [memberSort, setMemberSort] = useState('rep');
   const syncInFlight = useRef(false);
   const refreshGate = useRef(null);
   if (!refreshGate.current) refreshGate.current = createRefreshGate();
@@ -287,6 +307,26 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     return buildMemberRows(currentMembers, periodHistory.members, periodHours, Date.now());
   }, [rows, periodHistory, periodHours]);
   const top = useMemo(() => [...rows].sort((a,b) => b.todayGain - a.todayGain).slice(0,5), [rows]);
+  const filteredMembers = useMemo(() => {
+    const query=memberQuery.trim().toLocaleLowerCase();
+    const statusMap={
+      'ALL':()=>true,
+      'ACTIVE':row=>row.status==='ACTIVE',
+      'IDLE':row=>row.status==='IDLE',
+      'NO GAIN':row=>row.status==='NO GAIN',
+      'RESET':row=>row.status==='RESET',
+      'MISSING':row=>row.status==='MISSING'
+    };
+    return periodRows.filter((row)=>{
+      if(!(statusMap[memberFilter]||statusMap.ALL)(row))return false;
+      return !query||String(row.member||row.name||'').toLocaleLowerCase().includes(query);
+    }).sort((a,b)=>{
+      if(memberSort==='gain')return Number(b.gain||0)-Number(a.gain||0);
+      if(memberSort==='rate')return Number(b.gainPerHour||0)-Number(a.gainPerHour||0);
+      if(memberSort==='activity')return Number(b.latestTs||0)-Number(a.latestTs||0);
+      return Number(b.current||b.rep||0)-Number(a.current||a.rep||0);
+    });
+  },[periodRows,memberFilter,memberQuery,memberSort]);
   const activity = data?.activity || [];
   const latestFinal = finalizations[0];
 
@@ -329,6 +369,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>LAST SYNC {age(data.freshness?.ageSeconds)}</span><SyncCountdown target={data.syncStatus?.nextExpectedAt}/></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
+    {data&&<SyncHealthStrip data={data}/>} 
     {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
     {syncing&&data&&!dashboardRefreshing&&<div className="notice good">UPDATING LIVE DATA…</div>}
     {dashboardError&&data&&<div className="notice bad">UPDATE FAILED · {dashboardError}<button onClick={()=>refresh()}>RETRY</button></div>}
@@ -343,8 +384,32 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       {data.stats.suspiciousCount>0&&<section className="notice bad">{data.stats.suspiciousCount} suspicious REP decrease snapshot(s) retained for audit. No value was discarded.</section>}
     </>}
 
-    {view==='members'&&<section><div className="page-head"><div><span className="eyebrow">ROSTER</span><h1>MEMBER INTELLIGENCE</h1><p>Stable member IDs preserve history even when an IGN changes.</p></div></div><div className="member-grid">{rows.map(r=><button className="member-card" key={r.id} onClick={()=>setSelected(r)}><span className="eyebrow">#{rows.indexOf(r)+1} · LV {r.level}</span><h3>{r.member}</h3><b>{fmt(r.rep)} REP</b><div><span>+{fmt(r.gain)} season</span><span>{fmtHours(r.hours)}h tracked</span></div></button>)}</div></section>}
-
+    {view==='members'&&<section>
+      <div className="page-head">
+        <div><span className="eyebrow">ROSTER</span><h1>MEMBER INTELLIGENCE</h1><p>Stable member IDs preserve history even when an IGN changes.</p></div>
+        <div className="member-controls">
+          <input value={memberQuery} onChange={e=>setMemberQuery(e.target.value)} placeholder="Search member…" aria-label="Search members"/>
+          <select value={memberSort} onChange={e=>setMemberSort(e.target.value)} aria-label="Sort members">
+            <option value="rep">Sort: REP</option>
+            <option value="gain">Sort: GAIN</option>
+            <option value="rate">Sort: REP / HR</option>
+            <option value="activity">Sort: LAST ACTIVITY</option>
+          </select>
+        </div>
+      </div>
+      <div className="member-filters" role="group" aria-label="Member status filters">
+        {['ALL','ACTIVE','IDLE','NO GAIN','RESET','MISSING'].map(filter=><button key={filter} className={memberFilter===filter?'active':''} onClick={()=>setMemberFilter(filter)}>{filter}</button>)}
+      </div>
+      <div className="member-grid">
+        {filteredMembers.map((r,i)=><button className="member-card" key={r.id} onClick={()=>setSelected(r)}>
+          <span className="eyebrow">{r.status} · LV {r.level}</span>
+          <h3>{r.member||r.name}</h3>
+          <b>{fmt(r.current||r.rep)} REP</b>
+          <div><span>+{fmt(r.gain)} · {fmt(r.gainPerHour)}/h</span><span>{r.latestTs?age(Math.floor((Date.now()-r.latestTs)/1000)):'NO SNAPSHOT'}</span></div>
+        </button>)}
+      </div>
+      {!filteredMembers.length&&<div className="empty-state compact"><h3>NO MEMBERS MATCH</h3><p>Change the filter or search term.</p></div>}
+    </section>
     {view==='history'&&<section><div className="page-head"><div><span className="eyebrow">SEASON HISTORY</span><h1>IMMUTABLE REPORTS</h1><p>Previous finalized versions remain available for audit.</p></div></div>{finalizations.length?<div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>SEASON</th><th>VERSION</th><th>FINAL TIMESTAMP</th><th>MEMBERS</th><th>FINAL REP</th><th>GAIN</th><th>HOURS</th><th>REP/H</th></tr></thead><tbody>{finalizations.map(f=><tr key={`${f.season}-${f.version}`}><td>{f.season}</td><td>v{f.version}</td><td>{new Date(f.final_timestamp).toLocaleString()}</td><td>{f.member_count}</td><td>{fmt(f.total_rep)}</td><td>+{fmt(f.season_gain)}</td><td>{fmtHours(f.total_hours)}</td><td>{fmt(f.avg_rep_per_hour)}</td></tr>)}</tbody></table></div></div>:<div className="empty-state compact"><h3>NO FINALIZED SEASONS</h3><p>A final snapshot appears here only after a verified live sync is locked.</p></div>}</section>}
 
     {view==='final'&&<section><div className="page-head"><div><span className="eyebrow">FINAL RESULTS</span><h1>{latestFinal?.season || data.season}</h1><p>{latestFinal?'FINAL DAY LOCKED':'Not finalized yet'}</p></div>{latestFinal&&<div className="actions"><a className="btn" href={`/api/export?type=final&format=csv&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT CSV</a><a className="btn" href={`/api/export?type=final&format=json&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT JSON</a><button className="btn primary" onClick={()=>window.print()}>PRINT REPORT</button></div>}</div>{latestFinal?<><div className="stats-grid final"><div><span>FINAL REP</span><b>{fmt(latestFinal.total_rep)}</b></div><div><span>TOTAL GAIN</span><b>+{fmt(latestFinal.season_gain)}</b></div><div><span>MEMBERS</span><b>{latestFinal.member_count}</b></div><div><span>TOTAL HOURS</span><b>{fmtHours(latestFinal.total_hours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(latestFinal.avg_rep_per_hour)}</b></div><div><span>LOCKED AT</span><b>{new Date(latestFinal.final_timestamp).toLocaleString()}</b></div></div><div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>FINAL REP</th><th>GAIN</th><th>HOURS</th><th>REP / HR</th></tr></thead><tbody>{(latestFinal.raw_snapshot?.rows||[]).map((r,i)=><tr key={r.id||i}><td>#{i+1}</td><td>{r.member}</td><td>{r.level}</td><td>{fmt(r.rep)}</td><td>+{fmt(r.gain)}</td><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></tr>)}</tbody></table></div></div></>:<div className="empty-state compact"><h3>FINAL DAY NOT LOCKED</h3><p>Locking requires a fresh successful upstream sync and a complete expected roster.</p></div>}</section>}
