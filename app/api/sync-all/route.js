@@ -327,7 +327,7 @@ async function runSyncAll(request) {
       clansSeen: ranking?.rows?.length || 0,
       membersSeen: memberCount,
       trackedMemberClanIds: trackedClanIds,
-    repDrift,
+      repDrift,
       memberErrors,
       memberSources: Object.fromEntries(memberResults.map((result) => [result.clanId, result.source || 'unknown'])),
       sources: sourceStatus,
