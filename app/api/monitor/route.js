@@ -1,6 +1,9 @@
 import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../lib/member-history';
 import { recordRankingSnapshot } from '../../lib/ranking-cache';
 import { parseRankingHtml } from '../../lib/source-parser.mjs';
+import { getConfig } from '../../lib/rep-tracker.js';
+import { buildTrackedClanTargets, parseTrackedClanIds } from '../../lib/member-snapshot.mjs';
+import { getMonitorStatus } from '../../lib/monitor-status.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,7 +39,7 @@ async function fetchMembers(clanId, requestUrl) {
     count: Number(payload?.count || 0),
     source: payload?.stale ? 'last-known' : payload?.staminaSource || payload?.service || 'live',
     members: Array.isArray(payload?.members) ? payload.members : [],
-    stale: Boolean(payload?.stale),
+    stale: Boolean(payload?.stale)
   };
 }
 
@@ -47,12 +50,21 @@ async function monitorClan(clan, season, requestUrl) {
       ...data,
       clanId: clan.clanId,
       clan: clan.clan,
-      history: { stored: false, reason: data.stale ? 'Last-known member data; snapshot not advanced.' : 'No live members returned.' }
+      history: {
+        stored: false,
+        reason: data.stale ? 'Last-known member data; snapshot not advanced.' : 'No live members returned.'
+      },
+      error: data.stale ? 'Live member sources failed; history was not advanced.' : 'No live members returned.'
     };
   }
 
-  const history = await recordMemberSnapshot({ clanId: clan.clanId, season, members: data.members, capturedAt: Date.now() });
-  return { ...data, clanId: clan.clanId, clan: clan.clan, history };
+  const history = await recordMemberSnapshot({
+    clanId: clan.clanId,
+    season,
+    members: data.members,
+    capturedAt: Date.now()
+  });
+  return { ...data, clanId: clan.clanId, clan: clan.clan, history, error: null };
 }
 
 async function persistHeartbeat(payload) {
@@ -64,50 +76,84 @@ async function persistHeartbeat(payload) {
   }
 }
 
+async function resolveTrackedClans(rankingRows) {
+  const config = await getConfig();
+  const fallbackIds = config?.clan_id ? [String(config.clan_id)] : [];
+  const trackedClanIds = parseTrackedClanIds(process.env.TRACKED_CLAN_IDS, fallbackIds);
+  return { trackedClanIds, trackedClans: buildTrackedClanTargets(rankingRows, trackedClanIds) };
+}
+
 export async function GET(request) {
   const startedAt = new Date();
   try {
     const ranking = await collectRanking();
-    const rankingCache = await recordRankingSnapshot(ranking);
-    const withIds = ranking.rows.filter((clan) => clan.clanId);
-    const results = await Promise.allSettled(withIds.map((clan) => monitorClan(clan, ranking.season, request.url)));
-    const membersSeen = results.reduce((sum, result) => sum + (result.status === 'fulfilled' ? result.value.count : 0), 0);
-    const memberErrors = results.filter((result) => result.status === 'rejected').length;
-    const historyStored = results.filter((result) => result.status === 'fulfilled' && result.value.history?.stored).length;
-    const historyChanged = results.filter((result) => result.status === 'fulfilled' && result.value.history?.changed).length;
+    let rankingCache = { stored: false };
+    let rankingCacheError = null;
+
+    try {
+      rankingCache = await recordRankingSnapshot(ranking);
+    } catch (error) {
+      rankingCacheError = error instanceof Error ? error.message : String(error);
+      rankingCache = { stored: false, error: rankingCacheError };
+      console.error('Ranking cache write failed; continuing member monitoring', error);
+    }
+
+    const { trackedClanIds, trackedClans } = await resolveTrackedClans(ranking.rows);
+    const results = await Promise.allSettled(
+      trackedClans.map((clan) => monitorClan(clan, ranking.season, request.url))
+    );
+    const membersSeen = results.reduce((sum, result) => (
+      sum + (result.status === 'fulfilled' ? Number(result.value.count || 0) : 0)
+    ), 0);
+    const memberErrors = results.filter((result) =>
+      result.status === 'rejected' || Boolean(result.value?.error)
+    ).length;
+    const historyStored = results.filter((result) =>
+      result.status === 'fulfilled' && result.value.history?.stored
+    ).length;
+    const historyChanged = results.filter((result) =>
+      result.status === 'fulfilled' && result.value.history?.changed
+    ).length;
     const sourceCounts = {};
+
     results.forEach((result) => {
       if (result.status !== 'fulfilled') return;
       const source = result.value.source || 'unknown';
       sourceCounts[source] = (sourceCounts[source] || 0) + 1;
     });
 
+    const status = getMonitorStatus({ membersSeen, memberErrors, rankingCacheError });
     const finishedAt = new Date();
     const heartbeat = await persistHeartbeat({
-      version: 2,
+      version: 5,
       status: 'active',
+      overall: status,
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
       intervalMs: SYNC_INTERVAL_MS,
       season: ranking.season,
       clansSeen: ranking.rows.length,
-      clansWithMemberData: withIds.length - memberErrors,
+      trackedMemberClanIds: trackedClanIds,
+      clansWithMemberData: trackedClans.length - memberErrors,
       membersSeen,
       memberErrors,
       historyClansStored: historyStored,
       historyClansChanged: historyChanged,
       rankingCacheStored: Boolean(rankingCache?.stored),
+      rankingCacheError,
       rankingRows: ranking.rows.length,
       memberSources: sourceCounts,
-      source: ranking.source,
+      source: ranking.source
     });
 
     return Response.json({
       ok: true,
       mode: 'shared-monitor',
+      status,
       season: ranking.season,
       clansSeen: ranking.rows.length,
-      clansWithMemberData: withIds.length - memberErrors,
+      trackedMemberClanIds: trackedClanIds,
+      clansWithMemberData: trackedClans.length - memberErrors,
       membersSeen,
       memberErrors,
       memberSources: sourceCounts,
@@ -123,17 +169,19 @@ export async function GET(request) {
   } catch (error) {
     const finishedAt = new Date();
     await persistHeartbeat({
-      version: 2,
+      version: 5,
       status: 'error',
+      overall: 'error',
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
       intervalMs: SYNC_INTERVAL_MS,
       source: SOURCE,
-      error: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message : String(error)
     });
     return Response.json({
       ok: false,
       mode: 'shared-monitor',
+      status: 'error',
       historyStorage: storageHealth(),
       error: error instanceof Error ? error.message : String(error),
       finishedAt: finishedAt.toISOString()
