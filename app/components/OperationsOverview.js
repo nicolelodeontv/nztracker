@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
+
 const fmt=(n)=>Number(n||0).toLocaleString();
 const periodLabels={1:'1H',3:'3H',6:'6H',12:'12H',24:'24H',168:'7D'};
 
 export default function OperationsOverview({data,rows,periodHours,setPeriodHours}){
+  const [opsTab,setOpsTab]=useState('overview');
   const global=data?.global||null;
   const ranking=Array.isArray(data?.globalRanking)?data.globalRanking:[];
   const top=[...rows].sort((a,b)=>Number(b.gain||0)-Number(a.gain||0)).slice(0,5);
@@ -17,9 +20,13 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
 
   return <section className="ops-overview" aria-label="Operations overview">
     <div className="ops-tabs" role="tablist" aria-label="Operations sections">
-      <button className={data?.activeOpsPanel==='overview'?'active':''} role="tab" aria-selected={data?.activeOpsPanel==='overview'}>OVERVIEW</button>
+      {[
+        ['overview','OVERVIEW'],
+        ['pace','REP PACE'],
+        ['global','GLOBAL TOP']
+      ].map(([key,label])=><button key={key} className={opsTab===key?'active':''} role="tab" aria-selected={opsTab===key} onClick={()=>setOpsTab(key)}>{label}</button>)}
     </div>
-    <div className="ops-overview-grid">
+    {opsTab==='overview'&&<div className="ops-overview-grid">
       <article className="op-card op-hero">
         <span className="eyebrow">GLOBAL POSITION</span>
         <div className="op-rank">#{global?.rank ?? '—'}</div>
@@ -42,9 +49,9 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
         <div className="op-target-big">{global?.above ? fmt(global.above.reputation) : fmt(global?.reputation)}</div>
         <small>{global?.above ? fmt(global.above.gap)+' REP needed to reach the next rank.' : 'CHAOS is currently the highest ranked tracked clan.'}</small>
       </article>
-    </div>
+    </div>}
 
-    <div className="panel ops-period-panel">
+    {opsTab==='pace'&&<div className="panel ops-period-panel">
       <div className="section-title">
         <div><span className="eyebrow">BURN ANALYSIS</span><h2>REP PACE</h2></div>
         <div className="period-switch" role="group" aria-label="REP analysis period">
@@ -67,9 +74,9 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
           </div>
         </div>
       </div>
-    </div>
+    </div>}
 
-    <div className="panel global-panel">
+    {opsTab==='global'&&<div className="panel global-panel">
       <div className="section-title"><div><span className="eyebrow">GLOBAL RANKING</span><h2>TOP 10 CLANS</h2></div><span>{ranking.length} shown · {data?.global?.capturedAt ? new Date(data.global.capturedAt).toLocaleTimeString() : '—'}</span></div>
       <div className="table-scroll">
         <table className="global-table">
@@ -83,7 +90,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
           </tbody>
         </table>
       </div>
-    </div>
+    </div>}
   </section>;
 }
 
