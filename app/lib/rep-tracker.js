@@ -521,7 +521,7 @@ export async function dashboardData(){
   const syncRuns=syncRunsResult.data||[];
   const successRuns=syncRuns.filter((run)=>run.status==='success');
   const errorRuns=syncRuns.filter((run)=>run.status!=='success');
-  const expectedIntervalMs=Math.max(30,Number(config.sync_interval_seconds||60))*1000;
+  const expectedIntervalMs=Math.max(10,Number(config.sync_interval_seconds||10))*1000;
   const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-since.getTime())/expectedIntervalMs)+1);
   const completedSyncsToday=successRuns.length;
   const missedSyncsToday=Math.max(0,expectedSyncsToday-completedSyncsToday);
