@@ -330,6 +330,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   }, []);
 
   useEffect(() => {
+    if (!['dashboard','members'].includes(view)) return undefined;
     if (!data?.configured || !data?.config?.clan_id || !data?.season) return undefined;
     let cancelled = false;
     const loadPeriods = async () => {
@@ -341,7 +342,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     loadPeriods();
     const timer = setInterval(loadPeriods, PERIOD_HISTORY_REFRESH_INTERVAL_MS);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [data?.configured, data?.config?.clan_id, data?.season]);
+  }, [view, data?.configured, data?.config?.clan_id, data?.season]);
 
   const rows = data?.rows || [];
   const periodRows = useMemo(() => {
