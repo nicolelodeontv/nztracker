@@ -102,7 +102,10 @@ export async function GET(request) {
       sourceDiagnostics:result.live?.sourceDiagnostics||null,
       discoveryStatus,
       rankingStatus,
-      durationMs:result.durationMs||null
+      durationMs:result.durationMs||null,
+      sourceHealth:result.sourceHealth || (memberSource==='legacy'?'degraded':'healthy'),
+      sourceWarning:result.fallbackReason||null,
+      sourceDiagnostics:result.sourceDiagnostics||null
     }).catch((error)=>console.warn('Unable to record sync health',error));
 
     await recordSyncStatus({
