@@ -8,6 +8,9 @@ const members = Array.from({length: 30}, (_, i) => ({ id: String(i + 1), name: `
 const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], season: 'Season 3', capturedAt: new Date(Date.now() - 60_000).toISOString(), source: 'test' };
 const config = { clan_id: '3', clan_name: 'Chaos', current_season: 'Season 3', expected_member_count: 30 };
 
+mock.module(f('app/lib/rep-drift.mjs'), { exports: {
+  readRepDrift: async () => null
+}});
 mock.module(f('app/lib/rep-tracker.js'), { exports: {
   dashboardData: async () => ({ configured: true, config, season: 'Season 3', rows: [], stats: {}, freshness: { status: 'live', ageSeconds: 5 }, lastSuccessfulSyncAt: ranking.capturedAt }),
   recentActivity: async () => [],
