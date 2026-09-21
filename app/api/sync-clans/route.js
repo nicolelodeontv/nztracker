@@ -1,6 +1,6 @@
 import { scrapeClans } from '../../../lib/scraper.mjs';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
-import { requireCronSecret } from '../../../lib/cron-auth.mjs';
+import { requireCronSecret } from '../../../app/lib/cron-auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
