@@ -141,3 +141,14 @@ The unit tests cover member-point sampling, member-history response shape, and m
 | Manual sync workflow fails the jq check | Inspect the JSON response for `membersSeen`, `memberErrors`, and history errors |
 | `/api/sync-status` returns 503 | Read `readErrors.database`; the endpoint no longer hides database read failures |
 | History has no points | Confirm the migration has been run and the service-role/secret key can access the new tables |
+
+## Production Health Monitoring
+
+The sync itself runs only from **Supabase pg_cron** every 5 minutes. GitHub Actions does not schedule production syncs; the full-sync workflow is manual-only diagnostics.
+
+The `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`. It checks:
+
+- `/api/sync-status` with `curl --fail` and requires an active status or a `lastRunAt` within the previous 15 minutes.
+- `/api/dashboard` with `curl --fail` and requires `configured: true`.
+
+No secrets are required. A failing scheduled workflow is surfaced through GitHub Actions and follows the repository owner's Actions notification settings.
