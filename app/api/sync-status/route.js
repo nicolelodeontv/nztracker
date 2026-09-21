@@ -1,4 +1,4 @@
-import { readSyncStatus, storageHealth } from '../../lib/member-history';
+import { readSyncStatus, storageHealth } from '../../lib/member-history.js';
 import { getLatestSync, dbStatus } from '../../../lib/supabase-db.mjs';
 
 export const runtime = 'nodejs';

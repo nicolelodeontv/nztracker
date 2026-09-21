@@ -1,7 +1,7 @@
 import { scrapeClans, scrapeGame } from '../../../lib/scraper.mjs';
-import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
+import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../../app/lib/member-history.js';
 import { requireCronSecret } from '../../../app/lib/cron-auth.mjs';
-import { recordRankingSnapshot } from '../../../app/lib/ranking-cache';
+import { recordRankingSnapshot } from '../../../app/lib/ranking-cache.js';
 import { fetchLiveMembers } from '../../../app/lib/ninja-source.mjs';
 import { buildTrackedClanTargets, parseTrackedClanIds } from '../../../app/lib/member-snapshot.mjs';
 import { summarizeMemberRecording } from '../../../app/lib/member-recording.mjs';

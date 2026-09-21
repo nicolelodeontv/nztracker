@@ -1,4 +1,4 @@
-import { dashboardData, recentActivity, freshness } from '../../lib/rep-tracker';
+import { dashboardData, recentActivity, freshness } from '../../lib/rep-tracker.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
