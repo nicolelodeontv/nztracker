@@ -1,4 +1,5 @@
 import { requireAdmin } from '../../lib/admin-auth.js';
+import { requireCronSecret } from '../../lib/cron-auth.mjs';
 import { getConfig } from '../../lib/rep-tracker.js';
 import { readSyncHealth } from '../../lib/sync-health.mjs';
 
@@ -10,8 +11,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
-  const denied = requireAdmin(request);
-  if (denied) return denied;
+  const deniedAdmin = requireAdmin(request);
+  if (deniedAdmin) {
+    const deniedCron = requireCronSecret(request, '/api/source-debug');
+    if (deniedCron) return deniedAdmin;
+  }
 
   try {
     const [config, health] = await Promise.all([
