@@ -85,7 +85,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
             {ranking.map((row)=><tr key={row.clanId} className={String(row.clanId)===String(data?.config?.clan_id)?'is-chaos':''}>
               <td>#{row.rank}</td><td className="member-name">{row.clan}</td><td>{row.master||'—'}</td><td>{row.memberCurrent}/{row.memberMax}</td><td className="num">{fmt(row.reputation)}</td>
               <td className={(row.change?.rankDelta||0)>0?'up':(row.change?.rankDelta||0)<0?'down':''}>{row.change?.rankDelta>0?'↑'+row.change.rankDelta:row.change?.rankDelta<0?'↓'+Math.abs(row.change.rankDelta):'—'}</td>
-              <td>{row.rank>1?rowankingGap(row,ranking):'—'}</td>
+              <td>{row.rank>1?rankingGap(row,ranking):'—'}</td>
             </tr>)}
           </tbody>
         </table>
@@ -94,7 +94,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
   </section>;
 }
 
-function rowankingGap(row,ranking){
+function rankingGap(row,ranking){
   const above=ranking.find((candidate)=>Number(candidate.rank)===Number(row.rank)-1);
   return above?Math.max(0,Number(above.reputation||0)-Number(row.reputation||0)):0;
 }
