@@ -1,13 +1,15 @@
 # Ninja Zenshin Tracker - Data Sync Implementation
 
+Production: https://chaoszenshintracker.vercel.app
+
 Complete system to automatically sync Ninja Zenshin clan rankings and tracked-member REP history to the tracker.
 
 ## What You're Getting
 
-- Automatically fetch clan data every 5 minutes
+- Automatically fetch the Chaos clan data every 5 minutes
 - Store ranking cache, sync status, and member history in Supabase Postgres
 - Display live, updated clan rankings on the site
-- Track member REP history with 5-minute sampling / REP-change points
+- Track member REP history with 5-minute monitoring windows and REP-change points
 - Retain member history for 30 days
 - Track sync history and errors
 
@@ -26,16 +28,15 @@ Do not expose these as `NEXT_PUBLIC_*` variables.
 
 ## Sync Authorization
 
-Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server authorization:
+`/api/monitor` requires server-to-server authorization on every request:
 
-- `/api/sync-all` — production full sync called by Supabase pg_cron.
-- `/api/sync-clans` — protected legacy sync endpoint.
-- `/api/monitor` — protected manual diagnostic endpoint.
-- `/api/source-debug` — protected upstream source diagnostic endpoint.
+```
+Authorization: Bearer <CRON_SECRET>
+```
 
-When `CRON_SECRET` is unset, these endpoints remain open for backwards compatibility and emit a server-side warning. Once `CRON_SECRET` is configured, requests without the exact `Authorization: Bearer <secret>` header return HTTP 401.
+Missing or incorrect authorization returns HTTP 401. `CRON_SECRET` must exist in Vercel Production and in GitHub Actions secrets. The browser must never receive or store this secret.
 
-The Supabase pg_cron job must send the bearer header. The GitHub Actions manual diagnostic workflow reads the same value from the repository `CRON_SECRET` secret.
+`/api/sync-all` remains available for full-sync diagnostics and backup automation.
 
 The browser must never receive `CRON_SECRET`. The dashboard's background sync intentionally uses `GET /api/sync`, which remains the browser-facing sync exception and relies on the tracker sync interval/lock rather than the cron secret. `/api/clan-members` also remains public because the browser UI calls it directly and the route does not write tracking state.
 
@@ -65,11 +66,20 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 ## Reliability
 
-Production syncing is handled by **Supabase pg_cron**, which is the single 5-minute scheduler. The `nztracker-full-sync-5m` pg_cron job runs every 5 minutes and calls `/api/sync-all`.
+The production trigger is an **external HTTP scheduler running every 5 minutes** and calling:
 
-The repository's `Ninja Zenshin Full Sync` GitHub Actions workflow is kept for **manual diagnostics only** and is not scheduled.
+```
+GET https://chaoszenshintracker.vercel.app/api/monitor
+Authorization: Bearer <CRON_SECRET>
+```
 
-The workflow requires the API response to report more than zero members:
+GitHub Actions also runs the same endpoint every 5 minutes as a redundant backup. The monitor uses a durable five-minute window key so two triggers in the same window do not create duplicate snapshots. Failed windows release their claim so a backup trigger can retry.
+
+Unchanged member snapshots are not written. Existing 30-day retention remains enabled.
+
+Vercel Hobby is not used as the five-minute scheduler; Hobby Cron is not suitable for this cadence.
+
+The backup workflow requires the API response to report a successful or idempotently skipped run:
 
 ```bash
 echo "$response" | jq -e '(.membersSeen // 0) > 0'
@@ -86,27 +96,30 @@ A ranking-cache write failure is isolated from member monitoring so the member p
 ```
 Ninja Zenshin Game
         ↓
-[Supabase pg_cron] (every 5 min)
+[External scheduler] ─┐
+[GitHub Actions backup] ─┤ every 5 min
         ↓
-[API: /api/sync-all]
-        ├── Full clan ranking → Supabase
-        ├── PvE/PvP → Supabase
-        ├── Tracked members → Supabase member history
-        ├── Ranking cache → rep_tracker_kv
-        └── Sync heartbeat → rep_tracker_kv
+[API: /api/monitor]
+        ├── Live Chaos roster/REP → Supabase
+        ├── Sync heartbeat → rep_tracker_kv
+        └── Monitor-window idempotency → rep_tracker_kv
         ↓
 [Next.js APIs / Dashboard]
 ```
+
 
 ## Quick Setup
 
 1. Run `supabase/migrations/20260921112500_supabase_primary_storage.sql` in the production Supabase project.
 2. Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in Vercel as server-only environment variables.
 3. Set `TRACKED_CLAN_IDS` if you want to track one or more specific clans. If unset, `rep_tracker_config.clan_id` is used.
-4. Deploy the application.
-5. Open `/api/health` and confirm `provider: "supabase"` and a durable storage status.
-6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/sync-all` every 5 minutes; verify `membersSeen > 0` and history points are stored.
-7. Open `/api/member-history?clanId=<id>&season=<season>&hours=168` to verify the history response.
+4. In Vercel → Settings → Environment Variables, add `CRON_SECRET` to **Production**.
+5. In GitHub → repository → Settings → Secrets and variables → Actions, add the same `CRON_SECRET` value.
+6. Deploy the application.
+7. Configure an external scheduler to call `GET /api/monitor` every 5 minutes with the bearer header.
+8. Open `/api/health` and confirm `provider: "supabase"` and durable storage.
+9. Confirm `/api/sync-status` reports the latest successful monitor run.
+10. Open `/api/member-history?clanId=<id>&season=<season>&hours=168` to verify the history response.
 
 ## Existing Supabase Tables
 
@@ -142,13 +155,23 @@ The unit tests cover member-point sampling, member-history response shape, and m
 | `/api/sync-status` returns 503 | Read `readErrors.database`; the endpoint no longer hides database read failures |
 | History has no points | Confirm the migration has been run and the service-role/secret key can access the new tables |
 
+## Timezone and Baseline Rules
+
+- The game server is SGT, represented explicitly as IANA `Asia/Singapore`.
+- Today is `00:00–23:59:59 Asia/Singapore`; the day boundary is `16:00 UTC`.
+- Season REP resets each season. Season Gain is current REP minus the season baseline, which defaults to `0` unless the source explicitly provides another baseline.
+- Daily Gain is current REP minus the last accepted REP known at or before the SGT day boundary.
+- The dashboard must not use Vercel/browser local time for day boundaries.
+
 ## Production Health Monitoring
 
-The sync itself runs only from **Supabase pg_cron** every 5 minutes. GitHub Actions does not schedule production syncs; the full-sync workflow is manual-only diagnostics.
+The `Production Health Check` workflow checks `/api/sync-status` and `/api/dashboard`. The monitor itself is driven by the external five-minute scheduler with GitHub Actions as a redundant five-minute backup.
 
-The `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`. It checks:
+A stale monitor is treated as:
 
-- `/api/sync-status` with `curl --fail` and requires an active status or a `lastRunAt` within the previous 15 minutes.
-- `/api/dashboard` with `curl --fail` and requires `configured: true`.
+- **LIVE**: <= 7 minutes since the last successful monitor sync.
+- **AGING**: > 7 and <= 15 minutes.
+- **STALE**: > 15 minutes.
 
-No secrets are required. A failing scheduled workflow is surfaced through GitHub Actions and follows the repository owner's Actions notification settings.
+The dashboard displays an explicit warning when the monitor is delayed or stale.
+
