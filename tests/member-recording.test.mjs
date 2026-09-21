@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { normalizeMembers } from '../app/lib/ninja-source.mjs';
 import { buildRepTrackerSnapshotRows } from '../lib/multisource-db.mjs';
-import { summarizeMemberRecording } from '../app/api/sync-all/route.js';
+import { summarizeMemberRecording } from '../app/lib/member-recording.mjs';
 
 test('ID-free members use normalized names and never member_number', () => {
   const members = normalizeMembers([
