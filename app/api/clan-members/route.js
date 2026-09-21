@@ -199,7 +199,7 @@ export function normalizeMembers(rawMembers) {
     const source = member && typeof member === 'object' ? member : {};
     const nested = source?.stats || source?.attributes || source?.status || {};
     const name = clean(source.name ?? source.username ?? source.player ?? source.character);
-    const reputation = toNumber(source.reputation ?? source.rep ?? source.reputation_gain ?? source.points) ?? 0;
+    const reputation = toNumber(source.reputation ?? source.rep ?? source.points) ?? 0;
     const staminaValue = toNumber(source.stamina ?? source.currentStamina ?? source.staminaCurrent ?? source.sta ?? source.current_sta)
       ?? toNumber(nested.stamina ?? nested.currentStamina ?? nested.staminaCurrent ?? nested.sta ?? nested.current_sta);
     const maxStaminaValue = toNumber(source.maxStamina ?? source.staminaMax ?? source.max_stamina ?? source.staminaLimit ?? source.maxSta)
@@ -208,11 +208,13 @@ export function normalizeMembers(rawMembers) {
     const stamina = staminaValue ?? maxStamina;
 
     return {
-      id: clean(source.id),
+      id: clean(source.id ?? source.memberId ?? source.member_id ?? source.member_number),
       name,
       level: toNumber(source.level) ?? 0,
       reputation,
       reputationGain: toNumber(source.reputation_gain),
+      donatedGold: toNumber(source.donated_gold),
+      donatedToken: toNumber(source.donated_token),
       gain: 0,
       totalGain: 0,
       stamina,
