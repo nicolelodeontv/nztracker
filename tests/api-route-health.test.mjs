@@ -9,6 +9,7 @@ const ranking = { rows:[{clanId:'3',clan:'Chaos',memberCurrent:30}], season:'Sea
 const config={clan_id:'3',clan_name:'Chaos',current_season:'Season 3',expected_member_count:30};
 let monitorMode='success';
 let heartbeatPayloads=[];
+let syncHealthState={consecutiveSuccesses:4,lastHealthyAt:ranking.capturedAt,lastAlertKey:null};
 
 mock.module(f('app/lib/rep-tracker.js'),{exports:{
   dashboardData:async()=>({configured:true,config,season:'Season 3',rows:[],stats:{},freshness:{status:'live',ageSeconds:5},lastSuccessfulSyncAt:ranking.capturedAt}),
@@ -39,6 +40,11 @@ mock.module(f('app/lib/ranking-cache.js'),{exports:{
 }});
 
 mock.module(f('app/lib/monitor-status.mjs'),{exports:{getMonitorStatus:()=> 'success'}});
+mock.module(f('app/lib/sync-health.mjs'),{exports:{
+  readSyncHealth:async()=>syncHealthState,
+  recordSyncHealth:async({outcome='success',at=ranking.capturedAt,error=null}={})=>{syncHealthState={...syncHealthState,lastRunAt:at,lastHealthyAt:outcome==='success'?at:syncHealthState.lastHealthyAt,consecutiveSuccesses:outcome==='success'?Number(syncHealthState.consecutiveSuccesses||0)+1:0,lastError:outcome==='error'?error:syncHealthState.lastError};return syncHealthState;},
+  updateSyncHealthAlert:async({alertKey})=>{syncHealthState={...syncHealthState,lastAlertKey:alertKey};return syncHealthState;}
+}});
 mock.module(f('app/lib/monitor-idempotency.mjs'),{exports:{
   MONITOR_WINDOW_MS:60000,
   claimMonitorWindow:async()=>({claimed:true,key:'monitor-window:test'}),
@@ -47,11 +53,12 @@ mock.module(f('app/lib/monitor-idempotency.mjs'),{exports:{
   pruneMonitorWindows:async()=>({})
 }});
 
-const [{GET:dashboardGET},{GET:syncStatusGET},{GET:syncAllGET},{GET:monitorGET}]=await Promise.all([
+const [{GET:dashboardGET},{GET:syncStatusGET},{GET:syncAllGET},{GET:monitorGET},{GET:monitorHealthGET}]=await Promise.all([
   import('../app/api/dashboard/route.js'),
   import('../app/api/sync-status/route.js'),
   import('../app/api/sync-all/route.js'),
-  import('../app/api/monitor/route.js')
+  import('../app/api/monitor/route.js'),
+  import('../app/api/monitor-health/route.js')
 ]);
 
 const request=(path,token)=>new Request('https://example.test'+path,token?{headers:{authorization:'Bearer '+token}}:undefined);
@@ -108,3 +115,15 @@ test('monitor records an error heartbeat when tracker sync fails',async()=>{
     delete process.env.CRON_SECRET;
   }
 });
+
+test('monitor-health returns a healthy status with shared auth',async()=>{
+  process.env.CRON_SECRET=secret;
+  const r=await monitorHealthGET(request('/api/monitor-health',secret));
+  const b=await body(r);
+  assert.equal(r.status,200);
+  assert.equal(b.ok,true);
+  assert.equal(b.healthy,true);
+  assert.deepEqual(b.problems,[]);
+  delete process.env.CRON_SECRET;
+});
+
