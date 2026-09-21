@@ -16,6 +16,7 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
   dashboardData:async()=>({configured:true,config,season:'Season 3',rows:[],stats:{},freshness:{status:'live',ageSeconds:5},lastSuccessfulSyncAt:ranking.capturedAt}),
   recentActivity:async()=>[],
   freshness:()=>({status:'live',ageSeconds:5}),
+  liveData:async()=>({configured:true,config,season:'Season 3',rows:members,stats:{totalRep:30300,activeMembers:30},freshness:{status:'live',ageSeconds:5}}),
   syncTracker:async()=>{
     if(monitorMode==='error')throw new Error('test monitor failure');
     return {
@@ -48,15 +49,16 @@ mock.module(f('app/lib/sync-health.mjs'),{exports:{
   updateSyncHealthAlert:async({alertKey})=>{syncHealthState={...syncHealthState,lastAlertKey:alertKey};return syncHealthState;}
 }});
 mock.module(f('app/lib/monitor-idempotency.mjs'),{exports:{
-  MONITOR_WINDOW_MS:60000,
+  MONITOR_WINDOW_MS:10000,
   claimMonitorWindow:async()=>({claimed:true,key:'monitor-window:test'}),
   completeMonitorWindow:async()=>({key:'monitor-window:test'}),
   releaseMonitorWindow:async()=>({key:'monitor-window:test',released:true}),
   pruneMonitorWindows:async()=>({})
 }});
 
-const [{GET:dashboardGET},{GET:syncStatusGET},{GET:syncAllGET},{GET:monitorGET},{GET:monitorHealthGET}]=await Promise.all([
+const [{GET:dashboardGET},{GET:liveGET},{GET:syncStatusGET},{GET:syncAllGET},{GET:monitorGET},{GET:monitorHealthGET}]=await Promise.all([
   import('../app/api/dashboard/route.js'),
+  import('../app/api/live/route.js'),
   import('../app/api/sync-status/route.js'),
   import('../app/api/sync-all/route.js'),
   import('../app/api/monitor/route.js'),
@@ -75,14 +77,24 @@ test('dashboard handler returns its real JSON shape',async()=>{
   assert.equal(b.freshness.status,'live');
 });
 
-test('sync-status handler returns one-minute cadence',async()=>{
+test('live handler returns a lightweight current-member payload',async()=>{
+  const r=await liveGET();
+  const b=await body(r);
+  assert.equal(r.status,200);
+  assert.equal(b.ok,true);
+  assert.equal(b.configured,true);
+  assert.equal(b.rows.length,30);
+  assert.equal(b.stats.activeMembers,30);
+});
+
+test('sync-status handler returns ten-second cadence',async()=>{
   const r=await syncStatusGET();
   const b=await body(r);
   assert.equal(r.status,200);
   assert.equal(b.status,'active');
   assert.equal(b.overall,'success');
   assert.equal(b.membersSeen,30);
-  assert.equal(b.intervalMs,60000);
+  assert.equal(b.intervalMs,10000);
 });
 
 test('legacy sync-all alias uses monitor authorization',async()=>{
@@ -100,7 +112,7 @@ test('monitor executes with correct secret',async()=>{
   assert.equal(b.membersSeen,30);
   assert.equal(b.rankingRows,1);
   assert.equal(b.rankingCache.stored,true);
-  assert.equal(heartbeatPayloads.at(-1)?.intervalMs,60000);
+  assert.equal(heartbeatPayloads.at(-1)?.intervalMs,10000);
   delete process.env.CRON_SECRET;
 });
 
