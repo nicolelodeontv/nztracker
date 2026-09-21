@@ -1,7 +1,11 @@
-import { adminCookieOptions, issueAdminCookie, ADMIN_COOKIE_NAME } from '../../../lib/admin-auth';
+import { adminCookieOptions, issueAdminCookie, isAdmin, ADMIN_COOKIE_NAME } from '../../../lib/admin-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+export async function GET(request) {
+  return Response.json({ admin: isAdmin(request) }, { headers: { 'Cache-Control': 'no-store' } });
+}
 
 export async function POST(request) {
   const body = await request.json().catch(() => ({}));
