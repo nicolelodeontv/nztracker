@@ -117,7 +117,10 @@ function snapshotMetricsEqual(a,b){
     && Number(a?.reputation || 0) === Number(b?.reputation || 0)
     && (a?.stamina == null ? null : Number(a.stamina)) === (b?.stamina == null ? null : Number(b.stamina))
     && (a?.max_stamina == null ? null : Number(a.max_stamina)) === (b?.max_stamina == null ? null : Number(b.max_stamina))
-    && String(a?.source || '') === Strinexport async function syncTracker({force=false,admin='system'}={}) {
+    && String(a?.source || '') === String(b?.source || '');
+}
+
+export async function syncTracker({force=false,admin='system'}={}) {
   const lockKey='main';
   if(syncLocks.has(lockKey))return syncLocks.get(lockKey);
   const task=(async()=>{
