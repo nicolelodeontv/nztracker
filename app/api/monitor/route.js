@@ -64,7 +64,11 @@ export async function GET(request) {
     const rankingRows = Array.isArray(ranking?.rows) ? ranking.rows.length : undefined;
     const rankingStatus = result.reused
       ? (result.lastDetails?.rankingStatus || 'cached')
-      : (rankingRows ? (result.discovery?.stale ? 'cached-stale' : 'fresh') : 'unavailable');
+      : (rankingRows
+        ? (result.discovery?.fromCache
+          ? (result.discovery?.stale ? 'cached-stale' : 'cached')
+          : 'fresh')
+        : 'unavailable');
     const memberSource = result.live?.service === 'legacy-live' ? 'legacy' : result.live?.service ? 'amf' : null;
     const discoveryStatus = result.discoveryStatus || (result.discoveryError ? 'stale' : 'fresh');
     const memberStatus = result.memberStatus || (result.reused ? 'success' : 'unknown');
