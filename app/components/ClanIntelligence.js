@@ -8,6 +8,8 @@ import { downloadCsv } from '../lib/csv';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
 const fmtRate = (n) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const fmtSigned = (n) => n === null || n === undefined ? '—' : `${Number(n) > 0 ? '+' : ''}${fmt(n)}`;
+const donationPair = (gold, token) => `${fmtSigned(gold)} / ${fmtSigned(token)}`;
 
 export default function ClanIntelligence({ clan, rows, intel, events, alerts, periodHours, setPeriodHours, eventFilter, setEventFilter }) {
   if (!clan) return <div className="nz-empty">Select a clan to open clean clan intelligence.</div>;
@@ -114,7 +116,7 @@ export default function ClanIntelligence({ clan, rows, intel, events, alerts, pe
         </div>
         <div className="nz-table-wrap nz-member-intel-wrap">
           <table className="nz-member-intel-table">
-            <thead><tr><th>MEMBER</th><th>REP</th><th>GAIN</th><th>GAIN / HR</th><th>STATUS</th></tr></thead>
+            <thead><tr><th>MEMBER</th><th>REP</th><th>GAIN</th><th>GAIN / HR</th><th>STATUS</th><th>GOLD</th><th>TOKEN</th><th>PREV G/T</th><th>1H G/T</th><th>6H G/T</th><th>24H G/T</th></tr></thead>
             <tbody>
               {rows.length ? rows.map((m) => (
                 <tr key={m.id}>
@@ -123,6 +125,12 @@ export default function ClanIntelligence({ clan, rows, intel, events, alerts, pe
                   <td className={`gain ${m.gain > 0 ? 'has-gain' : 'zero-gain'}`}>{m.gain > 0 ? `+${fmt(m.gain)}` : '0'}</td>
                   <td className="rate">{m.gain > 0 ? `${fmtRate(m.gainPerHour)}/hr` : '—'}</td>
                   <td><span className={`nz-status ${String(m.status).toLowerCase().replace(/\s+/g,'-')}`}>{m.status}</span></td>
+                  <td>{m.donatedGold === null ? '—' : fmt(m.donatedGold)}</td>
+                  <td>{m.donatedToken === null ? '—' : fmt(m.donatedToken)}</td>
+                  <td>{donationPair(m.donationGainGold, m.donationGainToken)}</td>
+                  <td>{donationPair(m.donationGainGold1H, m.donationGainToken1H)}</td>
+                  <td>{donationPair(m.donationGainGold6H, m.donationGainToken6H)}</td>
+                  <td>{donationPair(m.donationGainGold24H, m.donationGainToken24H)}</td>
                 </tr>
               )) : <tr><td colSpan="5" className="nz-empty-row">No member intelligence data available yet.</td></tr>}
             </tbody>
