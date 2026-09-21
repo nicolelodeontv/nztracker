@@ -188,7 +188,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     const cached = readDashboardCache();
     if (initialData) {
       writeDashboardCache(initialData);
-      triggerBackgroundSync();
+      refresh().then(() => triggerBackgroundSync());
     } else if (cached?.data) {
       setData(cached.data);
       setDashboardError('');
