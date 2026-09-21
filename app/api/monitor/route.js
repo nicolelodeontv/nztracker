@@ -92,7 +92,7 @@ export async function GET(request) {
     await recordSyncStatus({
       version: 6,
       status: 'active',
-      overall: status,
+      overall: finalStatus,
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
       intervalMs: SYNC_INTERVAL_MS,
@@ -122,7 +122,7 @@ export async function GET(request) {
     return Response.json({
       ok: true,
       mode: 'monitor',
-      status,
+      status: finalStatus,
       reused: Boolean(result.reused),
       season: result.season || result.config?.current_season || null,
       clanId: result.config?.clan_id || null,
@@ -168,7 +168,18 @@ export async function GET(request) {
       console.error('Unable to persist monitor error heartbeat', heartbeatError);
     }
 
-    console.error('monitor failed', error);
+    await recordSyncHealth({
+      outcome:'error',
+      at:finishedAt.toISOString(),
+      error:error instanceof Error ? error.message : String(error),
+      memberStatus:'error',
+      memberSource:null,
+      discoveryStatus:'error',
+      rankingStatus:'unavailable',
+      durationMs:finishedAt.getTime()-startedAt.getTime()
+    }).catch((healthError)=>console.warn('Unable to persist monitor failure health',healthError));
+
+        console.error('monitor failed', error);
     return Response.json({
       ok: false,
       status: 'error',
