@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate } from '../lib/dashboard-client.mjs';
+import { buildMemberRows } from '../lib/metrics.js';
+import OperationsOverview from './OperationsOverview.js';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
 const fmtHours = (n) => Number(n || 0).toFixed(2);
@@ -76,20 +78,69 @@ function LineChart({ points }) {
   return <svg className="chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="REP progression"><path d="M 0 96 L 100 96" className="chart-axis"/><path d={path} className="chart-line" /></svg>;
 }
 
-function MemberDrawer({ member, onClose }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState('');
-  useEffect(() => { if (!member) return; api(`/api/members?id=${encodeURIComponent(member.id)}`).then(setData).catch(e => setError(e.message)); }, [member]);
-  if (!member) return null;
-  return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer" onClick={e => e.stopPropagation()}>
-    <div className="drawer-head"><div><span className="eyebrow">CHAOS MEMBER</span><h2>{member.member}</h2><p>Level {member.level} · ID {member.id}</p></div><button className="icon-btn" onClick={onClose}>×</button></div>
-    {error && <div className="notice bad">{error}</div>}
-    {!data ? <div className="loading">LOADING HISTORY…</div> : <>
-      <div className="mini-stats"><div><span>CURRENT REP</span><b>{fmt(member.rep)}</b></div><div><span>SEASON GAIN</span><b>+{fmt(member.gain)}</b></div><div><span>TODAY</span><b>+{fmt(member.todayGain)}</b></div><div><span>REP / HR</span><b>{fmt(member.repPerHour)}</b></div></div>
-      <div className="panel inset"><div className="section-title"><div><span className="eyebrow">PROGRESSION</span><h3>REP OVER TIME</h3></div><span>{data.points?.length || 0} snapshots</span></div><LineChart points={data.points}/></div>
-      <div className="panel inset"><div className="section-title"><div><span className="eyebrow">HISTORY</span><h3>RECENT SNAPSHOTS</h3></div></div><div className="timeline">{(data.points || []).slice(-30).reverse().map((p, i, arr) => { const next = arr[i+1]; const delta = next ? Number(p.reputation)-Number(next.reputation) : 0; return <div className="timeline-row" key={`${p.captured_at}-${i}`}><time>{new Date(p.captured_at).toLocaleString()}</time><b>{fmt(p.reputation)}</b><em className={delta > 0 ? 'up' : delta < 0 ? 'down' : ''}>{delta > 0 ? `+${fmt(delta)}` : delta < 0 ? fmt(delta) : '—'}</em></div>; })}</div></div>
-    </>}
-  </aside></div>;
+function SyncCountdown({target}) {
+  const [now,setNow]=useState(Date.now());
+  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
+  if(!target)return <span className="sync-countdown">NEXT SYNC —</span>;
+  const seconds=Math.max(0,Math.ceil((new Date(target).getTime()-now)/1000));
+  return <span className="sync-countdown">NEXT SYNC {seconds<60?seconds+'s':Math.ceil(seconds/60)+'m'}</span>;
+}
+
+function MemberDrawer({member,onClose}) {
+  const [data,setData]=useState(null);
+  const [error,setError]=useState('');
+  const [refreshing,setRefreshing]=useState(false);
+  const [repChanged,setRepChanged]=useState(false);
+  const drawerRef=useRef(null);
+
+  const load=async({silent=false}={})=>{
+    if(!silent)setRefreshing(true);
+    try{
+      const next=await api('/api/members?id='+encodeURIComponent(member.id));
+      setData((previous)=>{
+        if(previous?.summary && next?.summary && Number(previous.summary.rep)!==Number(next.summary.rep)){
+          setRepChanged(true);
+          window.setTimeout(()=>setRepChanged(false),1800);
+        }
+        return next;
+      });
+      setError('');
+    }catch(e){setError(e.message);}
+    finally{if(!silent)setRefreshing(false);}
+  };
+
+  useEffect(()=>{
+    if(!member)return;
+    load();
+    const timer=setInterval(()=>load({silent:true}),60000);
+    drawerRef.current?.focus();
+    const onKey=(event)=>{if(event.key==='Escape')onClose();};
+    window.addEventListener('keydown',onKey);
+    return()=>{clearInterval(timer);window.removeEventListener('keydown',onKey);};
+  },[member?.id]);
+
+  if(!member)return null;
+  const summary=data?.summary||member;
+  return <div className="drawer-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)onClose();}}>
+    <aside ref={drawerRef} className="drawer" role="dialog" aria-modal="true" aria-labelledby="member-drawer-title" tabIndex="-1" onMouseDown={(event)=>event.stopPropagation()}>
+      <div className="drawer-head">
+        <div><span className="eyebrow">CHAOS MEMBER · LIVE</span><h2 id="member-drawer-title">{summary.member||summary.member_name||member.member}</h2><p>Level {summary.level} · {data?.season||'Current season'}</p></div>
+        <button className="icon-btn" aria-label="Close member details" onClick={onClose}>×</button>
+      </div>
+      {error&&<div className="notice bad">{error}</div>}
+      {!data?<div className="loading">LOADING LIVE HISTORY…</div>:<>
+        <div className="mini-stats">
+          <div className={repChanged?'rep-pulse':''}><span>CURRENT REP</span><b>{fmt(summary.rep)}</b></div>
+          <div><span>SEASON GAIN</span><b>+{fmt(summary.gain)}</b></div>
+          <div><span>TODAY</span><b>+{fmt(summary.todayGain)}</b></div>
+          <div><span>REP / HR</span><b>{fmt(summary.repPerHour)}</b></div>
+        </div>
+        <div className="drawer-live-meta"><span className="live-dot"></span><b>{refreshing?'UPDATING':'LIVE'}</b><span>LAST CHECK {age(summary.capturedAt||data.updatedAt||null)}</span></div>
+        <div className="panel inset"><div className="section-title"><div><span className="eyebrow">PROGRESSION</span><h3>REP OVER TIME</h3></div><span>{data.points?.length||0} snapshots</span></div><LineChart points={data.points}/></div>
+        <div className="panel inset"><div className="section-title"><div><span className="eyebrow">HISTORY</span><h3>RECENT SNAPSHOTS</h3></div></div><div className="timeline">{(data.points||[]).slice(-30).reverse().map((p,i,arr)=>{const next=arr[i+1];const delta=next?Number(p.reputation)-Number(next.reputation):0;return <div className="timeline-row" key={String(p.captured_at)+'-'+i}><time>{new Date(p.captured_at).toLocaleString()}</time><b>{fmt(p.reputation)}</b><em className={delta>0?'up':delta<0?'down':''}>{delta>0?'+'+fmt(delta):delta<0?fmt(delta):'—'}</em></div>;})}</div></div>
+      </>}
+    </aside>
+  </div>;
 }
 
 export default function RepTrackerDashboard({ initialView = 'dashboard', initialData = null, initialError = '' }) {
@@ -109,6 +160,8 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   const [dashboardError, setDashboardError] = useState(initialError);
   const [dashboardRefreshing, setDashboardRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [periodHistory, setPeriodHistory] = useState(null);
+  const [periodHours, setPeriodHours] = useState(6);
   const syncInFlight = useRef(false);
   const refreshGate = useRef(null);
   if (!refreshGate.current) refreshGate.current = createRefreshGate();
@@ -213,7 +266,26 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     };
   }, []);
 
+  useEffect(() => {
+    if (!data?.configured || !data?.config?.clan_id || !data?.season) return undefined;
+    let cancelled = false;
+    const loadPeriods = async () => {
+      try {
+        const result = await api('/api/member-history?clanId='+encodeURIComponent(data.config.clan_id)+'&season='+encodeURIComponent(data.season)+'&hours=168');
+        if (!cancelled) setPeriodHistory(result);
+      } catch {}
+    };
+    loadPeriods();
+    const timer = setInterval(loadPeriods, 60000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [data?.configured, data?.config?.clan_id, data?.season]);
+
   const rows = data?.rows || [];
+  const periodRows = useMemo(() => {
+    const currentMembers = rows.map((row)=>({id:row.id,name:row.member,reputation:row.rep,level:row.level}));
+    if (!periodHistory?.members) return rows;
+    return buildMemberRows(currentMembers, periodHistory.members, periodHours, Date.now());
+  }, [rows, periodHistory, periodHours]);
   const top = useMemo(() => [...rows].sort((a,b) => b.todayGain - a.todayGain).slice(0,5), [rows]);
   const activity = data?.activity || [];
   const latestFinal = finalizations[0];
@@ -254,7 +326,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   return <main className="ops-app">
     <header className="ops-header">
       <div className="brand"><div className="mark">C</div><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div>
-      <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>LAST SYNC {age(data.freshness?.ageSeconds)}</span></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
+      <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>LAST SYNC {age(data.freshness?.ageSeconds)}</span><SyncCountdown target={data.syncStatus?.nextExpectedAt}/></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
     {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
@@ -264,8 +336,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
 
     {view==='dashboard'&&<>
       <section className="season-band"><div><span className="eyebrow">SEASON</span><h1>{data.season}</h1><p>Clan {data.config.clan_name} · ID {data.config.clan_id} {data.config.current_round?`· Round ${data.config.current_round}`:''}</p></div><div className="season-box"><span>FINAL DAY IN</span><Countdown target={data.config.final_day_at}/></div><div className="season-box"><span>SERVER TIME</span><b>{new Date(data.serverTime).toLocaleString()}</b></div></section>
+      <OperationsOverview data={data} rows={periodRows} periodHours={periodHours} setPeriodHours={setPeriodHours} />
       <section className="stats-grid"><div><span>TOTAL CLAN REP</span><b>{fmt(data.stats.totalRep)}</b></div><div><span>TODAY'S GAIN</span><b className="up">+{fmt(data.stats.todayGain)}</b></div><div><span>SEASON GAIN</span><b>+{fmt(data.stats.totalGain)}</b></div><div><span>ACTIVE MEMBERS</span><b>{data.stats.activeMembers}</b></div><div><span>TRACKED HOURS</span><b>{fmtHours(data.stats.totalHours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(data.stats.avgRepPerHour)}</b></div></section>
-      <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th><th>HOURS</th><th>REP / HR</th><th>STATUS</th></tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} onClick={()=>setSelected(r)}><td>#{i+1}</td><td className="member-name">{r.member}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':''}>{r.gain>0?`+${fmt(r.gain)}`:fmt(r.gain)}</td><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td><td><span className={`status ${r.status}`}>{r.suspicious?'SUSPICIOUS':r.status.toUpperCase()}</span></td></tr>)}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
+      <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th><th>HOURS</th><th>REP / HR</th><th>STATUS</th></tr></thead><tbody>{rows.map((r,i)=><tr key={r.id} className={r.lastPointAt&&Date.now()-new Date(r.lastPointAt).getTime()<90000?'recent-change':''} tabIndex="0" role="button" aria-label={'Open details for '+r.member} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelected(r);}}} onClick={()=>setSelected(r)}><td>#{i+1}</td><td className="member-name">{r.member}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':''}>{r.gain>0?`+${fmt(r.gain)}`:fmt(r.gain)}</td><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td><td><span className={`status ${r.status}`}>{r.suspicious?'SUSPICIOUS':r.status.toUpperCase()}</span></td></tr>)}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
       <section className="two-col"><div className="panel"><div className="section-title"><div><span className="eyebrow">RECENT REP ACTIVITY</span><h3>LATEST GAINS</h3></div></div><div className="activity">{activity.map((e,i)=><div key={i}><b>{e.member}</b><span className="up">+{fmt(e.gain)}</span><time>{new Date(e.at).toLocaleTimeString()}</time></div>)}{!activity.length&&<div className="chart-empty">NO GAIN EVENTS STORED</div>}</div></div><div className="panel"><div className="section-title"><div><span className="eyebrow">TOP GAINERS TODAY</span><h3>PERFORMANCE</h3></div></div><div className="top-list">{top.map((r,i)=><div key={r.id}><b>{String(i+1).padStart(2,'0')}</b><span>{r.member}</span><strong>+{fmt(r.todayGain)}</strong><em>{fmt(r.repPerHour)}/h</em></div>)}</div></div></section>
       {data.stats.suspiciousCount>0&&<section className="notice bad">{data.stats.suspiciousCount} suspicious REP decrease snapshot(s) retained for audit. No value was discarded.</section>}
     </>}

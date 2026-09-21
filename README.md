@@ -4,12 +4,12 @@ Complete system to automatically sync Ninja Zenshin clan rankings and tracked-me
 
 ## What You're Getting
 
-- Automatically fetch clan data every 5 minutes
-- Store ranking cache, sync status, and member history in Supabase Postgres
-- Display live, updated clan rankings on the site
-- Track member REP history with 5-minute sampling / REP-change points
-- Retain member history for 30 days
-- Track sync history and errors
+- Automatically monitor clan rankings every minute
+- Store current rankings, member state, sync status, ranking history, and REP history in Supabase Postgres
+- Display live, updated clan rankings and Chaos operations on the site
+- Track member REP changes with live member heartbeats
+- Retain member and ranking history for 30 days
+- Keep sync history and errors auditable
 
 ## Storage
 
@@ -65,9 +65,9 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 ## Reliability
 
-Production syncing is handled by **Supabase pg_cron**, which is the single 5-minute scheduler. The `nztracker-full-sync-5m` pg_cron job runs every 5 minutes and calls `/api/sync-all`.
+Production syncing is handled by **Supabase pg_cron**, which is the single one-minute scheduler. The `nztracker-full-sync-5m` pg_cron job runs every minute and calls `/api/monitor`. Its existing name is retained to avoid creating a duplicate scheduler.
 
-The repository's `Ninja Zenshin Full Sync` GitHub Actions workflow is kept for **manual diagnostics only** and is not scheduled.
+The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary.
 
 The workflow requires the API response to report more than zero members:
 
@@ -86,12 +86,11 @@ A ranking-cache write failure is isolated from member monitoring so the member p
 ```
 Ninja Zenshin Game
         ↓
-[Supabase pg_cron] (every 5 min)
+[Supabase pg_cron] (every 1 min)
         ↓
-[API: /api/sync-all]
-        ├── Full clan ranking → Supabase
-        ├── PvE/PvP → Supabase
-        ├── Tracked members → Supabase member history
+[API: /api/monitor]
+        ├── Full clan ranking → canonical ranking cache + ranking history
+        ├── Tracked members → canonical member state + REP history
         ├── Ranking cache → rep_tracker_kv
         └── Sync heartbeat → rep_tracker_kv
         ↓
@@ -105,23 +104,27 @@ Ninja Zenshin Game
 3. Set `TRACKED_CLAN_IDS` if you want to track one or more specific clans. If unset, `rep_tracker_config.clan_id` is used.
 4. Deploy the application.
 5. Open `/api/health` and confirm `provider: "supabase"` and a durable storage status.
-6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/sync-all` every 5 minutes; verify `membersSeen > 0` and history points are stored.
+6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/monitor` every minute; verify `membersSeen > 0` and history points are stored.
 7. Open `/api/member-history?clanId=<id>&season=<season>&hours=168` to verify the history response.
 
-## Existing Supabase Tables
+## Canonical Supabase Tables
 
-The implementation continues to reuse the existing:
+The active application uses:
 
 - `rep_tracker_config`
 - `rep_tracker_seasons`
 - `rep_tracker_members`
+- `rep_tracker_member_latest`
 - `rep_tracker_snapshots`
+- `rep_tracker_member_points`
+- `rep_tracker_ranking_history`
 - `rep_tracker_sync_runs`
 - `rep_tracker_audit_log`
-- `sync_runs`
-- ranking and leaderboard tables
+- `rep_tracker_finalizations`
+- `rep_tracker_hours`
+- `rep_tracker_kv`
 
-No duplicate season, audit, or sync-run tables are introduced.
+The legacy ranking, leaderboard, clan-member, sync-log, and old clan-history tables are retired by the staged cleanup migration.
 
 ## Testing
 
@@ -144,7 +147,7 @@ The unit tests cover member-point sampling, member-history response shape, and m
 
 ## Production Health Monitoring
 
-The sync itself runs only from **Supabase pg_cron** every 5 minutes. GitHub Actions does not schedule production syncs; the full-sync workflow is manual-only diagnostics.
+The sync itself runs from **Supabase pg_cron** every minute. GitHub Actions does not schedule production syncs; the full-sync workflow is manual-only diagnostics.
 
 The `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`. It checks:
 
@@ -152,3 +155,19 @@ The `Production Health Check` workflow runs every 15 minutes plus `workflow_disp
 - `/api/dashboard` with `curl --fail` and requires `configured: true`.
 
 No secrets are required. A failing scheduled workflow is surfaced through GitHub Actions and follows the repository owner's Actions notification settings.
+
+
+## Canonical data model
+
+The current dashboard reads current member state from `rep_tracker_member_latest` and current global clan rankings from `rep_tracker_kv` (`ranking-cache:latest`). Ranking history is sampled into `rep_tracker_ranking_history` and retained for 30 days.
+
+The older multi-source ranking, leaderboard, and sync tables are retired by `20260921150100_remove_legacy_storage.sql`. Apply that migration only after the canonical application has been deployed and the production smoke test passes.
+
+The dashboard exposes:
+- one-minute sync countdown and freshness
+- global clan rank, gap to the next rank, and pace estimate
+- 1H / 3H / 6H / 12H / 24H / 7D REP burn analysis
+- needs-attention member signals
+- live member detail refresh with keyboard-accessible drawer controls
+
+Production deployments include a smoke test for `/api/sync-status`, `/api/health`, and `/api/dashboard`.

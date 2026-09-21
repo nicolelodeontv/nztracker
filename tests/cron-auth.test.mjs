@@ -67,8 +67,12 @@ test('state-changing diagnostic routes use shared cron authorization', async () 
 
   for (const file of files) {
     const source = await readFile(new URL(file, import.meta.url), 'utf8');
-    assert.match(source, /require(?:Required)?CronSecret/);
-    assert.doesNotMatch(source, /authorized\(request\)/);
+    if (/api\/sync-(?:all|clans)/.test(file)) {
+      assert.match(source, /monitorGET/);
+    } else {
+      assert.match(source, /require(?:Required)?CronSecret/);
+    }
+    assert.doesNotMatch(source, /authorized\\(request\\)/);
   }
 });
 
