@@ -107,7 +107,7 @@ export function normalizeMembers(rawMembers){
 async function fromAmf(clanId){
   const started=Date.now();
   try{
-    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:RANKING_SOURCE,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}}},{timeoutMs:AMF_TIMEOUT_MS,maxAttempts:AMF_MAX_ATTEMPTS,retryDelays:[]});
+    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:RANKING_SOURCE,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}},{timeoutMs:AMF_TIMEOUT_MS,maxAttempts:AMF_MAX_ATTEMPTS,retryDelays:[]});
     const bytes=new Uint8Array(await response.arrayBuffer());
     if(!response.ok)throw new Error(`AMF service returned HTTP ${response.status}.`);
     if(!bytes.length)throw new Error('AMF service returned an empty response.');
