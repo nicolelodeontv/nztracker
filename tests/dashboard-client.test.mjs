@@ -46,6 +46,7 @@ test('refresh gate coalesces overlapping refresh calls', async () => {
   }, { force: true });
 
   assert.strictEqual(first, second);
+  await Promise.resolve();
   assert.equal(calls, 1);
 
   resolveTask();
