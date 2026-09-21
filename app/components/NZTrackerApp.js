@@ -6,12 +6,12 @@ import LeaderboardTable from './LeaderboardTable';
 import SyncStatusPanel from './SyncStatusPanel';
 import ClanIntelligence from './ClanIntelligence';
 import { buildMemberRows, deriveAlerts, deriveEvents } from '../lib/metrics';
+import { formatSeasonCountdown } from '../lib/season-countdown';
 
 const RANKING_REFRESH_MS = 30000;
 const OPS_REFRESH_MS = 10000;
 const BOARD_REFRESH_MS = 30000;
 const MEMBER_REFRESH_MS = 30000;
-const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
 async function readJson(url) {
   const response = await fetch(url, { cache: 'no-store', headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' } });
@@ -43,7 +43,7 @@ export default function NZTrackerApp() {
   const [leaderboardMeta, setLeaderboardMeta] = useState({ pve: null, pvp: null });
   const [leaderboardErrors, setLeaderboardErrors] = useState({});
   const [season, setSeason] = useState('Season 2');
-  const [seasonEnd, setSeasonEnd] = useState(FALLBACK_SEASON_END);
+  const [seasonEnd, setSeasonEnd] = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
   const [rankingState, setRankingState] = useState('LOADING');
   const [rankingError, setRankingError] = useState('');
@@ -68,7 +68,7 @@ export default function NZTrackerApp() {
       if (captured) clockOffsetRef.current = new Date(captured).getTime() - Date.now();
       setClans(rows);
       setSeason(data.season || rows[0]?.season || 'Season 2');
-      setSeasonEnd(data.seasonEndsAt || FALLBACK_SEASON_END);
+      setSeasonEnd(data.seasonEndsAt || null);
       setUpdatedAt(captured);
       setRankingState('LIVE');
       setRankingError('');
@@ -140,10 +140,7 @@ export default function NZTrackerApp() {
     const burn = rows.filter((row) => row.current < 10000).sort((a, b) => a.current - b.current);
     return { gain, hour: gain / Math.max(periodHours, 1), active, recent, idle, noGain, missing, reset, top, burn };
   }, [rows, periodHours]);
-  const countdown = useMemo(() => {
-    const total = Math.max(0, Math.floor((new Date(seasonEnd).getTime() - syncedNow) / 1000));
-    return `${Math.floor(total / 86400)}d ${String(Math.floor(total / 3600) % 24).padStart(2, '0')}h ${String(Math.floor(total / 60) % 60).padStart(2, '0')}m ${String(total % 60).padStart(2, '0')}s`;
-  }, [seasonEnd, syncedNow]);
+  const countdown = useMemo(() => formatSeasonCountdown(seasonEnd, syncedNow), [seasonEnd, syncedNow]);
 
   const pveAge = leaderboardMeta.pve?.capturedAt || null;
   const pvpAge = leaderboardMeta.pvp?.capturedAt || null;
