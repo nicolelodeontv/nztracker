@@ -33,7 +33,7 @@ export async function recordSyncHealth({
     version:3,
     lastRunAt:at,
     lastHealthyAt:isHealthy?at:(previous?.lastHealthyAt||null),
-    lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||previous?.lastErrorAt||null),
+    lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||null),
     lastError:outcome==='error'?String(error||'Sync failed.'):null,
     lastMemberSuccessAt:memberStatus==='success'?at:(previous?.lastMemberSuccessAt||null),
     lastRankingFreshAt:rankingStatus==='fresh'?at:(previous?.lastRankingFreshAt||null),
