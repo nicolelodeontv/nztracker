@@ -90,13 +90,13 @@ export function decodePacket(bytes) {
 
 export function normalizeMember(member) {
   const name = String(member?.name ?? member?.username ?? member?.player ?? member?.character ?? '').trim();
-  const id = String(member?.id ?? member?.memberId ?? member?.member_id ?? name).trim();
+  const id = String(member?.id ?? '').trim();
   const level = Number(member?.level);
   const stamina = Number(member?.stamina ?? member?.current_stamina ?? member?.currentStamina);
   const reputationGain = Number(member?.reputation_gain ?? member?.reputationGain);
   const gold = Number(member?.donated_gold ?? member?.donatedGold ?? member?.gold_donated);
   const token = Number(member?.donated_token ?? member?.donatedToken ?? member?.token_donated);
-  if (!name || !Number.isSafeInteger(gold) || gold < 0 || !Number.isSafeInteger(token) || token < 0) return null;
+  if (!name || !/^\d+$/.test(id) || !Number.isSafeInteger(gold) || gold < 0 || !Number.isSafeInteger(token) || token < 0) return null;
   return {
     id,
     name,
@@ -111,6 +111,24 @@ export function normalizeMember(member) {
 export function extractMembers(body) {
   if (!body || typeof body !== 'object') return [];
   if (body.status && String(body.status) !== '1') return [];
-  const raw = Array.isArray(body.result) ? body.result : Array.isArray(body.members) ? body.members : [];
-  return raw.map(normalizeMember).filter(Boolean);
+
+  const looksLikeMember = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) &&
+    ('name' in value || 'username' in value);
+
+  const fromContainer = (container) => {
+    if (Array.isArray(container)) return container.filter(looksLikeMember);
+    if (!container || typeof container !== 'object') return [];
+    return Object.entries(container)
+      .filter(([key, value]) => /^\d+$/.test(key) && looksLikeMember(value))
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map(([, value]) => value);
+  };
+
+  for (const container of [body.result, body.clan_members, body.members]) {
+    const raw = fromContainer(container);
+    if (raw.length) return raw.map(normalizeMember).filter(Boolean);
+  }
+
+  return [];
 }
