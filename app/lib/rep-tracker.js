@@ -489,7 +489,7 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult]=await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
@@ -503,11 +503,18 @@ export async function dashboardData(){
       .eq('season',season)
       .gte('started_at',new Date(Date.now()-Math.max(1,Number(config.sync_interval_seconds||10))*1000*500).toISOString())
       .order('started_at',{ascending:false})
-      .limit(500)
+      .limit(500),
+    db.from('rep_tracker_sync_runs')
+      .select('id',{count:'exact',head:true})
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .eq('status','success')
+      .gte('started_at',startOfTodayManila().toISOString())
   ]);
   if(baselinesResult.error)throw baselinesResult.error;
   if(hoursResult.error)throw hoursResult.error;
   if(syncRunsResult.error)throw syncRunsResult.error;
+  if(syncSuccessCountResult.error)throw syncSuccessCountResult.error;
 
   const ids=members.map((r)=>String(r.member_id));
   const since=startOfTodayManila();
@@ -567,8 +574,7 @@ export async function dashboardData(){
   const errorRuns=syncRuns.filter((run)=>run.status!=='success');
   const expectedIntervalMs=Math.max(10,Number(config.sync_interval_seconds||10))*1000;
   const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-since.getTime())/expectedIntervalMs)+1);
-  const recentCompletedRuns=successRuns.length;
-  const completedSyncsToday=Math.min(expectedSyncsToday,recentCompletedRuns+Math.max(0,expectedSyncsToday-500));
+  const completedSyncsToday=Number(syncSuccessCountResult.count||0);
   const missedSyncsToday=Math.max(0,expectedSyncsToday-completedSyncsToday);
   const syncSuccessRate=expectedSyncsToday>0?completedSyncsToday/expectedSyncsToday:0;
   const sourceCounts={amf:0,legacy:0,other:0};
