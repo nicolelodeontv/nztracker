@@ -8,7 +8,7 @@ const members = Array.from({length: 30}, (_, i) => ({ id: String(i + 1), name: `
 const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], season: 'Season 3', capturedAt: '2026-09-21T07:40:03.000Z', source: 'test' };
 const config = { clan_id: '3', clan_name: 'Chaos', current_season: 'Season 3', expected_member_count: 30 };
 
-mock.module(f('app/lib/rep-tracker'), { exports: {
+mock.module(f('app/lib/rep-tracker.js'), { exports: {
   dashboardData: async () => ({ configured: true, config, season: 'Season 3', rows: [], stats: {}, freshness: { status: 'live', ageSeconds: 5 }, lastSuccessfulSyncAt: ranking.capturedAt }),
   recentActivity: async () => [],
   freshness: () => ({ status: 'live', ageSeconds: 5 }),
@@ -21,16 +21,16 @@ mock.module(f('app/lib/rep-tracker.js'), { exports: {
   freshness: () => ({ status: 'live', ageSeconds: 5 }),
   getConfig: async () => config
 }});
-mock.module(f('app/lib/member-history'), { exports: {
+mock.module(f('app/lib/member-history.js'), { exports: {
   readSyncStatus: async () => ({ lastRunAt: ranking.capturedAt, membersSeen: 30, memberErrors: 0, overall: 'success' }),
   recordMemberSnapshot: async () => ({ stored: true, storedPoints: 30, changed: true }),
   recordSyncStatus: async () => ({ stored: true }),
   storageHealth: () => ({ provider: 'supabase', configured: true, authenticated: true, durable: true })
 }});
-mock.module(f('app/lib/ranking-cache'), { exports: { recordRankingSnapshot: async () => ({ stored: true }) }});
+mock.module(f('app/lib/ranking-cache.js'), { exports: { recordRankingSnapshot: async () => ({ stored: true }) }});
 mock.module(f('app/lib/ninja-source.mjs'), { exports: { fetchLiveMembers: async () => ({ members, fetchedAt: ranking.capturedAt, service: 'test', source: 'test' }) }});
-mock.module(f('app/lib/member-snapshot'), { exports: { buildTrackedClanTargets: () => ranking.rows, parseTrackedClanIds: () => ['3'] }});
-mock.module(f('app/lib/member-recording'), { exports: { summarizeMemberRecording: () => ({ issues: [], error: null }) }});
+mock.module(f('app/lib/member-snapshot.mjs'), { exports: { buildTrackedClanTargets: () => ranking.rows, parseTrackedClanIds: () => ['3'] }});
+mock.module(f('app/lib/member-recording.mjs'), { exports: { summarizeMemberRecording: () => ({ issues: [], error: null }) }});
 mock.module(f('lib/scraper.mjs'), { exports: {
   scrapeGame: async () => ({ ...ranking, clanRanking: ranking.rows, pve: { rows: [1], season: 'Season 3', round: '1/1' }, pvp: { rows: [1], season: 'Season 3', round: '1/1' }}),
   scrapeClans: async () => ranking
