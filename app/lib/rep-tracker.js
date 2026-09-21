@@ -326,7 +326,9 @@ export async function syncTracker({force=false,admin='system'}={}) {
           : 'unavailable',
         rosterChange,
         suspiciousCount:snapshotRows.filter((row)=>row.suspicious).length,
-        historyStoredPoints:Number(memberHistory?.storedPoints||0)
+        historyStoredPoints:Number(memberHistory?.storedPoints||0),
+        sourceStatus:live.sourceStatus||'unknown',
+        sourceDiagnostics:live.sourceDiagnostics||null
       };
 
       await db.from('rep_tracker_sync_runs').update({
@@ -341,14 +343,18 @@ export async function syncTracker({force=false,admin='system'}={}) {
 
       await runSyncRunRetention(db,Date.now());
       await recordSyncHealth({
-        outcome:discoveryError||live.service==='legacy-live'?'warning':'success',
+        outcome:discoveryError?'warning':'success',
         at:capturedAt,
         error:discoveryError||null,
         memberStatus:'success',
         memberSource:live.service==='legacy-live'?'legacy':'amf',
         discoveryStatus:discoveryError?'stale':'fresh',
         rankingStatus:details.rankingStatus,
-        durationMs
+        durationMs,
+        sourceStatus:live.sourceStatus||null,
+        sourceDiagnostics:live.sourceDiagnostics||null,
+        sourceStatus:live.sourceStatus||null,
+        sourceDiagnostics:live.sourceDiagnostics||null
       });
 
       await writeLastKnownMembers({
@@ -383,6 +389,8 @@ export async function syncTracker({force=false,admin='system'}={}) {
         discoveryStatus:discoveryError?'stale':'fresh',
         suspiciousCount:details.suspiciousCount,
         rosterChange,
+        sourceStatus:live.sourceStatus||'unknown',
+        sourceDiagnostics:live.sourceDiagnostics||null,
         durationMs
       };
     }catch(error){
