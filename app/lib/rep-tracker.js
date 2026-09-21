@@ -352,8 +352,6 @@ export async function syncTracker({force=false,admin='system'}={}) {
         rankingStatus:details.rankingStatus,
         durationMs,
         sourceStatus:live.sourceStatus||null,
-        sourceDiagnostics:live.sourceDiagnostics||null,
-        sourceStatus:live.sourceStatus||null,
         sourceDiagnostics:live.sourceDiagnostics||null
       });
 
