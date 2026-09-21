@@ -3,7 +3,7 @@ import { readSyncStatus, storageHealth } from '../../lib/member-history.js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const INTERVAL_MS = 60 * 1000;
+const INTERVAL_MS = 10 * 1000;
 const ACTIVE_MAX_AGE_MS = 3 * 60 * 1000;
 const DELAYED_MAX_AGE_MS = 6 * 60 * 1000;
 
@@ -16,8 +16,8 @@ export async function GET(){
   const lastRunAtMs=lastRunAt?new Date(lastRunAt).getTime():NaN;
   const ageMs=Number.isFinite(lastRunAtMs)?Math.max(0,Date.now()-lastRunAtMs):null;
   const intervalMs=Number(sync?.intervalMs||60000);
-  const activeMax=Math.max(180000,intervalMs*3);
-  const delayedMax=Math.max(360000,intervalMs*6);
+  const activeMax=Math.max(45000,intervalMs*3);
+  const delayedMax=Math.max(90000,intervalMs*9);
   let status='offline';
   if(ageMs!==null&&ageMs<=activeMax)status='active';
   else if(ageMs!==null&&ageMs<=delayedMax)status='delayed';
