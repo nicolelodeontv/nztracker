@@ -15,15 +15,15 @@ export async function GET() {
       getLatestSync().catch(() => null)
     ]);
     const storage = storageHealth();
-    const lastRunAt = sync?.lastRunAt || latestDb?.completed_at || latestDb?.finished_at || null;
+    const lastRunAt = latestDb?.completed_at || latestDb?.finished_at || sync?.lastRunAt || null;
     const lastRunAtMs = lastRunAt ? new Date(lastRunAt).getTime() : NaN;
     const ageMs = Number.isFinite(lastRunAtMs) ? Math.max(0, Date.now() - lastRunAtMs) : null;
     let status = 'offline';
     if (ageMs !== null && ageMs <= ACTIVE_MAX_AGE_MS) status = 'active';
     else if (ageMs !== null && ageMs <= DELAYED_MAX_AGE_MS) status = 'delayed';
 
-    const overall = sync?.overall || latestDb?.status || null;
-    const syncError = sync?.error || latestDb?.error_message || null;
+    const overall = latestDb?.status || sync?.overall || null;
+    const syncError = latestDb?.error_message || sync?.error || null;
 
     return Response.json({
       ok: true,
@@ -35,17 +35,18 @@ export async function GET() {
       ageSeconds: ageMs === null ? null : Math.floor(ageMs / 1000),
       intervalMs: INTERVAL_MS,
       season: sync?.season || latestDb?.season || null,
-      clansSeen: Number(sync?.clansSeen || latestDb?.clans_count || latestDb?.clans_seen || 0),
+      clansSeen: Number(latestDb?.clans_count || latestDb?.clans_seen || sync?.clansSeen || 0),
       clansWithMemberData: Number(sync?.clansWithMemberData || 0),
-      membersSeen: Number(sync?.membersSeen || latestDb?.members_count || 0),
+      membersSeen: Number(latestDb?.members_count || sync?.membersSeen || 0),
       memberErrors: Number(sync?.memberErrors || 0),
       historyClansStored: Number(sync?.historyClansStored || 0),
       historyClansChanged: Number(sync?.historyClansChanged || 0),
       rankingCacheStored: Boolean(sync?.rankingCacheStored),
-      rankingRows: Number(sync?.rankingRows || latestDb?.clans_count || latestDb?.clans_seen || 0),
+      rankingRows: Number(latestDb?.clans_count || latestDb?.clans_seen || sync?.rankingRows || 0),
       memberSources: sync?.memberSources || {},
       source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
       error: syncError,
+      warning: overall === 'warning',
       durable: storage.durable,
       storageProvider: storage.provider,
       storage,
