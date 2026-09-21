@@ -1,11 +1,11 @@
 import { supabaseAdmin } from './supabase-admin';
 import { discoverChaos, fetchLiveMembers } from './ninja-source.mjs';
+import { startOfTodayManila } from './dashboard-time.mjs';
 
 const FRESH_MS=60000,AGING_MS=300000,syncLocks=new Map();
 const nowIso=()=>new Date().toISOString();
 const safeText=(value)=>String(value??'').trim();
 const asInt=(value,fallback=0)=>Number.isFinite(Number(value))?Math.trunc(Number(value)):fallback;
-export function startOfTodayManila(now=new Date()){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Manila',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);const values=Object.fromEntries(parts.filter((part)=>part.type!=='literal').map((part)=>[part.type,part.value]));return new Date(`${values.year}-${values.month}-${values.day}T00:00:00+08:00`);}
 export function freshness(iso){if(!iso)return{status:'offline',ageSeconds:null};const ageMs=Math.max(0,Date.now()-new Date(iso).getTime());return{status:ageMs<=FRESH_MS?'live':ageMs<=AGING_MS?'aging':'stale',ageSeconds:Math.floor(ageMs/1000)};}
 export async function getConfig(){const db=supabaseAdmin();const{data,error}=await db.from('rep_tracker_config').select('*').eq('id','main').maybeSingle();if(error)throw error;return data||null;}
 async function ensureSeason(config,season,clanId,startedAt=nowIso()){const db=supabaseAdmin();const{data:existing}=await db.from('rep_tracker_seasons').select('*').eq('season',season).maybeSingle();if(existing)return existing;const{data,error}=await db.from('rep_tracker_seasons').insert({season,clan_id:clanId,started_at:startedAt,status:'active'}).select('*').single();if(error)throw error;return data;}
