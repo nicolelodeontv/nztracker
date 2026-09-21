@@ -5,6 +5,43 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 const fmt = (n) => Number(n || 0).toLocaleString();
 const fmtHours = (n) => Number(n || 0).toFixed(2);
 const age = (s) => s == null ? '—' : s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s/60)}m ago` : `${Math.floor(s/3600)}h ago`;
+const DASHBOARD_CACHE_KEY = 'nztracker:last-dashboard';
+const SYNC_LOCK_KEY = 'nztracker:sync-lock';
+const SYNC_LOCK_MS = 20000;
+
+function readDashboardCache() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = JSON.parse(window.localStorage.getItem(DASHBOARD_CACHE_KEY) || 'null');
+    return cached?.data?.configured !== undefined ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDashboardCache(data) {
+  if (typeof window === 'undefined' || !data) return;
+  try {
+    window.localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({ savedAt: new Date().toISOString(), data }));
+  } catch {}
+}
+
+function acquireSyncLock() {
+  if (typeof window === 'undefined') return true;
+  try {
+    const current = JSON.parse(window.localStorage.getItem(SYNC_LOCK_KEY) || 'null');
+    if (current?.startedAt && Date.now() - Number(current.startedAt) < SYNC_LOCK_MS) return false;
+    window.localStorage.setItem(SYNC_LOCK_KEY, JSON.stringify({ startedAt: Date.now() }));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function releaseSyncLock() {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.removeItem(SYNC_LOCK_KEY); } catch {}
+}
 
 async function api(url, options) {
   const response = await fetch(url, { cache: 'no-store', ...options, headers: { Accept: 'application/json', ...(options?.headers || {}) } });
@@ -104,19 +141,24 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       return null;
     } finally {
       if (initial) setDashboardLoading(false);
+      setDashboardRefreshing(false);
     }
   };
 
   const triggerBackgroundSync = async () => {
-    if (syncInFlight.current) return;
+    if (syncInFlight.current || !acquireSyncLock()) return;
     syncInFlight.current = true;
+    setSyncing(true);
     try {
       await api('/api/sync', { method: 'GET' });
-      await refresh();
+      const refreshed = await refresh();
+      if (!refreshed) throw new Error('Dashboard refresh failed after sync.');
     } catch (e) {
-      setMessage(e.message);
+      setDashboardError(e.message || 'Live update failed.');
     } finally {
+      setSyncing(false);
       syncInFlight.current = false;
+      releaseSyncLock();
     }
   };
 
@@ -143,8 +185,15 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       setMessage('Admin session expired. Please sign in again.');
     };
     window.addEventListener('admin-session-expired', onExpired);
+    const cached = readDashboardCache();
     if (initialData) {
+      writeDashboardCache(initialData);
       triggerBackgroundSync();
+    } else if (cached?.data) {
+      setData(cached.data);
+      setDashboardError('');
+      setDashboardLoading(false);
+      refresh().then(() => triggerBackgroundSync());
     } else {
       refresh({ initial: true }).then(() => triggerBackgroundSync());
     }
@@ -200,6 +249,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>LAST SYNC {age(data.freshness?.ageSeconds)}</span></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
+    {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
+    {syncing&&data&&!dashboardRefreshing&&<div className="notice good">UPDATING LIVE DATA…</div>}
+    {dashboardError&&data&&<div className="notice bad">UPDATE FAILED · {dashboardError}<button onClick={()=>refresh()}>RETRY</button></div>}
     {message&&<div className={`notice ${/fail|error|blocked|stale|missing/i.test(message)?'bad':'good'}`}>{message}<button onClick={()=>setMessage('')}>×</button></div>}
 
     {view==='dashboard'&&<>
