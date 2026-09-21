@@ -66,7 +66,7 @@ export async function GET(request){
     const [sync,health]=await Promise.all([readSyncStatus(),readSyncHealth()]);
     const problems=problemState(sync);
     const healthy=problems.length===0;
-    const alertKey=healthy?null:`${problems.join('|')}::${sync?.lastRunAt||'never'}`;
+    const alertKey=healthy?null:JSON.stringify({problems,syncError:String(sync?.error||''),rankingCacheError:String(sync?.rankingCacheError||'')});
     let alertSent=false;
     let alertError=null;
     let recovered=false;
