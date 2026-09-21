@@ -1,4 +1,6 @@
-export const DASHBOARD_REFRESH_INTERVAL_MS = 5000;
+export const DASHBOARD_REFRESH_INTERVAL_MS = 60000;
+export const LIVE_REFRESH_INTERVAL_MS = 5000;
+export const PERIOD_HISTORY_REFRESH_INTERVAL_MS = 30000;
 
 export function createRefreshGate({
   now = () => Date.now(),
