@@ -80,12 +80,12 @@ export async function GET(request) {
       membersSeen,
       memberErrors: 0,
       historyClansStored: result.reused ? undefined : 1,
-      historyClansChanged: result.reused ? undefined : Number(rankingCache.stored || membersSeen > 0),
+      historyClansChanged: result.reused ? undefined : 1,
       rankingCacheStored: rankingRows === undefined ? undefined : Boolean(rankingCache?.stored),
       rankingCacheError,
       rankingRows,
       memberSources,
-      source: result.live?.source || ranking?.source || 'https://ninjazenshin.online/?panel=clan-ranking'
+      source: result.live?.source || ranking?.source || SOURCE
     });
 
     await completeMonitorWindow(windowKey, finishedAt.getTime());
@@ -133,7 +133,7 @@ export async function GET(request) {
         lastRunAt: finishedAt.toISOString(),
         nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
         intervalMs: SYNC_INTERVAL_MS,
-        source: 'https://ninjazenshin.online/?panel=clan-ranking',
+        source: SOURCE,
         error: error instanceof Error ? error.message : String(error)
       });
     } catch (heartbeatError) {
