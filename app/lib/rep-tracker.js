@@ -450,6 +450,82 @@ async function latestMembers(clanId,season){
   if(error)throw error;
   return data||[];
 }
+export async function liveData(){
+  const config=await getConfig();
+  if(!config?.clan_id||!config?.current_season)return{configured:false,config};
+  const db=supabaseAdmin();
+  const season=config.current_season;
+  const since=startOfTodayManila();
+  const [members,syncStatus,syncHealth,baselinesResult,hoursResult]=await Promise.all([
+    latestMembers(config.clan_id,season),
+    db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
+    readSyncHealth().catch(()=>null),
+    db.from('rep_tracker_baselines').select('member_id,baseline_rep').eq('clan_id',config.clan_id).eq('season',season),
+    db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season)
+  ]);
+  if(baselinesResult.error)throw baselinesResult.error;
+  if(hoursResult.error)throw hoursResult.error;
+
+  const ids=members.map((row)=>String(row.member_id));
+  const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
+  const syncFresh=freshness(syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
+  const baselineMap=new Map((baselinesResult.data||[]).map((row)=>[String(row.member_id),row]));
+  const hoursMap=new Map();
+  for(const row of hoursResult.data||[]){
+    const id=String(row.member_id);
+    hoursMap.set(id,(hoursMap.get(id)||0)+Number(row.total_hours||0));
+  }
+
+  const rows=members.map((row)=>{
+    const id=String(row.member_id);
+    const baseline=baselineMap.get(id);
+    const gain=baseline?Number(row.rep)-Number(baseline.baseline_rep):0;
+    const today=dayMap.has(id)?Number(row.rep)-dayMap.get(id):0;
+    const hours=hoursMap.get(id)||0;
+    return{
+      id,
+      member:row.member_name,
+      level:Number(row.level||0),
+      rep:Number(row.rep||0),
+      baseline:baseline?.baseline_rep??null,
+      gain,
+      todayGain:today,
+      hours,
+      repPerHour:hours>0?gain/hours:0,
+      source:'Ninja Zenshin live member monitor',
+      capturedAt:row.last_seen_at,
+      suspicious:false,
+      status:syncFresh.status
+    };
+  }).sort((a,b)=>b.rep-a.rep);
+
+  const totalRep=rows.reduce((sum,row)=>sum+row.rep,0);
+  const totalGain=rows.reduce((sum,row)=>sum+row.gain,0);
+  const todayGain=rows.reduce((sum,row)=>sum+row.todayGain,0);
+  const totalHours=rows.reduce((sum,row)=>sum+row.hours,0);
+  return{
+    configured:true,
+    config:{clan_id:config.clan_id,clan_name:config.clan_name,current_season:config.current_season},
+    season,
+    rows,
+    stats:{
+      totalRep,
+      totalGain,
+      todayGain,
+      activeMembers:rows.length,
+      totalHours,
+      avgRepPerHour:totalHours?totalGain/totalHours:0
+    },
+    freshness:syncFresh,
+    lastSuccessfulSyncAt:syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||null,
+    syncHealth:syncHealth||null,
+    syncStatus:syncStatus||null,
+    sourceStatus:syncHealth?.lastSourceStatus||null,
+    sourceDiagnostics:syncHealth?.lastSourceDiagnostics||null,
+    serverTime:new Date().toISOString()
+  };
+}
+
 export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
