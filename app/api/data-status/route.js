@@ -1,4 +1,4 @@
-import { readSyncStatus, storageHealth } from '../../lib/member-history';
+import { storageHealth, verifyStorageConnection } from '../../lib/member-history';
 import { dbStatus, getLatestSync } from '../../../lib/supabase-db.mjs';
 
 export const runtime = 'nodejs';
@@ -15,41 +15,60 @@ function ageState(lastRunAt) {
 
 export async function GET() {
   try {
-    const [sync, latestDb] = await Promise.all([
-      readSyncStatus().catch(() => null),
-      getLatestSync().catch(() => null)
+    const [latestDb, storage] = await Promise.all([
+      getLatestSync().catch(() => null),
+      verifyStorageConnection().catch((error) => ({
+        ...storageHealth(),
+        durable: false,
+        error: error instanceof Error ? error.message : String(error)
+      }))
     ]);
-    const lastRunAt = sync?.lastRunAt || latestDb?.completed_at || null;
+
+    const lastRunAt = latestDb?.completed_at || latestDb?.finished_at || null;
     const ageMs = lastRunAt ? Math.max(0, Date.now() - new Date(lastRunAt).getTime()) : null;
     const sourceNames = ['clanRanking', 'pve', 'pvp', 'clanMembers'];
-    const sources = Object.fromEntries(sourceNames.map((name) => [name, sync?.sources?.[name] || {
-      status: 'unknown', rows: 0, clans: 0, members: 0, errors: 0, error: null
+    const sourceRows = Number(latestDb?.clans_count || latestDb?.clans_seen || 0);
+    const sourceMembers = Number(latestDb?.members_count || latestDb?.members_seen || 0);
+    const sources = Object.fromEntries(sourceNames.map((name) => [name, {
+      status: name === 'clanRanking' ? 'database' : 'unknown',
+      rows: name === 'clanRanking' ? sourceRows : 0,
+      clans: name === 'clanMembers' ? 0 : sourceRows,
+      members: name === 'clanMembers' ? sourceMembers : 0,
+      errors: 0,
+      error: null
     }]));
 
     return Response.json({
       ok: true,
-      overall: sync?.overall || latestDb?.status || 'offline',
+      overall: latestDb?.status || 'offline',
       status: ageState(lastRunAt),
       lastRunAt,
       ageMs,
       ageSeconds: ageMs === null ? null : Math.floor(ageMs / 1000),
-      nextExpectedAt: sync?.nextExpectedAt || null,
-      season: sync?.season || latestDb?.season || null,
-      clans: Number(sync?.clansSeen || latestDb?.clans_count || 0),
-      members: Number(sync?.membersSeen || latestDb?.members_count || 0),
-      memberErrors: Number(sync?.memberErrors || 0),
-      rankingStored: Boolean(sync?.rankingStored),
-      rosterStored: Boolean(sync?.rosterStored),
-      historyClansStored: Number(sync?.historyClansStored || 0),
-      leaderboards: sync?.leaderboards || {},
+      nextExpectedAt: lastRunAt ? new Date(new Date(lastRunAt).getTime() + 5 * 60 * 1000).toISOString() : null,
+      season: latestDb?.season || null,
+      clans: sourceRows,
+      members: sourceMembers,
+      memberErrors: 0,
+      rankingStored: Boolean(latestDb),
+      rosterStored: false,
+      historyClansStored: 0,
+      leaderboards: {},
       sources,
-      error: sync?.error || latestDb?.error_message || null,
-      durable: storageHealth().durable && dbStatus().configured,
-      storage: storageHealth(),
+      error: [latestDb?.error_message, storage?.error ? `Blob storage: ${storage.error}` : null].filter(Boolean).join(' | ') || null,
+      durable: Boolean(storage?.durable) && dbStatus().configured,
+      storage: storage || storageHealth(),
       database: dbStatus(),
       warning: ageMs !== null && ageMs > 60 * 60 * 1000 ? 'Game data may have changed since last sync.' : null
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {
-    return Response.json({ ok: false, overall: 'error', error: error instanceof Error ? error.message : String(error) }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({
+      ok: true,
+      overall: 'offline',
+      status: 'error',
+      error: error instanceof Error ? error.message : String(error),
+      storage: storageHealth(),
+      database: dbStatus()
+    }, { headers: { 'Cache-Control': 'no-store' } });
   }
 }

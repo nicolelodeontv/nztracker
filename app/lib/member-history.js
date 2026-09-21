@@ -7,7 +7,21 @@ const HISTORY_PREFIX = 'nztracker/member-history';
 const HEALTH_PATH = `${HISTORY_PREFIX}/.healthcheck`;
 const SYNC_STATUS_PATH = 'nztracker/sync-status/latest.json';
 const locks = new Map();
+const HISTORY_CACHE_TTL_MS = 60 * 1000;
+const SYNC_STATUS_CACHE_TTL_MS = 30 * 1000;
+const STORAGE_HEALTH_TTL_MS = 5 * 60 * 1000;
+const historyCache = new Map();
+const syncStatusCache = { value: null, expiresAt: 0 };
+const storageProbeCache = { value: null, checkedAt: 0 };
+let lastStorageError = null;
 const textResponse = async (stream) => new Response(stream).text();
+const cloneData = (value) => value == null ? value : structuredClone(value);
+const rememberStorageError = (error) => {
+  lastStorageError = error instanceof Error ? error.message : String(error);
+};
+const clearStorageError = () => {
+  lastStorageError = null;
+};
 const normalizeSeason = (season) => String(season || 'Season 2').trim().replace(/[^a-zA-Z0-9._-]+/g, '_');
 const normalizeClanId = (clanId) => String(clanId || '').trim();
 
@@ -32,29 +46,56 @@ function emptyDocument(clanId) {
 
 async function readDocument(clanId) {
   if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return emptyDocument(clanId);
+  const key = normalizeClanId(clanId);
+  const cached = historyCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cloneData(cached.document);
+
   try {
-    const result = await get(historyPath(clanId), { access: 'private', useCache: false });
-    if (!result) return emptyDocument(clanId);
+    const result = await get(historyPath(key), { access: 'private', useCache: false });
+    if (!result) {
+      const document = emptyDocument(key);
+      historyCache.set(key, { document, expiresAt: now + HISTORY_CACHE_TTL_MS });
+      clearStorageError();
+      return cloneData(document);
+    }
     const text = await textResponse(result.stream);
     const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== 'object') return emptyDocument(clanId);
-    return { ...emptyDocument(clanId), ...parsed, seasons: parsed.seasons && typeof parsed.seasons === 'object' ? parsed.seasons : {} };
+    const document = !parsed || typeof parsed !== 'object'
+      ? emptyDocument(key)
+      : { ...emptyDocument(key), ...parsed, seasons: parsed.seasons && typeof parsed.seasons === 'object' ? parsed.seasons : {} };
+    historyCache.set(key, { document, expiresAt: now + HISTORY_CACHE_TTL_MS });
+    clearStorageError();
+    return cloneData(document);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/not found|404|does not exist/i.test(message)) return emptyDocument(clanId);
+    rememberStorageError(error);
+    if (/not found|404|does not exist/i.test(message)) {
+      const document = emptyDocument(key);
+      historyCache.set(key, { document, expiresAt: now + HISTORY_CACHE_TTL_MS });
+      return cloneData(document);
+    }
+    if (cached?.document) return cloneData(cached.document);
     throw error;
   }
 }
 
 async function writeDocument(clanId, document) {
   if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
-  await put(historyPath(clanId), JSON.stringify(document), {
-    access: 'private',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: 'application/json'
-  });
-  return { stored: true };
+  try {
+    await put(historyPath(clanId), JSON.stringify(document), {
+      access: 'private',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: 'application/json'
+    });
+    historyCache.set(normalizeClanId(clanId), { document: cloneData(document), expiresAt: Date.now() + HISTORY_CACHE_TTL_MS });
+    clearStorageError();
+    return { stored: true };
+  } catch (error) {
+    rememberStorageError(error);
+    return { stored: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function withLock(key, task) {
@@ -82,31 +123,49 @@ export async function recordMemberSnapshot({ clanId, season, members, capturedAt
   const key = normalizeClanId(clanId);
   if (!key || !Array.isArray(members) || !members.length) return { stored: false, changed: false, reason: 'Invalid snapshot.' };
   return withLock(`history:${key}`, async () => {
-    const now = Number(capturedAt) || Date.now();
-    const cutoff = now - HISTORY_MAX_AGE_MS;
-    const document = await readDocument(key);
-    const seasonKey = normalizeSeason(season);
-    const seasonData = document.seasons[seasonKey] || { startedAt: now, members: {} };
-    const nextMembers = { ...(seasonData.members || {}) };
-    let changed = false;
-    for (let index = 0; index < members.length; index += 1) {
-      const member = normalizeMember(members[index], index);
-      if (!member.name) continue;
-      const points = cleanPoints(nextMembers[member.id]?.points, cutoff);
-      const last = points[points.length - 1];
-      const shouldAdd = !last || now - Number(last.t) >= HISTORY_SAMPLE_MS || Number(last.r) !== member.rep;
-      if (shouldAdd) {
-        points.push({ t: now, r: member.rep, level: member.level, name: member.name });
-        changed = true;
+    try {
+      const now = Number(capturedAt) || Date.now();
+      const cutoff = now - HISTORY_MAX_AGE_MS;
+      const document = await readDocument(key);
+      const seasonKey = normalizeSeason(season);
+      const seasonData = document.seasons[seasonKey] || { startedAt: now, members: {} };
+      const nextMembers = { ...(seasonData.members || {}) };
+      let changed = false;
+      for (let index = 0; index < members.length; index += 1) {
+        const member = normalizeMember(members[index], index);
+        if (!member.name) continue;
+        const points = cleanPoints(nextMembers[member.id]?.points, cutoff);
+        const last = points[points.length - 1];
+        const shouldAdd = !last || now - Number(last.t) >= HISTORY_SAMPLE_MS || Number(last.r) !== member.rep;
+        if (shouldAdd) {
+          points.push({ t: now, r: member.rep, level: member.level, name: member.name });
+          changed = true;
+        }
+        nextMembers[member.id] = { name: member.name, level: member.level, points, lastSeenAt: now };
       }
-      nextMembers[member.id] = { name: member.name, level: member.level, points, lastSeenAt: now };
+      seasonData.members = nextMembers;
+      seasonData.updatedAt = new Date(now).toISOString();
+      document.seasons[seasonKey] = seasonData;
+      document.updatedAt = seasonData.updatedAt;
+      const result = await writeDocument(key, document);
+      return {
+        ...result,
+        changed: result.stored ? changed : false,
+        clanId: key,
+        season: seasonKey,
+        updatedAt: document.updatedAt,
+        memberCount: Object.keys(nextMembers).length
+      };
+    } catch (error) {
+      rememberStorageError(error);
+      return {
+        stored: false,
+        changed: false,
+        clanId: key,
+        season: normalizeSeason(season),
+        error: error instanceof Error ? error.message : String(error)
+      };
     }
-    seasonData.members = nextMembers;
-    seasonData.updatedAt = new Date(now).toISOString();
-    document.seasons[seasonKey] = seasonData;
-    document.updatedAt = seasonData.updatedAt;
-    const result = await writeDocument(key, document);
-    return { ...result, changed, clanId: key, season: seasonKey, updatedAt: document.updatedAt, memberCount: Object.keys(nextMembers).length };
   });
 }
 
@@ -115,7 +174,13 @@ export async function readMemberHistory({ clanId, season, hours = 168 }) {
   if (!key) throw new Error('A clanId is required.');
   const safeHours = Math.min(168, Math.max(1, Number(hours) || 168));
   const cutoff = Date.now() - safeHours * 60 * 60 * 1000;
-  const document = await readDocument(key);
+  let document;
+  try {
+    document = await readDocument(key);
+  } catch (error) {
+    rememberStorageError(error);
+    document = historyCache.get(key)?.document || emptyDocument(key);
+  }
   const seasonKey = normalizeSeason(season);
   const seasonData = document.seasons[seasonKey] || { startedAt: null, updatedAt: null, members: {} };
   const members = {};
@@ -130,22 +195,29 @@ export async function readMemberHistory({ clanId, season, hours = 168 }) {
     startedAt: seasonData.startedAt || null,
     updatedAt: seasonData.updatedAt || document.updatedAt || null,
     stored: storageHealth().durable,
+    storageError: lastStorageError,
     members
   };
 }
 
 async function readSyncDocument() {
   if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) return null;
+  const now = Date.now();
+  if (syncStatusCache.value && syncStatusCache.expiresAt > now) return cloneData(syncStatusCache.value);
   try {
     const result = await get(SYNC_STATUS_PATH, { access: 'private', useCache: false });
     if (!result) return null;
     const text = await textResponse(result.stream);
     const parsed = JSON.parse(text);
-    return parsed && typeof parsed === 'object' ? parsed : null;
+    const value = parsed && typeof parsed === 'object' ? parsed : null;
+    syncStatusCache.value = value;
+    syncStatusCache.expiresAt = now + SYNC_STATUS_CACHE_TTL_MS;
+    clearStorageError();
+    return cloneData(value);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/not found|404|does not exist/i.test(message)) return null;
-    throw error;
+    rememberStorageError(error);
+    if (/not found|404|does not exist/i.test(error instanceof Error ? error.message : String(error))) return null;
+    return syncStatusCache.value ? cloneData(syncStatusCache.value) : null;
   }
 }
 
@@ -154,13 +226,21 @@ export async function recordSyncStatus(status = {}) {
     return { stored: false, reason: 'Blob storage is not connected to this deployment.' };
   }
   const payload = { version: 1, ...status, updatedAt: new Date().toISOString() };
-  await put(SYNC_STATUS_PATH, JSON.stringify(payload), {
-    access: 'private',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: 'application/json'
-  });
-  return { stored: true, ...payload };
+  try {
+    await put(SYNC_STATUS_PATH, JSON.stringify(payload), {
+      access: 'private',
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: 'application/json'
+    });
+    syncStatusCache.value = payload;
+    syncStatusCache.expiresAt = Date.now() + SYNC_STATUS_CACHE_TTL_MS;
+    clearStorageError();
+    return { stored: true, ...payload };
+  } catch (error) {
+    rememberStorageError(error);
+    return { stored: false, error: error instanceof Error ? error.message : String(error), ...payload };
+  }
 }
 
 export async function readSyncStatus() {
@@ -168,32 +248,50 @@ export async function readSyncStatus() {
 }
 
 export async function verifyStorageConnection() {
-  if (!hasBlobStoreConfig() || !hasBlobAuthConfig()) {
-    return {
-      configured: hasBlobStoreConfig(),
+  const configured = hasBlobStoreConfig();
+  const authenticated = hasBlobAuthConfig();
+  if (!configured || !authenticated) {
+    const result = {
+      configured,
       durable: false,
-      authenticated: hasBlobAuthConfig(),
-      provider: 'vercel-blob-private'
+      authenticated,
+      provider: 'vercel-blob-private',
+      error: lastStorageError
     };
+    storageProbeCache.value = result;
+    storageProbeCache.checkedAt = Date.now();
+    return result;
+  }
+  const now = Date.now();
+  if (storageProbeCache.value && now - storageProbeCache.checkedAt < STORAGE_HEALTH_TTL_MS) {
+    return { ...storageProbeCache.value };
   }
   try {
     const result = await get(HEALTH_PATH, { access: 'private', useCache: false });
-    return {
+    clearStorageError();
+    const health = {
       configured: true,
       durable: true,
       authenticated: true,
       provider: 'vercel-blob-private',
-      healthObjectExists: Boolean(result)
+      healthObjectExists: Boolean(result),
+      error: null
     };
+    storageProbeCache.value = health;
+    storageProbeCache.checkedAt = now;
+    return health;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
+    rememberStorageError(error);
+    const health = {
       configured: true,
       durable: false,
       authenticated: true,
       provider: 'vercel-blob-private',
-      error: message
+      error: lastStorageError
     };
+    storageProbeCache.value = health;
+    storageProbeCache.checkedAt = now;
+    return health;
   }
 }
 
@@ -204,6 +302,7 @@ export function storageHealth() {
     provider: 'vercel-blob-private',
     configured,
     authenticated,
-    durable: configured && authenticated
+    durable: configured && authenticated,
+    error: lastStorageError
   };
 }

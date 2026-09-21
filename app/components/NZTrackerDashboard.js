@@ -5,8 +5,8 @@ import ClanIntelligence from './ClanIntelligence';
 import { buildMemberRows, deriveAlerts, deriveEvents } from '../lib/metrics';
 import { downloadCsv } from '../lib/csv';
 
-const REFRESH_MS = 30000;
-const OPS_REFRESH_MS = 10000;
+const REFRESH_MS = 60000;
+const OPS_REFRESH_MS = 30000;
 const PLAYER_PAGE = 100;
 
 const fmt = (n) => Number(n || 0).toLocaleString();

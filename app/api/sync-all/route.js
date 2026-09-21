@@ -1,5 +1,5 @@
 import { scrapeClans, scrapeGame } from '../../../lib/scraper.mjs';
-import { recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
+import { storageHealth } from '../../../app/lib/member-history';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
 import { recordClanHistory, upsertLeaderboardRows } from '../../../lib/multisource-db.mjs';
 
@@ -141,32 +141,6 @@ export async function GET(request) {
     });
   } catch (error) {
     errors.push(`Sync log: ${errorText(error)}`);
-  }
-
-  try {
-    await recordSyncStatus({
-      version: 4,
-      status: status === 'error' ? 'error' : 'active',
-      overall: status,
-      lastRunAt: finishedAt.toISOString(),
-      nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
-      intervalMs: SYNC_INTERVAL_MS,
-      season: ranking?.season || null,
-      clansSeen: ranking?.rows?.length || 0,
-      membersSeen: 0,
-      memberErrors: 0,
-      sources: sourceStatus,
-      leaderboards: {
-        pve: { season: page?.pve?.season || null, round: page?.pve?.round || '', rows: page?.pve?.rows?.length || 0, stored: Boolean(pveStore.stored) },
-        pvp: { season: page?.pvp?.season || null, round: page?.pvp?.round || '', rows: page?.pvp?.rows?.length || 0, stored: Boolean(pvpStore.stored) }
-      },
-      rankingStored: Boolean(sourceStatus.clanRanking.storage?.stored),
-      roster: sourceStatus.clanMembers,
-      error: combinedError,
-      source: ranking?.source || 'https://ninjazenshin.online/'
-    });
-  } catch (error) {
-    errors.push(`Heartbeat: ${errorText(error)}`);
   }
 
   return Response.json({

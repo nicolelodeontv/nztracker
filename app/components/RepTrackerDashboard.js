@@ -84,7 +84,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       }
     } catch (e) { setMessage(e.message); }
   };
-  useEffect(() => { refresh(true); const t = setInterval(() => refresh(false), 30000); return () => clearInterval(t); }, []);
+  useEffect(() => { refresh(true); const t = setInterval(() => refresh(false), 60000); return () => clearInterval(t); }, []);
 
   const rows = data?.rows || [];
   const top = useMemo(() => [...rows].sort((a,b) => b.todayGain - a.todayGain).slice(0,5), [rows]);
@@ -107,6 +107,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       <div className="header-right"><div className="connection"><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b><span>{age(data.freshness?.ageSeconds)}</span></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
+    {data?.storage?.error && <div className="notice bad">⚠️ Blob storage error: {data.storage.error}. Dashboard data is being served from the Supabase-backed last-known dataset.</div>}
     {message&&<div className={`notice ${/fail|error|blocked|stale|missing/i.test(message)?'bad':'good'}`}>{message}<button onClick={()=>setMessage('')}>×</button></div>}
 
     {view==='dashboard'&&<>

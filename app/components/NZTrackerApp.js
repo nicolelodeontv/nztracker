@@ -8,9 +8,9 @@ import ClanIntelligence from './ClanIntelligence';
 import { buildMemberRows, deriveAlerts, deriveEvents } from '../lib/metrics';
 
 const RANKING_REFRESH_MS = 30000;
-const OPS_REFRESH_MS = 10000;
+const OPS_REFRESH_MS = 30000;
 const BOARD_REFRESH_MS = 30000;
-const MEMBER_REFRESH_MS = 30000;
+const MEMBER_REFRESH_MS = 60000;
 const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
 async function readJson(url) {
