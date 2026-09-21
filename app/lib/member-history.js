@@ -59,7 +59,11 @@ function normalizeMember(member, index) {
   };
 }
 
-async function runRetention(db, nowMs) {
+export function resolveRetentionDays(options = {}) {
+  return Math.max(1, Number(options?.olderThanDays) || 30);
+}
+
+async function runRetention(db, nowMs, options = {}) {
   const { data: guard, error: guardError } = await db
     .from('rep_tracker_kv')
     .select('value,updated_at')
@@ -72,7 +76,8 @@ async function runRetention(db, nowMs) {
     return { deleted: 0, skipped: true };
   }
 
-  const cutoff = new Date(nowMs - HISTORY_MAX_AGE_MS).toISOString();
+  const retentionDays = resolveRetentionDays(options);
+  const cutoff = new Date(nowMs - retentionDays * 24 * 60 * 60 * 1000).toISOString();
   const { count, error: deleteError } = await db
     .from('rep_tracker_member_points')
     .delete({ count: 'exact' })
@@ -174,7 +179,7 @@ export async function recordMemberSnapshot({ clanId, season, members, capturedAt
     });
     if (latestUpsertError) throw latestUpsertError;
 
-    const retention = await runRetention(db, nowMs);
+    const retention = await runRetention(db, nowMs, { olderThanDays: 30 });
 
     return {
       stored: true,
