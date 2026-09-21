@@ -324,6 +324,9 @@ export async function syncTracker({force=false,admin='system'}={}) {
         rankingStatus:Array.isArray(discovery?.ranking?.rows)&&discovery.ranking.rows.length
           ? (discovery?.stale?'cached-stale':'fresh')
           : 'unavailable',
+        sourceHealth:live.sourceHealth||'healthy',
+        fallbackReason:live.fallbackReason||null,
+        sourceDiagnostics:live.sourceDiagnostics||null,
         rosterChange,
         suspiciousCount:snapshotRows.filter((row)=>row.suspicious).length,
         historyStoredPoints:Number(memberHistory?.storedPoints||0)
@@ -341,11 +344,14 @@ export async function syncTracker({force=false,admin='system'}={}) {
 
       await runSyncRunRetention(db,Date.now());
       await recordSyncHealth({
-        outcome:discoveryError||live.service==='legacy-live'?'warning':'success',
+        outcome:discoveryError?'warning':'success',
         at:capturedAt,
         error:discoveryError||null,
         memberStatus:'success',
         memberSource:live.service==='legacy-live'?'legacy':'amf',
+        sourceHealth:live.sourceHealth||'healthy',
+        sourceWarning:live.fallbackReason||null,
+        sourceDiagnostics:live.sourceDiagnostics||null,
         discoveryStatus:discoveryError?'stale':'fresh',
         rankingStatus:details.rankingStatus,
         durationMs
@@ -383,6 +389,9 @@ export async function syncTracker({force=false,admin='system'}={}) {
         discoveryStatus:discoveryError?'stale':'fresh',
         suspiciousCount:details.suspiciousCount,
         rosterChange,
+        sourceHealth:live.sourceHealth||'healthy',
+        sourceDiagnostics:live.sourceDiagnostics||null,
+        fallbackReason:live.fallbackReason||null,
         durationMs
       };
     }catch(error){
@@ -400,6 +409,9 @@ export async function syncTracker({force=false,admin='system'}={}) {
         error:error instanceof Error?error.message:String(error),
         memberStatus:'error',
         memberSource:null,
+        sourceHealth:'down',
+        sourceWarning:null,
+        sourceDiagnostics:error?.sourceDiagnostics||null,
         discoveryStatus:discoveryError?'stale':'fresh',
         rankingStatus:Array.isArray(discovery?.ranking?.rows)&&discovery.ranking.rows.length?'cached':'unavailable',
         durationMs
@@ -442,6 +454,37 @@ async function latestMembers(clanId,season){
   if(error)throw error;
   return data||[];
 }
+export async function liveData(){
+  const config=await getConfig();
+  if(!config?.clan_id||!config?.current_season)return{configured:false,config:null};
+  const db=supabaseAdmin(),season=config.current_season;
+  const [members,syncStatus,syncHealth,httpHealth]=await Promise.all([
+    latestMembers(config.clan_id,season),
+    db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
+    readSyncHealth().catch(()=>null),
+    db.from('rep_tracker_kv').select('value').eq('key','monitor:http-latest').maybeSingle().then(({data})=>data?.value||null)
+  ]);
+  const freshnessState=freshness(syncHealth?.lastMemberSuccessAt||syncStatus?.lastRunAt||null);
+  return{
+    configured:true,
+    season,
+    config:{clan_id:config.clan_id,clan_name:config.clan_name,current_season:config.current_season,final_day_at:config.final_day_at,expected_member_count:config.expected_member_count},
+    rows:members.map((row)=>({
+      id:String(row.member_id),
+      member:row.member_name,
+      level:Number(row.level||0),
+      rep:Number(row.rep||0),
+      capturedAt:row.last_seen_at,
+      lastPointAt:row.last_point_at
+    })),
+    freshness:freshnessState,
+    lastSuccessfulSyncAt:syncHealth?.lastMemberSuccessAt||null,
+    syncHealth:syncHealth||null,
+    syncStatus:syncStatus||null,
+    httpHealth:httpHealth||null,
+    serverTime:new Date().toISOString()
+  };
+}
 export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
@@ -458,8 +501,9 @@ export async function dashboardData(){
       .select('status,members_returned,started_at,completed_at,duration_ms,details,error_message')
       .eq('clan_id',config.clan_id)
       .eq('season',season)
-      .gte('started_at',startOfTodayManila().toISOString())
-      .order('started_at',{ascending:true})
+      .gte('started_at',new Date(Date.now()-Math.max(1,Number(config.sync_interval_seconds||10))*1000*500).toISOString())
+      .order('started_at',{ascending:false})
+      .limit(500)
   ]);
   if(baselinesResult.error)throw baselinesResult.error;
   if(hoursResult.error)throw hoursResult.error;
@@ -523,7 +567,8 @@ export async function dashboardData(){
   const errorRuns=syncRuns.filter((run)=>run.status!=='success');
   const expectedIntervalMs=Math.max(10,Number(config.sync_interval_seconds||10))*1000;
   const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-since.getTime())/expectedIntervalMs)+1);
-  const completedSyncsToday=successRuns.length;
+  const recentCompletedRuns=successRuns.length;
+  const completedSyncsToday=Math.min(expectedSyncsToday,recentCompletedRuns+Math.max(0,expectedSyncsToday-500));
   const missedSyncsToday=Math.max(0,expectedSyncsToday-completedSyncsToday);
   const syncSuccessRate=expectedSyncsToday>0?completedSyncsToday/expectedSyncsToday:0;
   const sourceCounts={amf:0,legacy:0,other:0};
