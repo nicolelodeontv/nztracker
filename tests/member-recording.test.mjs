@@ -83,7 +83,7 @@ test('recorded members prevent a false zero-member warning', () => {
 
 test('only configured tracked clan IDs become member fetch targets', () => {
   assert.deepEqual(parseTrackedClanIds('3, 7,3'), ['3', '7']);
-  assert.deepEqual(parseTrackedClanIds(''), ['3']);
+  assert.deepEqual(parseTrackedClanIds('', ['3']), ['3']);
 
   const targets = buildTrackedClanTargets([
     { clanId: '3', clan: 'Chaos', memberCurrent: 29 },
