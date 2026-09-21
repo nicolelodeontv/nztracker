@@ -411,7 +411,6 @@ export async function syncTracker({force=false,admin='system'}={}) {
   try{return await task;}finally{syncLocks.delete(lockKey);}
 }
 
-cks.delete(lockKey);}}
 async function firstTodayMemberPointMap(db,clanId,season,sinceIso,memberCount){
   const firstByMember=new Map();
   if(!memberCount)return firstByMember;
