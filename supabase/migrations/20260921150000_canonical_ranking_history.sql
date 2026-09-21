@@ -19,6 +19,10 @@ create index if not exists rep_tracker_ranking_history_lookup
 create index if not exists rep_tracker_ranking_history_season_time
   on public.rep_tracker_ranking_history (season, snapshot_at desc);
 
+update public.rep_tracker_config
+set sync_interval_seconds = 60, updated_at = now()
+where id = 'main';
+
 alter table public.rep_tracker_ranking_history enable row level security;
 
 revoke all privileges on table public.rep_tracker_ranking_history from public, anon, authenticated;
