@@ -1,9 +1,10 @@
 import { recordSyncStatus } from '../../lib/member-history.js';
-import { recordRankingSnapshot } from '../../lib/ranking-cache.js';
+import { readRankingSnapshot, recordRankingSnapshot } from '../../lib/ranking-cache.js';
 import { getMonitorStatus } from '../../lib/monitor-status.mjs';
 import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
 import { MONITOR_WINDOW_MS, claimMonitorWindow, completeMonitorWindow, pruneMonitorWindows, releaseMonitorWindow } from '../../lib/monitor-idempotency.mjs';
 import { syncTracker } from '../../lib/rep-tracker.js';
+import { discoverChaos } from '../../lib/ninja-source.mjs';
 import { recordSyncHealth } from '../../lib/sync-health.mjs';
 
 export const runtime = 'nodejs';
@@ -48,17 +49,29 @@ export async function GET(request) {
       rankingCacheError: null
     });
 
-    let rankingCache = { stored: false };
+    let rankingCache = { stored: false, refreshed: false };
     let rankingCacheError = null;
-    const ranking = result.discovery?.ranking;
-    if (!result.reused && Array.isArray(ranking?.rows) && ranking.rows.length) {
-      try {
-        rankingCache = await recordRankingSnapshot(ranking);
-      } catch (error) {
-        rankingCacheError = error instanceof Error ? error.message : String(error);
-        rankingCache = { stored: false, error: rankingCacheError };
-        console.error('Ranking cache write failed; continuing tracker sync', error);
+    let ranking = result.discovery?.ranking;
+    try {
+      const cachedRanking = await readRankingSnapshot();
+      const cachedAt = Date.parse(cachedRanking?.fetchedAt || '');
+      const rankingDue = !cachedRanking || !Number.isFinite(cachedAt) || Date.now() - cachedAt >= 60000;
+      if (rankingDue) {
+        const freshRanking = await discoverChaos();
+        if (Array.isArray(freshRanking?.ranking?.rows) && freshRanking.ranking.rows.length) {
+          rankingCache = await recordRankingSnapshot(freshRanking.ranking);
+          rankingCache.refreshed = true;
+          ranking = freshRanking.ranking;
+        }
+      } else {
+        ranking = cachedRanking;
+        rankingCache = { stored: false, refreshed: false, cached: true, ageMs: Math.max(0, Date.now() - cachedAt) };
       }
+    } catch (error) {
+      rankingCacheError = error instanceof Error ? error.message : String(error);
+      rankingCache = { stored: false, refreshed: false, error: rankingCacheError };
+      ranking = ranking || null;
+      console.error('Ranking refresh failed; continuing tracker sync', error);
     }
 
     const rankingRows = Array.isArray(ranking?.rows) ? ranking.rows.length : undefined;
@@ -77,13 +90,16 @@ export async function GET(request) {
     const overallOutcome =
       status==='error'
         ? 'error'
-        : (rankingCacheError || result.discoveryError || memberSource==='legacy' ? 'warning' : 'success');
+        : (rankingCacheError || result.discoveryError ? 'warning' : 'success');
     await recordSyncHealth({
       outcome:overallOutcome,
       at:finishedAt.toISOString(),
       error:rankingCacheError||result.discoveryError||null,
       memberStatus,
       memberSource,
+      sourceHealth:result.live?.sourceHealth||'healthy',
+      sourceWarning:result.live?.fallbackReason||null,
+      sourceDiagnostics:result.live?.sourceDiagnostics||null,
       discoveryStatus,
       rankingStatus,
       durationMs:result.durationMs||null
@@ -109,6 +125,8 @@ export async function GET(request) {
       rankingRows,
       memberSources,
       memberStatus,
+      sourceHealth:result.live?.sourceHealth||'healthy',
+      sourceWarning:result.live?.fallbackReason||null,
       memberSource,
       discoveryStatus,
       rankingStatus,
