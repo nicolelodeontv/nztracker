@@ -7,12 +7,23 @@ export const maxDuration = 30;
 export async function GET() {
   try {
     const data = await dashboardData();
-    const activity = data.configured ? await recentActivity(10, data) : [];
+    let activity = [];
+    let activityError = null;
+
+    if (data.configured) {
+      try {
+        activity = await recentActivity(10, data);
+      } catch (error) {
+        activityError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
     return Response.json(
       {
         ok: true,
         ...data,
         activity,
+        activityError,
         syncError: null,
         serverTime: new Date().toISOString(),
         freshness: data.freshness || freshness(null),
