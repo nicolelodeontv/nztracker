@@ -29,8 +29,8 @@ mock.module(f('app/lib/member-history'), { exports: {
 }});
 mock.module(f('app/lib/ranking-cache'), { exports: { recordRankingSnapshot: async () => ({ stored: true }) }});
 mock.module(f('app/lib/ninja-source.mjs'), { exports: { fetchLiveMembers: async () => ({ members, fetchedAt: ranking.capturedAt, service: 'test', source: 'test' }) }});
-mock.module(f('app/lib/member-snapshot.mjs'), { exports: { buildTrackedClanTargets: () => ranking.rows, parseTrackedClanIds: () => ['3'] }});
-mock.module(f('app/lib/member-recording.mjs'), { exports: { summarizeMemberRecording: () => ({ issues: [], error: null }) }});
+mock.module(f('app/lib/member-snapshot'), { exports: { buildTrackedClanTargets: () => ranking.rows, parseTrackedClanIds: () => ['3'] }});
+mock.module(f('app/lib/member-recording'), { exports: { summarizeMemberRecording: () => ({ issues: [], error: null }) }});
 mock.module(f('lib/scraper.mjs'), { exports: {
   scrapeGame: async () => ({ ...ranking, clanRanking: ranking.rows, pve: { rows: [1], season: 'Season 3', round: '1/1' }, pvp: { rows: [1], season: 'Season 3', round: '1/1' }}),
   scrapeClans: async () => ranking
