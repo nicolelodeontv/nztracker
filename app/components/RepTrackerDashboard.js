@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
 const fmtHours = (n) => Number(n || 0).toFixed(2);
@@ -66,6 +66,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [password, setPassword] = useState('');
   const [admin, setAdmin] = useState(false);
   const [adminLoading, setAdminLoading] = useState(true);
+  const syncInFlight = useRef(false);
   const [seasonName, setSeasonName] = useState('');
   const [finalDay, setFinalDay] = useState('');
   const [hoursMember, setHoursMember] = useState('');
@@ -75,9 +76,8 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [hoursBreak, setHoursBreak] = useState('0');
   const [hoursNotes, setHoursNotes] = useState('');
 
-  const refresh = async (withSync = true) => {
+  const refresh = async () => {
     try {
-      if (withSync) await api('/api/sync', { method: 'GET' }).catch(() => null);
       const current = await api('/api/dashboard');
       setData(current);
       const fins = await api('/api/finalize');
@@ -88,6 +88,20 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       }
     } catch (e) { setMessage(e.message); }
   };
+
+  const triggerBackgroundSync = async () => {
+    if (syncInFlight.current) return;
+    syncInFlight.current = true;
+    try {
+      await api('/api/sync', { method: 'GET' });
+      await refresh();
+    } catch (e) {
+      setMessage(e.message);
+    } finally {
+      syncInFlight.current = false;
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const checkAdmin = async () => {
@@ -111,7 +125,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       setMessage('Admin session expired. Please sign in again.');
     };
     window.addEventListener('admin-session-expired', onExpired);
-    refresh(true);
+    refresh().then(() => triggerBackgroundSync());
     const t = setInterval(() => refresh(false), 30000);
     return () => {
       cancelled = true;
@@ -127,9 +141,9 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
 
   async function login() { setBusy(true); try { await api('/api/admin/login',{method:'POST',body:JSON.stringify({password}),headers:{'Content-Type':'application/json'}}); setAdmin(true); setLoginOpen(false); setPassword(''); setMessage('Admin session active.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
   async function logout() { setBusy(true); try { await api('/api/admin/login',{method:'DELETE'}); setAdmin(false); setLoginOpen(false); setPassword(''); setMessage('Admin session ended.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
-  async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh(false);setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+  async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh();setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function baseline(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'baseline'})});await refresh(false);setMessage('Season baseline created from the live roster.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
-  async function startSeason(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',season:seasonName,finalDayAt:finalDay?new Date(finalDay).toISOString():null})});await refresh(true);setMessage('New season started.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+  async function startSeason(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',season:seasonName,finalDayAt:finalDay?new Date(finalDay).toISOString():null})});await refresh();setMessage('New season started.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function addHours(){setBusy(true);try{let total=0;if(hoursStart&&hoursEnd){total=(new Date(`1970-01-01T${hoursEnd}:00Z`).getTime()-new Date(`1970-01-01T${hoursStart}:00Z`).getTime())/3600000-(Number(hoursBreak)||0)/60;if(total<0)total+=24;} await api('/api/hours',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({season:data.season,clanId:data.config.clan_id,memberId:hoursMember,workDate:hoursDate,startTime:hoursStart?`${hoursDate}T${hoursStart}:00+08:00`:null,endTime:hoursEnd?`${hoursDate}T${hoursEnd}:00+08:00`:null,breakMinutes:Number(hoursBreak)||0,totalHours:Number(total.toFixed(2)),source:'MANUAL',notes:hoursNotes})});await refresh(false);setMessage('Hours session added.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function lockFinal(){if(!confirm('FINALIZE SEASON RESULTS? This creates an immutable final snapshot.'))return;setBusy(true);try{const res=await api('/api/finalize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock'})});await refresh(false);setMessage(`FINAL DAY LOCKED · VERSION ${res.finalization.version}`);}catch(e){setMessage(e.message);}finally{setBusy(false);}}
 
