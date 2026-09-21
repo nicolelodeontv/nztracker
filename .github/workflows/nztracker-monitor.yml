@@ -1,8 +1,6 @@
-name: Ninja Zenshin Full Sync (scheduled + manual)
+name: Ninja Zenshin Full Sync (manual diagnostic)
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
