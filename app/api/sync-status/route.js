@@ -1,5 +1,6 @@
 import { readSyncStatus, storageHealth } from '../../lib/member-history.js';
 import { getLatestSync, dbStatus } from '../../../lib/supabase-db.mjs';
+import { readRepDrift } from '../../lib/rep-drift.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,13 @@ export async function GET() {
   } catch (error) {
     readErrors.latestSync = error instanceof Error ? error.message : String(error);
     readErrors.database = readErrors.database || readErrors.latestSync;
+  }
+
+  let repDrift = null;
+  try {
+    repDrift = await readRepDrift((sync?.trackedMemberClanIds || [])[0] || '3');
+  } catch (error) {
+    readErrors.latestSync = readErrors.latestSync || (error instanceof Error ? error.message : String(error));
   }
 
   const storage = storageHealth();
