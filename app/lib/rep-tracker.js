@@ -451,68 +451,32 @@ async function latestMembers(clanId,season){
 export async function liveData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
+
   const db=supabaseAdmin();
   const season=config.current_season;
-  const since=startOfTodayManila();
-  const [members,syncStatus,syncHealth,baselinesResult,hoursResult]=await Promise.all([
+  const [members,syncStatus,syncHealth]=await Promise.all([
     latestMembers(config.clan_id,season),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
-    readSyncHealth().catch(()=>null),
-    db.from('rep_tracker_baselines').select('member_id,baseline_rep').eq('clan_id',config.clan_id).eq('season',season),
-    db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season)
+    readSyncHealth().catch(()=>null)
   ]);
-  if(baselinesResult.error)throw baselinesResult.error;
-  if(hoursResult.error)throw hoursResult.error;
 
-  const ids=members.map((row)=>String(row.member_id));
-  const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
   const syncFresh=freshness(syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
-  const baselineMap=new Map((baselinesResult.data||[]).map((row)=>[String(row.member_id),row]));
-  const hoursMap=new Map();
-  for(const row of hoursResult.data||[]){
-    const id=String(row.member_id);
-    hoursMap.set(id,(hoursMap.get(id)||0)+Number(row.total_hours||0));
-  }
+  const rows=members.map((row)=>({
+    id:String(row.member_id),
+    member:row.member_name,
+    level:Number(row.level||0),
+    rep:Number(row.rep||0),
+    capturedAt:row.last_seen_at
+  })).sort((a,b)=>b.rep-a.rep);
 
-  const rows=members.map((row)=>{
-    const id=String(row.member_id);
-    const baseline=baselineMap.get(id);
-    const gain=baseline?Number(row.rep)-Number(baseline.baseline_rep):0;
-    const today=dayMap.has(id)?Number(row.rep)-dayMap.get(id):0;
-    const hours=hoursMap.get(id)||0;
-    return{
-      id,
-      member:row.member_name,
-      level:Number(row.level||0),
-      rep:Number(row.rep||0),
-      baseline:baseline?.baseline_rep??null,
-      gain,
-      todayGain:today,
-      hours,
-      repPerHour:hours>0?gain/hours:0,
-      source:'Ninja Zenshin live member monitor',
-      capturedAt:row.last_seen_at,
-      suspicious:false,
-      status:syncFresh.status
-    };
-  }).sort((a,b)=>b.rep-a.rep);
-
-  const totalRep=rows.reduce((sum,row)=>sum+row.rep,0);
-  const totalGain=rows.reduce((sum,row)=>sum+row.gain,0);
-  const todayGain=rows.reduce((sum,row)=>sum+row.todayGain,0);
-  const totalHours=rows.reduce((sum,row)=>sum+row.hours,0);
   return{
     configured:true,
     config:{clan_id:config.clan_id,clan_name:config.clan_name,current_season:config.current_season},
     season,
     rows,
     stats:{
-      totalRep,
-      totalGain,
-      todayGain,
-      activeMembers:rows.length,
-      totalHours,
-      avgRepPerHour:totalHours?totalGain/totalHours:0
+      totalRep:rows.reduce((sum,row)=>sum+row.rep,0),
+      activeMembers:rows.length
     },
     freshness:syncFresh,
     lastSuccessfulSyncAt:syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||null,
@@ -521,59 +485,6 @@ export async function liveData(){
     sourceStatus:syncHealth?.lastSourceStatus||null,
     sourceDiagnostics:syncHealth?.lastSourceDiagnostics||null,
     serverTime:new Date().toISOString()
-  };
-}
-
-async function readSyncMetrics(db,clanId,season,sinceIso){
-  const rpc=await db.rpc('rep_tracker_sync_metrics_today',{
-    p_clan_id:String(clanId),
-    p_season:String(season),
-    p_since:sinceIso
-  });
-  if(!rpc.error){
-    const row=Array.isArray(rpc.data)?(rpc.data[0]||{}):(rpc.data||{});
-    return {
-      successCount:Number(row.success_count||0),
-      failedCount:Number(row.failed_count||0),
-      avgDurationMs:Number(row.avg_duration_ms||0)||0,
-      slowSyncs:Number(row.slow_syncs||0),
-      rosterChanges:Number(row.roster_changes||0),
-      amfCount:Number(row.amf_count||0),
-      legacyCount:Number(row.legacy_count||0),
-      aggregated:true
-    };
-  }
-
-  console.warn('Sync metrics aggregate unavailable; using compatibility query',rpc.error);
-  const fallback=await db.from('rep_tracker_sync_runs')
-    .select('status,duration_ms,details')
-    .eq('clan_id',clanId)
-    .eq('season',season)
-    .gte('started_at',sinceIso);
-  if(fallback.error)throw fallback.error;
-  let successCount=0,failedCount=0,slowSyncs=0,rosterChanges=0,amfCount=0,legacyCount=0,durationTotal=0,durationCount=0;
-  for(const run of fallback.data||[]){
-    if(run.status==='success'){
-      successCount+=1;
-      if(Number(run.duration_ms)>5000)slowSyncs+=1;
-      if(Number.isFinite(Number(run.duration_ms))){durationTotal+=Number(run.duration_ms);durationCount+=1;}
-    }else{
-      failedCount+=1;
-    }
-    if(run?.details?.rosterChange)rosterChanges+=1;
-    const source=String(run?.details?.memberSource||'').toLowerCase();
-    if(source==='amf')amfCount+=1;
-    else if(source==='legacy')legacyCount+=1;
-  }
-  return{
-    successCount,
-    failedCount,
-    avgDurationMs:durationCount?Math.round(durationTotal/durationCount):0,
-    slowSyncs,
-    rosterChanges,
-    amfCount,
-    legacyCount,
-    aggregated:false
   };
 }
 
@@ -692,7 +603,80 @@ export async function dashboardData(){
 }
 export async function createBaseline(admin){const data=await dashboardData();if(!data.configured)throw new Error('Clan and season are not configured. Sync live data first.');const db=supabaseAdmin();const{data:existing}=await db.from('rep_tracker_baselines').select('member_id').eq('clan_id',data.config.clan_id).eq('season',data.season);if(existing?.length)throw new Error(`Season baseline already exists for ${existing.length} members.`);const capturedAt=nowIso(),rows=data.rows.map((row)=>({season:data.season,clan_id:data.config.clan_id,member_id:row.id,ign:row.member,level:row.level,baseline_rep:row.rep,captured_at:capturedAt}));const{error}=await db.from('rep_tracker_baselines').insert(rows);if(error)throw error;await db.from('rep_tracker_seasons').update({baseline_created_at:capturedAt}).eq('season',data.season);await audit('Created season baseline',{season:data.season,memberCount:rows.length},admin);return{season:data.season,count:rows.length,capturedAt};}
 export async function addHours(payload,admin){const db=supabaseAdmin(),total=Number(payload.totalHours);if(!Number.isFinite(total)||total<0)throw new Error('Total hours must be a non-negative number.');const row={season:safeText(payload.season),clan_id:safeText(payload.clanId),member_id:safeText(payload.memberId),work_date:payload.workDate,start_time:payload.startTime||null,end_time:payload.endTime||null,break_minutes:Math.max(0,asInt(payload.breakMinutes)),total_hours:total,source:['MANUAL','ADMIN','IMPORT'].includes(payload.source)?payload.source:'MANUAL',notes:safeText(payload.notes)||null};if(!row.season||!row.clan_id||!row.member_id||!row.work_date)throw new Error('Season, clan, member, and date are required.');const{data,error}=await db.from('rep_tracker_hours').insert(row).select('*').single();if(error)throw error;await audit('Added hours session',{id:data.id,...row},admin);return data;}
-export async function memberDetail(memberId,hours=168){const data=await dashboardData();if(!data.configured)return null;const db=supabaseAdmin(),since=new Date(Date.now()-Math.min(720,Math.max(1,Number(hours)||168))*3600000).toISOString();const{data:points,error}=await db.from('rep_tracker_snapshots').select('captured_at,reputation,level,ign,suspicious,suspicious_reason,source').eq('clan_id',data.config.clan_id).eq('season',data.season).eq('member_id',String(memberId)).gte('captured_at',since).order('captured_at',{ascending:true});if(error)throw error;const row=data.rows.find((item)=>item.id===String(memberId));return{summary:row||null,points:points||[],season:data.season,config:data.config};}
+export async function memberDetail(memberId,hours=168){
+  const config=await getConfig();
+  if(!config?.clan_id||!config?.current_season)return null;
+  const db=supabaseAdmin();
+  const season=config.current_season;
+  const id=String(memberId);
+  const since=new Date(Date.now()-Math.min(720,Math.max(1,Number(hours)||168))*3600000).toISOString();
+  const today=startOfTodayManila().toISOString();
+
+  const [memberResult,baselineResult,hoursResult,todayResult,pointsResult]=await Promise.all([
+    db.from('rep_tracker_member_latest')
+      .select('member_id,member_name,level,rep,last_seen_at')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .eq('member_id',id)
+      .maybeSingle(),
+    db.from('rep_tracker_baselines')
+      .select('baseline_rep')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .eq('member_id',id)
+      .maybeSingle(),
+    db.from('rep_tracker_hours')
+      .select('total_hours')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .eq('member_id',id),
+    db.from('rep_tracker_member_points')
+      .select('rep,captured_at')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .eq('member_id',id)
+      .gte('captured_at',today)
+      .order('captured_at',{ascending:true})
+      .limit(1)
+      .maybeSingle(),
+    db.from('rep_tracker_snapshots')
+      .select('captured_at,reputation,level,ign,suspicious,suspicious_reason,source')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .eq('member_id',id)
+      .gte('captured_at',since)
+      .order('captured_at',{ascending:true})
+  ]);
+
+  if(memberResult.error)throw memberResult.error;
+  if(baselineResult.error)throw baselineResult.error;
+  if(hoursResult.error)throw hoursResult.error;
+  if(todayResult.error)throw todayResult.error;
+  if(pointsResult.error)throw pointsResult.error;
+  if(!memberResult.data)return null;
+
+  const rep=Number(memberResult.data.rep||0);
+  const baseline=baselineResult.data?.baseline_rep??null;
+  const gain=baseline===null?0:rep-Number(baseline);
+  const todayGain=todayResult.data?.rep==null?0:rep-Number(todayResult.data.rep);
+  const totalHours=(hoursResult.data||[]).reduce((sum,row)=>sum+Number(row.total_hours||0),0);
+  const summary={
+    id,
+    member:memberResult.data.member_name,
+    level:Number(memberResult.data.level||0),
+    rep,
+    baseline,
+    gain,
+    todayGain,
+    hours:totalHours,
+    repPerHour:totalHours>0?gain/totalHours:0,
+    source:'Ninja Zenshin live member monitor',
+    capturedAt:memberResult.data.last_seen_at,
+    suspicious:false,
+    status:freshness(memberResult.data.last_seen_at).status
+  };
+  return{summary,points:pointsResult.data||[],season,config};
+}
 export async function startNewSeason(season,finalDayAt,admin){const seasonName=safeText(season);if(!seasonName)throw new Error('Season name is required.');const config=await getConfig();if(!config?.clan_id)throw new Error('Discover the Chaos clan before starting a season.');const db=supabaseAdmin();const{data:locked}=await db.from('rep_tracker_finalizations').select('season').eq('season',seasonName).limit(1);if(locked?.length)throw new Error('That season already has a finalized result.');await ensureSeason({...config,current_season:seasonName},seasonName,config.clan_id);await updateConfig({current_season:seasonName,final_day_at:finalDayAt||null});await audit('Started new season',{season:seasonName,finalDayAt:finalDayAt||null},admin);return getConfig();}
 export async function finalizeSeason(admin){const config=await getConfig();if(!config?.clan_id||!config?.current_season)throw new Error('Clan/season not configured.');const live=await syncTracker({force:true,admin}),fresh=await dashboardData();if(!fresh.configured||fresh.freshness.status==='stale'||fresh.freshness.status==='offline')throw new Error('Finalization blocked because live data is not fresh.');if(config.expected_member_count&&fresh.rows.length<Number(config.expected_member_count))throw new Error(`Finalization blocked: ${fresh.rows.length} members returned, ${config.expected_member_count} expected.`);const db=supabaseAdmin();const{data:versions}=await db.from('rep_tracker_finalizations').select('version').eq('season',fresh.season).order('version',{ascending:false}).limit(1);const version=Number(versions?.[0]?.version||0)+1,lockedAt=nowIso(),raw={stats:fresh.stats,rows:fresh.rows,config:fresh.config,live:{source:live.live?.source,service:live.live?.service,fetchedAt:live.live?.fetchedAt}};const{data,error}=await db.from('rep_tracker_finalizations').insert({season:fresh.season,version,clan_id:config.clan_id,final_timestamp:lockedAt,server_timestamp:lockedAt,member_count:fresh.rows.length,total_rep:fresh.stats.totalRep,season_gain:fresh.stats.totalGain,total_hours:fresh.stats.totalHours,avg_rep_per_hour:fresh.stats.avgRepPerHour,locked_by:admin,raw_snapshot:raw}).select('*').single();if(error)throw error;await db.from('rep_tracker_seasons').update({status:'locked',final_locked_at:lockedAt}).eq('season',fresh.season);await audit('Final Day Lock',{season:fresh.season,version,memberCount:fresh.rows.length},admin);return data;}
 export async function finalHistory(){const db=supabaseAdmin();const{data,error}=await db.from('rep_tracker_finalizations').select('*').order('final_timestamp',{ascending:false});if(error)throw error;return data||[];}
