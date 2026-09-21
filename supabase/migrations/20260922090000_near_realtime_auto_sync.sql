@@ -5,7 +5,7 @@ alter table public.rep_tracker_config
   add constraint rep_tracker_config_sync_interval_seconds_check
   check (sync_interval_seconds >= 10 and sync_interval_seconds <= 300);
 
-do $
+do $body$
 declare
   existing_job_id bigint;
 begin
@@ -34,7 +34,7 @@ begin
       ) as request_id
     $cron$
   );
-end $$;
+end $body$;
 
 update public.rep_tracker_config
 set sync_interval_seconds = 10,
@@ -42,7 +42,7 @@ set sync_interval_seconds = 10,
 where id = 'main';
 
  
-do $$
+do $health$
 declare
   existing_job_id bigint;
 begin
@@ -70,4 +70,4 @@ begin
       ) as request_id
     $cron$
   );
-end $$;
+end $health$;
