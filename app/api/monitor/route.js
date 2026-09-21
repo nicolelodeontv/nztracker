@@ -2,7 +2,7 @@ import { recordSyncStatus } from '../../lib/member-history.js';
 import { recordRankingSnapshot } from '../../lib/ranking-cache.js';
 import { getMonitorStatus } from '../../lib/monitor-status.mjs';
 import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
-import { claimMonitorWindow, completeMonitorWindow, pruneMonitorWindows, releaseMonitorWindow } from '../../lib/monitor-idempotency.mjs';
+import { MONITOR_WINDOW_MS, claimMonitorWindow, completeMonitorWindow, pruneMonitorWindows, releaseMonitorWindow } from '../../lib/monitor-idempotency.mjs';
 import { syncTracker } from '../../lib/rep-tracker.js';
 
 export const runtime = 'nodejs';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const SYNC_INTERVAL_MS = MONITOR_WINDOW_MS;
 
 export async function GET(request) {
   const denied = requireRequiredCronSecret(request, '/api/monitor');
