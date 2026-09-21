@@ -9,7 +9,8 @@ const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], sea
 const config = { clan_id: '3', clan_name: 'Chaos', current_season: 'Season 3', expected_member_count: 30 };
 
 mock.module(f('app/lib/rep-drift.mjs'), { exports: {
-  readRepDrift: async () => null
+  readRepDrift: async () => null,
+  updateRepDrift: async () => null
 }});
 mock.module(f('app/lib/rep-tracker.js'), { exports: {
   dashboardData: async () => ({ configured: true, config, season: 'Season 3', rows: [], stats: {}, freshness: { status: 'live', ageSeconds: 5 }, lastSuccessfulSyncAt: ranking.capturedAt }),
