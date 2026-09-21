@@ -15,10 +15,34 @@ const LIVE_HISTORY_REFRESH_INTERVAL_MS = 10000;
 
 function mergeLiveData(current, live) {
   if (!current || !live?.configured) return current;
+  const previousRows=new Map((current.rows||[]).map((row)=>[String(row.id),row]));
+  const rows=(live.rows||[]).map((liveRow)=>{
+    const previous=previousRows.get(String(liveRow.id));
+    if(!previous)return liveRow;
+    const delta=Number(liveRow.rep||0)-Number(previous.rep||0);
+    const gain=Number(previous.gain||0)+delta;
+    const todayGain=Number(previous.todayGain||0)+delta;
+    const hours=Number(previous.hours||0);
+    return{
+      ...previous,
+      member:liveRow.member,
+      level:liveRow.level,
+      rep:liveRow.rep,
+      gain,
+      todayGain,
+      hours,
+      repPerHour:hours>0?gain/hours:0,
+      capturedAt:liveRow.capturedAt,
+      status:live.freshness?.status||previous.status
+    };
+  }).sort((a,b)=>Number(b.rep||0)-Number(a.rep||0));
+  const totalRep=rows.reduce((sum,row)=>sum+Number(row.rep||0),0);
+  const totalGain=rows.reduce((sum,row)=>sum+Number(row.gain||0),0);
+  const todayGain=rows.reduce((sum,row)=>sum+Number(row.todayGain||0),0);
   return {
     ...current,
-    rows: live.rows || current.rows || [],
-    stats: { ...(current.stats || {}), ...(live.stats || {}) },
+    rows,
+    stats: { ...(current.stats || {}), ...(live.stats || {}), totalRep, totalGain, todayGain, activeMembers:rows.length },
     freshness: live.freshness || current.freshness,
     lastSuccessfulSyncAt: live.lastSuccessfulSyncAt || current.lastSuccessfulSyncAt,
     syncHealth: live.syncHealth || current.syncHealth,
