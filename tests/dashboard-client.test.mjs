@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS } from '../app/lib/dashboard-client.mjs';
 
-test('refresh gate allows one automatic refresh per minimum interval', async () => {
+test('refresh gate uses the near-realtime dashboard interval', async () => {
+  assert.equal(DASHBOARD_REFRESH_INTERVAL_MS, 5000);
+
+
   let now = 1_000;
   const gate = createRefreshGate({ now: () => now });
   let calls = 0;
