@@ -21,6 +21,7 @@ export async function GET(request) {
     if (!snapshotState.currentAt || !snapshotState.previousAt) {
       return Response.json({ ok: true, season, changes: {} }, { headers: { 'Cache-Control': 'no-store' } });
     }
+    const snapshots = [snapshotState.currentAt, snapshotState.previousAt];
 
     const changes = {};
     for (const [clanId, row] of snapshotState.current) {
