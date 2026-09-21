@@ -423,23 +423,130 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth] = await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth,baselinesResult,hoursResult,todayPointsResult,syncRunsResult]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
-    readSyncHealth().catch(()=>null)
+    readSyncHealth().catch(()=>null),
+    db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season),
+    db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season),
+    db.from('rep_tracker_member_points')
+      .select('member_id,rep,captured_at')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .gte('captured_at',startOfTodayManila().toISOString())
+      .order('captured_at',{ascending:true})
+      .range(0,4999),
+    db.from('rep_tracker_sync_runs')
+      .select('status,members_returned,started_at,completed_at,duration_ms,details,error_message')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
+      .gte('started_at',startOfTodayManila().toISOString())
+      .order('started_at',{ascending:true})
   ]);
-  const ids=members.map((r)=>String(r.member_id));const syncFresh=freshness(syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);const{data:baselines}=await db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season).in('member_id',ids.length?ids:['_']);const baselineMap=new Map((baselines||[]).map((r)=>[String(r.member_id),r]));const since=startOfTodayManila();const dayMap=await firstTodaySnapshotMap(db,config.clan_id,season,since.toISOString(),ids.length);const{data:hoursRows}=await db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season);const hoursMap=new Map();for(const row of hoursRows||[])hoursMap.set(String(row.member_id),(hoursMap.get(String(row.member_id))||0)+Number(row.total_hours||0));const rows=members.map((row)=>{const baseline=baselineMap.get(String(row.member_id)),gain=baseline?Number(row.reputation)-Number(baseline.baseline_rep):0,today=dayMap.has(String(row.member_id))?Number(row.reputation)-dayMap.get(String(row.member_id)):0,hours=hoursMap.get(String(row.member_id))||0;return{id:String(row.member_id),member:row.member_name,level:Number(row.level||0),rep:Number(row.rep||0),baseline:baseline?.baseline_rep??null,gain,todayGain:today,hours,repPerHour:hours>0?gain/hours:0,source:'Ninja Zenshin live member monitor',capturedAt:row.last_seen_at,suspicious:false,status:syncFresh.status};}).sort((a,b)=>b.rep-a.rep);const totalRep=rows.reduce((s,r)=>s+r.rep,0),totalGain=rows.reduce((s,r)=>s+r.gain,0),todayGain=rows.reduce((s,r)=>s+r.todayGain,0),totalHours=rows.reduce((s,r)=>s+r.hours,0);const{count:suspiciousCount}=await db.from('rep_tracker_snapshots').select('*',{count:'exact',head:true}).eq('clan_id',config.clan_id).eq('season',season).eq('suspicious',true);const globalRanking=rankingCache?.rows||[];
+  if(baselinesResult.error)throw baselinesResult.error;
+  if(hoursResult.error)throw hoursResult.error;
+  if(todayPointsResult.error)throw todayPointsResult.error;
+  if(syncRunsResult.error)throw syncRunsResult.error;
+
+  const ids=members.map((r)=>String(r.member_id));
+  const syncFresh=freshness(syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
+  const baselineMap=new Map((baselinesResult.data||[]).map((r)=>[String(r.member_id),r]));
+
+  const dayMap=new Map();
+  for(const row of todayPointsResult.data||[]){
+    const id=String(row.member_id);
+    if(!dayMap.has(id))dayMap.set(id,Number(row.rep||0));
+  }
+
+  const hoursMap=new Map();
+  for(const row of hoursResult.data||[]){
+    const id=String(row.member_id);
+    hoursMap.set(id,(hoursMap.get(id)||0)+Number(row.total_hours||0));
+  }
+
+  const rows=members.map((row)=>{
+    const baseline=baselineMap.get(String(row.member_id));
+    const gain=baseline?Number(row.rep)-Number(baseline.baseline_rep):0;
+    const today=dayMap.has(String(row.member_id))?Number(row.rep)-dayMap.get(String(row.member_id)):0;
+    const hours=hoursMap.get(String(row.member_id))||0;
+    return{
+      id:String(row.member_id),
+      member:row.member_name,
+      level:Number(row.level||0),
+      rep:Number(row.rep||0),
+      baseline:baseline?.baseline_rep??null,
+      gain,
+      todayGain:today,
+      hours,
+      repPerHour:hours>0?gain/hours:0,
+      source:'Ninja Zenshin live member monitor',
+      capturedAt:row.last_seen_at,
+      suspicious:false,
+      status:syncFresh.status
+    };
+  }).sort((a,b)=>b.rep-a.rep);
+
+  const totalRep=rows.reduce((s,r)=>s+r.rep,0);
+  const totalGain=rows.reduce((s,r)=>s+r.gain,0);
+  const todayGain=rows.reduce((s,r)=>s+r.todayGain,0);
+  const totalHours=rows.reduce((s,r)=>s+r.hours,0);
+  const {count:suspiciousCount}=await db.from('rep_tracker_snapshots')
+    .select('*',{count:'exact',head:true})
+    .eq('clan_id',config.clan_id)
+    .eq('season',season)
+    .eq('suspicious',true);
+
+  const globalRanking=rankingCache?.rows||[];
   const global=globalRankSummary(globalRanking,config.clan_id);
   const rankedRows=globalRanking.slice().sort((a,b)=>Number(a.rank||9999)-Number(b.rank||9999)).slice(0,10);
+  const since=startOfTodayManila();
   const elapsedTodayHours=Math.max((Date.now()-since.getTime())/3600000,1/60);
   const hourlyPace=todayGain/elapsedTodayHours;
   const projectedDailyGain=hourlyPace*24;
   const targetGap=global?.above?.gap||0;
-  const targetEtaHours = targetGap>0 && hourlyPace>0 ? targetGap/hourlyPace : null;
+  const targetEtaHours=targetGap>0&&hourlyPace>0?targetGap/hourlyPace:null;
+
+  const syncRuns=syncRunsResult.data||[];
+  const successRuns=syncRuns.filter((run)=>run.status==='success');
+  const errorRuns=syncRuns.filter((run)=>run.status!=='success');
+  const expectedIntervalMs=Math.max(30,Number(config.sync_interval_seconds||60))*1000;
+  const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-since.getTime())/expectedIntervalMs)+1);
+  const completedSyncsToday=successRuns.length;
+  const missedSyncsToday=Math.max(0,expectedSyncsToday-completedSyncsToday);
+  const syncSuccessRate=expectedSyncsToday>0?completedSyncsToday/expectedSyncsToday:0;
+  const sourceCounts={amf:0,legacy:0,other:0};
+  let rosterChangeCount=0,slowSyncCount=0;
+  let durationTotal=0,durationCount=0;
+  for(const run of successRuns){
+    const service=String(run?.details?.memberSource||run?.details?.service||'').toLowerCase();
+    if(service.includes('legacy'))sourceCounts.legacy+=1;
+    else if(service.includes('amf'))sourceCounts.amf+=1;
+    else sourceCounts.other+=1;
+    if(run?.details?.rosterChange)rosterChangeCount+=1;
+    if(Number(run.duration_ms)>5000)slowSyncCount+=1;
+    if(Number.isFinite(Number(run.duration_ms))){durationTotal+=Number(run.duration_ms);durationCount+=1;}
+  }
+
   return{
     configured:true,config,season,rows,
-    stats:{totalRep,totalGain,todayGain,activeMembers:rows.length,totalHours,avgRepPerHour:totalHours?totalGain/totalHours:0,suspiciousCount:suspiciousCount||0},
+    stats:{
+      totalRep,
+      totalGain,
+      todayGain,
+      activeMembers:rows.length,
+      totalHours,
+      avgRepPerHour:totalHours?totalGain/totalHours:0,
+      suspiciousCount:suspiciousCount||0,
+      syncsExpected:expectedSyncsToday,
+      syncsCompleted:completedSyncsToday,
+      syncsMissed:missedSyncsToday,
+      syncSuccessRate,
+      avgSyncDurationMs:durationCount?Math.round(durationTotal/durationCount):null,
+      slowSyncs:slowSyncCount,
+      rosterChanges:rosterChangeCount,
+      sourceCounts
+    },
     freshness:syncFresh,
     lastSuccessfulSyncAt:syncHealth?.lastHealthyAt||null,
     syncHealth:syncHealth||null,
