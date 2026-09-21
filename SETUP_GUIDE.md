@@ -63,6 +63,19 @@ Use the output as your `CRON_SECRET`.
 
 ---
 
+### Scheduled member tracking
+
+The five-minute full sync records member data only for the clans listed in `TRACKED_CLAN_IDS`. The default is Chaos (`3`).
+
+Set the variable as a comma-separated list, for example:
+
+```
+TRACKED_CLAN_IDS=3
+# or: TRACKED_CLAN_IDS=3,7
+```
+
+Member snapshots are written only when reputation, level, stamina, or max stamina changes, with an hourly heartbeat snapshot for unchanged members. Snapshots older than 30 days are pruned in batches during the sync.
+
 ## Step 3: Install Dependencies
 
 ```bash

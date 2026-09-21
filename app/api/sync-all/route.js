@@ -1,6 +1,7 @@
 import { scrapeClans, scrapeGame } from '../../../lib/scraper.mjs';
 import { recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
 import { fetchLiveMembers } from '../../../app/lib/ninja-source.mjs';
+import { buildTrackedClanTargets, parseTrackedClanIds } from '../../../app/lib/member-snapshot.mjs';
 import { summarizeMemberRecording } from '../../../app/lib/member-recording.mjs';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
 import { recordClanHistory, upsertLeaderboardRows, upsertMemberRoster, upsertRepTrackerSnapshots } from '../../../lib/multisource-db.mjs';
@@ -69,7 +70,8 @@ export async function GET(request) {
     pvp: { status: 'waiting', rows: 0, error: null },
     clanMembers: {
       status: 'waiting', clans: 0, members: 0, errors: 0, ambiguous: 0,
-      note: 'Fetched live from each ranked clan and recorded in Supabase.'
+      trackedClanIds: parseTrackedClanIds(process.env.TRACKED_CLAN_IDS),
+      note: 'Fetched live only for TRACKED_CLAN_IDS and recorded in Supabase; default is Chaos (3).'
     }
   };
 
@@ -157,19 +159,21 @@ export async function GET(request) {
   sourceStatus.pvp.stored = Boolean(pvpStore.stored);
   sourceStatus.pvp.storageError = pvpStore.error || null;
 
-  const clansWithIds = ranking?.rows?.filter((clan) => clan?.clanId) || [];
-  const memberResults = await Promise.all(clansWithIds.map((clan) => fetchMembers(clan)));
-  const memberSummary = summarizeMemberRecording(clansWithIds, memberResults);
+  const trackedClanIds = parseTrackedClanIds(process.env.TRACKED_CLAN_IDS);
+  const trackedClans = buildTrackedClanTargets(ranking?.rows, trackedClanIds);
+  const memberResults = await Promise.all(trackedClans.map((clan) => fetchMembers(clan)));
+  const memberSummary = summarizeMemberRecording(trackedClans, memberResults);
   const memberCount = memberResults.reduce((sum, result) => sum + Number(result.recordableCount || 0), 0);
   const memberErrors = memberSummary.issues.length;
   const ambiguousCount = memberResults.reduce((sum, result) => sum + Number(result.ambiguousCount || 0), 0);
   sourceStatus.clanMembers = {
     status: memberSummary.status,
+    trackedClanIds,
     clans: memberResults.filter((result) => Number(result.recordableCount || 0) > 0).length,
     members: memberCount,
     errors: memberErrors,
     ambiguous: ambiguousCount,
-    expectedMembers: clansWithIds.reduce((sum, clan) => sum + Number(clan.memberCurrent || 0), 0),
+    expectedMembers: trackedClans.reduce((sum, clan) => sum + Number(clan.memberCurrent || 0), 0),
     error: memberSummary.error
   };
 
@@ -186,6 +190,12 @@ export async function GET(request) {
   sourceStatus.clanMembers.rosterStored = Boolean(roster?.stored);
   sourceStatus.clanMembers.snapshotsStored = Boolean(snapshots?.stored);
   sourceStatus.clanMembers.snapshotRows = Number(snapshots?.count || 0);
+  sourceStatus.clanMembers.snapshotNew = Number(snapshots?.newCount || 0);
+  sourceStatus.clanMembers.snapshotChanged = Number(snapshots?.changedCount || 0);
+  sourceStatus.clanMembers.snapshotHeartbeats = Number(snapshots?.heartbeatCount || 0);
+  sourceStatus.clanMembers.snapshotUnchanged = Number(snapshots?.unchangedCount || 0);
+  sourceStatus.clanMembers.snapshotRetentionDeleted = Number(snapshots?.retention?.deleted || 0);
+  sourceStatus.clanMembers.snapshotRetentionBatches = Number(snapshots?.retention?.batches || 0);
   sourceStatus.clanMembers.ambiguousNames = snapshots?.ambiguousNames || [];
 
   const finishedAt = new Date();
@@ -225,6 +235,7 @@ export async function GET(request) {
       season: ranking?.season || null,
       clansSeen: ranking?.rows?.length || 0,
       membersSeen: memberCount,
+      trackedMemberClanIds: trackedClanIds,
       memberErrors,
       memberSources: Object.fromEntries(memberResults.map((result) => [result.clanId, result.source || 'unknown'])),
       sources: sourceStatus,
@@ -254,7 +265,9 @@ export async function GET(request) {
     memberAmbiguous: ambiguousCount,
     rosterStored: Boolean(roster?.stored),
     snapshotsStored: Boolean(snapshots?.stored),
-    note: 'Clan members are fetched live from ranked clans and recorded in Supabase; ambiguous duplicate names are excluded from gain calculations.',
+    trackedMemberClanIds: trackedClanIds,
+    memberSnapshotRetentionDays: 30,
+    note: 'Clan members are fetched live only for TRACKED_CLAN_IDS; default is Chaos (3). Ambiguous duplicate names are excluded from gain calculations.',
     database: dbStatus(),
     storage: storageHealth(),
     errors,

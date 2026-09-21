@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { normalizeMembers } from '../app/lib/ninja-source.mjs';
 import { buildRepTrackerSnapshotRows } from '../lib/multisource-db.mjs';
 import { summarizeMemberRecording } from '../app/lib/member-recording.mjs';
+import { buildTrackedClanTargets, parseTrackedClanIds, selectChangedSnapshotRows, selectRetentionIds } from '../app/lib/member-snapshot.mjs';
 
 test('ID-free members use normalized names and never member_number', () => {
   const members = normalizeMembers([
@@ -78,4 +79,84 @@ test('recorded members prevent a false zero-member warning', () => {
   assert.equal(result.status, 'success');
   assert.equal(result.error, null);
   assert.equal(result.issues.length, 0);
+});
+
+test('only configured tracked clan IDs become member fetch targets', () => {
+  assert.deepEqual(parseTrackedClanIds('3, 7,3'), ['3', '7']);
+  assert.deepEqual(parseTrackedClanIds(''), ['3']);
+
+  const targets = buildTrackedClanTargets([
+    { clanId: '3', clan: 'Chaos', memberCurrent: 29 },
+    { clanId: '7', clan: 'Other', memberCurrent: 20 },
+    { clanId: '9', clan: 'Untracked', memberCurrent: 10 }
+  ], ['3', '7']);
+
+  assert.deepEqual(targets.map((clan) => clan.clanId), ['3', '7']);
+});
+
+test('unchanged members produce no new snapshot rows', () => {
+  const result = selectChangedSnapshotRows({
+    nowMs: Date.parse('2026-09-21T03:00:00.000Z'),
+    candidates: [{
+      clan_id: '3', season: 'Season 3', member_id: 'chaos alpha', ign: 'CHAOS Alpha',
+      level: 92, reputation: 6543, stamina: 120, max_stamina: 200,
+      source: 'legacy-live', captured_at: '2026-09-21T03:00:00.000Z'
+    }],
+    previousByKey: new Map([[
+      '3:chaos alpha',
+      { clan_id: '3', member_id: 'chaos alpha', level: 92, reputation: 6543, stamina: 120, max_stamina: 200, captured_at: '2026-09-21T02:30:00.000Z' }
+    ]])
+  });
+
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.unchangedCount, 1);
+});
+
+test('changed members produce a new snapshot row', () => {
+  const result = selectChangedSnapshotRows({
+    nowMs: Date.parse('2026-09-21T03:00:00.000Z'),
+    candidates: [{
+      clan_id: '3', season: 'Season 3', member_id: 'chaos alpha', ign: 'CHAOS Alpha',
+      level: 93, reputation: 6600, stamina: 119, max_stamina: 200,
+      source: 'legacy-live', captured_at: '2026-09-21T03:00:00.000Z'
+    }],
+    previousByKey: new Map([[
+      '3:chaos alpha',
+      { clan_id: '3', member_id: 'chaos alpha', level: 92, reputation: 6543, stamina: 120, max_stamina: 200, captured_at: '2026-09-21T02:55:00.000Z' }
+    ]])
+  });
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.changedCount, 1);
+  assert.equal(result.rows[0].reputation, 6600);
+  assert.equal(result.rows[0].raw_data, undefined);
+});
+
+test('unchanged members get an hourly heartbeat snapshot', () => {
+  const result = selectChangedSnapshotRows({
+    nowMs: Date.parse('2026-09-21T03:00:00.000Z'),
+    candidates: [{
+      clan_id: '3', season: 'Season 3', member_id: 'chaos alpha', ign: 'CHAOS Alpha',
+      level: 92, reputation: 6543, stamina: 120, max_stamina: 200,
+      source: 'legacy-live', captured_at: '2026-09-21T03:00:00.000Z'
+    }],
+    previousByKey: new Map([[
+      '3:chaos alpha',
+      { clan_id: '3', member_id: 'chaos alpha', level: 92, reputation: 6543, stamina: 120, max_stamina: 200, captured_at: '2026-09-21T01:59:00.000Z' }
+    ]])
+  });
+
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.heartbeatCount, 1);
+});
+
+test('retention selects only snapshot rows older than the cutoff', () => {
+  const cutoff = '2026-08-22T00:00:00.000Z';
+  const ids = selectRetentionIds([
+    { id: 1, captured_at: '2026-08-21T23:59:59.000Z' },
+    { id: 2, captured_at: '2026-08-22T00:00:00.000Z' },
+    { id: 3, captured_at: '2026-08-22T00:00:01.000Z' }
+  ], cutoff);
+
+  assert.deepEqual(ids, ['1']);
 });
