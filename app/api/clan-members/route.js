@@ -208,7 +208,7 @@ export function normalizeMembers(rawMembers) {
     const stamina = staminaValue ?? maxStamina;
 
     return {
-      id: clean(source.id ?? source.memberId ?? source.member_id ?? source.member_number),
+      id: clean(source.id),
       name,
       level: toNumber(source.level) ?? 0,
       reputation,
@@ -226,8 +226,8 @@ export function normalizeMembers(rawMembers) {
       bleeding: stamina <= maxStamina * 0.70
     };
   }).filter((member) => {
-    if (!member.name) return false;
-    const key = member.id ? `id:${member.id}` : `name:${member.name.normalize('NFC').toLocaleLowerCase()}`;
+    if (!member.name || !/^\d+$/.test(member.id)) return false;
+    const key = `id:${member.id}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
