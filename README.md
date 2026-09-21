@@ -5,11 +5,11 @@ Complete system to automatically sync Ninja Zenshin clan rankings and tracked-me
 ## What You're Getting
 
 - Automatically monitor clan rankings every minute
-- Store ranking cache, sync status, and member history in Supabase Postgres
-- Display live, updated clan rankings on the site
-- Track member REP history with REP-change sampling with live member heartbeats
-- Retain member history for 30 days
-- Track sync history and errors
+- Store current rankings, member state, sync status, ranking history, and REP history in Supabase Postgres
+- Display live, updated clan rankings and Chaos operations on the site
+- Track member REP changes with live member heartbeats
+- Retain member and ranking history for 30 days
+- Keep sync history and errors auditable
 
 ## Storage
 
@@ -89,9 +89,8 @@ Ninja Zenshin Game
 [Supabase pg_cron] (every 1 min)
         ↓
 [API: /api/monitor]
-        ├── Full clan ranking → Supabase
-        ├── PvE/PvP → Supabase
-        ├── Tracked members → Supabase member history
+        ├── Full clan ranking → canonical ranking cache + ranking history
+        ├── Tracked members → canonical member state + REP history
         ├── Ranking cache → rep_tracker_kv
         └── Sync heartbeat → rep_tracker_kv
         ↓
@@ -108,20 +107,24 @@ Ninja Zenshin Game
 6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/monitor` every minute; verify `membersSeen > 0` and history points are stored.
 7. Open `/api/member-history?clanId=<id>&season=<season>&hours=168` to verify the history response.
 
-## Existing Supabase Tables
+## Canonical Supabase Tables
 
-The implementation continues to reuse the existing:
+The active application uses:
 
 - `rep_tracker_config`
 - `rep_tracker_seasons`
 - `rep_tracker_members`
+- `rep_tracker_member_latest`
 - `rep_tracker_snapshots`
+- `rep_tracker_member_points`
+- `rep_tracker_ranking_history`
 - `rep_tracker_sync_runs`
 - `rep_tracker_audit_log`
-- `sync_runs`
-- ranking and leaderboard tables
+- `rep_tracker_finalizations`
+- `rep_tracker_hours`
+- `rep_tracker_kv`
 
-No duplicate season, audit, or sync-run tables are introduced.
+The legacy ranking, leaderboard, clan-member, sync-log, and old clan-history tables are retired by the staged cleanup migration.
 
 ## Testing
 
