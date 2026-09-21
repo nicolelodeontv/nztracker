@@ -82,19 +82,26 @@ function SyncHealthStrip({data}) {
   const [now,setNow]=useState(Date.now());
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
   const health=data?.syncHealth||{};
+  const stats=data?.stats||{};
+  const http=data?.httpHealth||{};
   const lastHealthy=health.lastHealthyAt?Date.parse(health.lastHealthyAt):NaN;
   const ageSeconds=Number.isFinite(lastHealthy)?Math.max(0,Math.floor((now-lastHealthy)/1000)):null;
   const next=data?.syncStatus?.nextExpectedAt?Date.parse(data.syncStatus.nextExpectedAt):NaN;
   const nextSeconds=Number.isFinite(next)?Math.max(0,Math.ceil((next-now)/1000)):null;
+  const successRate=Number.isFinite(Number(stats.syncSuccessRate))?Math.round(Number(stats.syncSuccessRate)*100):0;
+  const httpStatus=Number(http.statusCode||0);
   return <section className="sync-health-strip" aria-label="Sync health">
     <div><span>LAST SUCCESS</span><b>{ageSeconds===null?'—':new Date(lastHealthy).toLocaleTimeString()}</b></div>
     <div><span>CURRENT AGE</span><b className={ageSeconds!==null&&ageSeconds<=90?'up':ageSeconds!==null&&ageSeconds<=180?'warn-text':'down'}>{ageSeconds===null?'—':age(ageSeconds)}</b></div>
     <div><span>NEXT SYNC</span><b>{nextSeconds===null?'—':nextSeconds<60?nextSeconds+'s':Math.ceil(nextSeconds/60)+'m'}</b></div>
-    <div><span>CONSECUTIVE OK</span><b>{Number(health.consecutiveSuccesses||0)}</b></div>
+    <div><span>MEMBERS</span><b className={health.lastMemberStatus==='success'?'up':'warn-text'}>{String(health.lastMemberStatus||data?.syncStatus?.memberStatus||'—').toUpperCase()}</b></div>
+    <div><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
+    <div><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
+    <div><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
+    <div><span>HTTP / SOURCE</span><b className={httpStatus>=400?'down':'up'}>{httpStatus||'—'} · {String(health.lastMemberSource||stats.sourceCounts?.amf>0?'AMF':'—').toUpperCase()}</b></div>
     <div className="sync-health-error"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
   </section>;
 }
-
 function SyncCountdown({target}) {
   const [now,setNow]=useState(Date.now());
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
