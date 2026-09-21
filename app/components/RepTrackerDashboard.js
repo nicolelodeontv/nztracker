@@ -9,7 +9,10 @@ const age = (s) => s == null ? '—' : s < 60 ? `${s}s ago` : s < 3600 ? `${Math
 async function api(url, options) {
   const response = await fetch(url, { cache: 'no-store', ...options, headers: { Accept: 'application/json', ...(options?.headers || {}) } });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || data.details || `HTTP ${response.status}`);
+  if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event('admin-session-expired'));
+    throw new Error(data.error || data.details || `HTTP ${response.status}`);
+  }
   return data;
 }
 
@@ -62,6 +65,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const [loginOpen, setLoginOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [admin, setAdmin] = useState(false);
+  const [adminLoading, setAdminLoading] = useState(true);
   const [seasonName, setSeasonName] = useState('');
   const [finalDay, setFinalDay] = useState('');
   const [hoursMember, setHoursMember] = useState('');
@@ -84,7 +88,37 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
       }
     } catch (e) { setMessage(e.message); }
   };
-  useEffect(() => { refresh(true); const t = setInterval(() => refresh(false), 30000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const checkAdmin = async () => {
+      try {
+        const session = await api('/api/admin/login', { method: 'GET' });
+        if (!cancelled) setAdmin(Boolean(session.admin));
+      } catch (e) {
+        if (!cancelled) {
+          setAdmin(false);
+          setMessage(e.message);
+        }
+      } finally {
+        if (!cancelled) setAdminLoading(false);
+      }
+    };
+    checkAdmin();
+    const onExpired = () => {
+      setAdmin(false);
+      setLoginOpen(true);
+      setPassword('');
+      setMessage('Admin session expired. Please sign in again.');
+    };
+    window.addEventListener('admin-session-expired', onExpired);
+    refresh(true);
+    const t = setInterval(() => refresh(false), 30000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('admin-session-expired', onExpired);
+      clearInterval(t);
+    };
+  }, []);
 
   const rows = data?.rows || [];
   const top = useMemo(() => [...rows].sort((a,b) => b.todayGain - a.todayGain).slice(0,5), [rows]);
@@ -92,11 +126,26 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
   const latestFinal = finalizations[0];
 
   async function login() { setBusy(true); try { await api('/api/admin/login',{method:'POST',body:JSON.stringify({password}),headers:{'Content-Type':'application/json'}}); setAdmin(true); setLoginOpen(false); setPassword(''); setMessage('Admin session active.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
+  async function logout() { setBusy(true); try { await api('/api/admin/login',{method:'DELETE'}); setAdmin(false); setLoginOpen(false); setPassword(''); setMessage('Admin session ended.'); } catch(e){setMessage(e.message);} finally{setBusy(false);} }
   async function syncNow(){setBusy(true);try{await api('/api/sync',{method:'POST'});await refresh(false);setMessage('Live sync completed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function baseline(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'baseline'})});await refresh(false);setMessage('Season baseline created from the live roster.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function startSeason(){setBusy(true);try{await api('/api/season',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',season:seasonName,finalDayAt:finalDay?new Date(finalDay).toISOString():null})});await refresh(true);setMessage('New season started.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function addHours(){setBusy(true);try{let total=0;if(hoursStart&&hoursEnd){total=(new Date(`1970-01-01T${hoursEnd}:00Z`).getTime()-new Date(`1970-01-01T${hoursStart}:00Z`).getTime())/3600000-(Number(hoursBreak)||0)/60;if(total<0)total+=24;} await api('/api/hours',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({season:data.season,clanId:data.config.clan_id,memberId:hoursMember,workDate:hoursDate,startTime:hoursStart?`${hoursDate}T${hoursStart}:00+08:00`:null,endTime:hoursEnd?`${hoursDate}T${hoursEnd}:00+08:00`:null,breakMinutes:Number(hoursBreak)||0,totalHours:Number(total.toFixed(2)),source:'MANUAL',notes:hoursNotes})});await refresh(false);setMessage('Hours session added.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
   async function lockFinal(){if(!confirm('FINALIZE SEASON RESULTS? This creates an immutable final snapshot.'))return;setBusy(true);try{const res=await api('/api/finalize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock'})});await refresh(false);setMessage(`FINAL DAY LOCKED · VERSION ${res.finalization.version}`);}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+
+  let adminContent;
+  if (adminLoading) {
+    adminContent = <div className="panel"><div className="loading">CHECKING ADMIN SESSION…</div></div>;
+  } else if (!admin) {
+    adminContent = <div className="panel"><span className="eyebrow">SECURE ADMIN</span><h3>ADMIN LOGIN</h3><p>Sign in to access protected administration actions.</p><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password" onKeyDown={e=>e.key==='Enter'&&login()}/><button className="btn primary full" onClick={login} disabled={busy}>SIGN IN</button></div>;
+  } else {
+    adminContent = (
+      <>
+        <div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={startSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={baseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className="btn danger full" onClick={lockFinal} disabled={!admin||busy||Boolean(latestFinal)}>LOCK FINAL DAY</button></div></div>
+        <div className="actions"><button className="btn" onClick={logout} disabled={busy}>LOG OUT</button></div>
+      </>
+    );
+  }
 
   const nav = [['dashboard','Dashboard'],['members','Members'],['history','History'],['final','Final Results'],['admin','Admin']];
   if (!data?.configured) return <main className="ops-app"><header className="ops-header"><div className="brand"><div><b>CHAOS</b><span>REP TRACKER</span><small>Ninja Zenshin Clan Operations</small></div></div><button className="btn primary" onClick={() => setLoginOpen(true)}>ADMIN SETUP</button></header><section className="empty-state"><span className="eyebrow">NO LIVE CONFIGURATION</span><h1>Waiting for a real Ninja Zenshin clan source.</h1><p>The tracker will not fabricate roster, REP, season, or countdown values. Open Admin to authenticate and run discovery.</p>{message&&<div className="notice bad">{message}</div>}</section>{loginOpen&&<div className="modal-backdrop"><div className="modal"><h3>ADMIN LOGIN</h3><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password"/><button className="btn primary full" onClick={login} disabled={busy}>SIGN IN</button></div></div>}</main>;
@@ -123,7 +172,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard' }) {
 
     {view==='final'&&<section><div className="page-head"><div><span className="eyebrow">FINAL RESULTS</span><h1>{latestFinal?.season || data.season}</h1><p>{latestFinal?'FINAL DAY LOCKED':'Not finalized yet'}</p></div>{latestFinal&&<div className="actions"><a className="btn" href={`/api/export?type=final&format=csv&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT CSV</a><a className="btn" href={`/api/export?type=final&format=json&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT JSON</a><button className="btn primary" onClick={()=>window.print()}>PRINT REPORT</button></div>}</div>{latestFinal?<><div className="stats-grid final"><div><span>FINAL REP</span><b>{fmt(latestFinal.total_rep)}</b></div><div><span>TOTAL GAIN</span><b>+{fmt(latestFinal.season_gain)}</b></div><div><span>MEMBERS</span><b>{latestFinal.member_count}</b></div><div><span>TOTAL HOURS</span><b>{fmtHours(latestFinal.total_hours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(latestFinal.avg_rep_per_hour)}</b></div><div><span>LOCKED AT</span><b>{new Date(latestFinal.final_timestamp).toLocaleString()}</b></div></div><div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>FINAL REP</th><th>GAIN</th><th>HOURS</th><th>REP / HR</th></tr></thead><tbody>{(latestFinal.raw_snapshot?.rows||[]).map((r,i)=><tr key={r.id||i}><td>#{i+1}</td><td>{r.member}</td><td>{r.level}</td><td>{fmt(r.rep)}</td><td>+{fmt(r.gain)}</td><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></tr>)}</tbody></table></div></div></>:<div className="empty-state compact"><h3>FINAL DAY NOT LOCKED</h3><p>Locking requires a fresh successful upstream sync and a complete expected roster.</p></div>}</section>}
 
-    {view==='admin'&&<section><div className="page-head"><div><span className="eyebrow">ADMINISTRATION</span><h1>CONTROL ROOM</h1><p>Protected actions. Historical snapshots are never silently replaced.</p></div></div><div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={startSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={baseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className="btn danger full" onClick={lockFinal} disabled={!admin||busy||Boolean(latestFinal)}>LOCK FINAL DAY</button></div></div></section>}
+    {view==='admin'&&<section><div className="page-head"><div><span className="eyebrow">ADMINISTRATION</span><h1>CONTROL ROOM</h1><p>Protected actions. Historical snapshots are never silently replaced.</p></div></div>{adminContent}</section>}
 
     <footer>Ninja Zenshin Clan REP Tracker · Independent clan administration tool</footer>
     {selected&&<MemberDrawer member={selected} onClose={()=>setSelected(null)}/>} 
