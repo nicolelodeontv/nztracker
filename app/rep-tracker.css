@@ -71,7 +71,7 @@
 .recent-change td:nth-child(4),.recent-change td:nth-child(5){color:var(--accent);font-weight:800}
 @keyframes rep-flash{0%{background:#F97316.12)}100%{background:transparent}}
 .rep-pulse{animation:rep-flash 1.6s ease-out}
-.drawer-live-meta{display:flex;align-items:center;gap:7px;margin:-4px 0 12px;padding:7px 9px;border:1px solid var(--line);background:var(--panel2);font:600 9px var(--mono);color:var(--muted)}
+.drawer-check-meta{display:flex;align-items:center;gap:7px;margin:-4px 0 12px;padding:7px 9px;border:1px solid var(--line);background:var(--panel2);font:600 9px var(--mono);color:var(--muted)}
 .live-dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px rgba(251,146,60,.5)}
 .drawer-live-meta b{color:var(--good)}
 .drawer:focus{outline:2px solid #F97316.35);outline-offset:-2px}
@@ -87,7 +87,6 @@
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition:none!important}}
 
-.live-refresh-indicator{position:fixed;right:14px;bottom:14px;z-index:20;display:flex;align-items:center;gap:6px;padding:6px 8px;border:1px solid var(--line);background:var(--panel);color:var(--muted);font:700 8px var(--mono);letter-spacing:.08em;box-shadow:0 8px 24px rgba(0,0,0,.18)}
 .source-diagnostic-panel{grid-column:1 / -1}
 .source-diagnostic-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:10px 0}
 .source-diagnostic-grid>div{background:var(--panel2);padding:10px}
@@ -155,7 +154,7 @@
 .member-filters button.active,.period-switch button.active,.ops-tabs button.active{background:var(--accent);border-color:var(--accent);color:#140A00;}
 .source-diagnostic-grid{background:var(--line);}
 .source-diagnostic-grid>div{background:var(--panel2);}
-.live-dot{background:var(--ember);box-shadow:0 0 8px rgba(255,69,0,.7);}
+.drawer-check-dot{width:7px;height:7px;border-radius:50%;background:var(--accent-soft);box-shadow:0 0 7px rgba(249,115,22,.55);}
 .drawer,.modal{background:#0E0B0A;border-color:var(--line);}
 .drawer-live-meta{background:var(--panel2);border-color:var(--line);}
 .chart{background:#100D0C;}
