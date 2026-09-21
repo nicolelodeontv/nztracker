@@ -14,7 +14,7 @@ test('freshness classification uses the last successful sync timestamp', () => {
   assert.equal(freshnessAt('2026-09-21T07:14:00.000Z', now), 'stale');
 });
 
-test('dashboard freshness uses the same sync_runs source as sync-status', async () => {
+test('dashboard freshness uses the same rep-tracker monitor source as sync-status', async () => {
   const source = await readFile(new URL('../app/lib/rep-tracker.js', import.meta.url), 'utf8');
   assert.match(source, /from\('rep_tracker_sync_runs'\)/);
   assert.match(source, /select\('completed_at'\)/);
