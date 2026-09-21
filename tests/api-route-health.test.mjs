@@ -108,6 +108,9 @@ test('legacy sync-all alias uses monitor authorization',async()=>{
 
 test('monitor executes with correct secret',async()=>{
   process.env.CRON_SECRET=secret;
+  rankingWritesByMode={amf:0,legacy:0,cached:0};
+  monitorMode='success';
+  monitorDiscoveryCached=false;
   const r=await monitorGET(request('/api/monitor',secret));
   const b=await body(r);
   assert.equal(r.status,200);
@@ -121,6 +124,7 @@ test('monitor executes with correct secret',async()=>{
 
 test('monitor does not rewrite cached ranking data on every ten-second sync',async()=>{
   process.env.CRON_SECRET=secret;
+  rankingWritesByMode={amf:0,legacy:0,cached:0};
   monitorDiscoveryCached=true;
   const r=await monitorGET(request('/api/monitor',secret));
   const b=await body(r);
@@ -133,6 +137,8 @@ test('monitor does not rewrite cached ranking data on every ten-second sync',asy
 
 test('monitor keeps legacy source fallback as a healthy sync',async()=>{
   process.env.CRON_SECRET=secret;
+  rankingWritesByMode={amf:0,legacy:0,cached:0};
+  monitorDiscoveryCached=false;
   monitorMode='legacy';
   try{
     const r=await monitorGET(request('/api/monitor',secret));
