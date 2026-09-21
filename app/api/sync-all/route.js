@@ -387,8 +387,7 @@ export async function GET(request) {
   const denied = requireCronSecret(request, '/api/sync-all');
   if (denied) return denied;
   const startedAt = new Date();
-  if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-
+  
   try {
     return await runSyncAll(request);
   } catch (error) {
