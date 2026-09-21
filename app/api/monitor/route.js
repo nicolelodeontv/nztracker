@@ -1,5 +1,5 @@
-import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../lib/member-history';
-import { recordRankingSnapshot } from '../../lib/ranking-cache';
+import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../lib/member-history.js';
+import { recordRankingSnapshot } from '../../lib/ranking-cache.js';
 import { parseRankingHtml } from '../../lib/source-parser.mjs';
 import { getConfig } from '../../lib/rep-tracker.js';
 import { buildTrackedClanTargets, parseTrackedClanIds } from '../../lib/member-snapshot.mjs';
