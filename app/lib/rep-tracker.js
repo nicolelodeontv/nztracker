@@ -3,7 +3,7 @@ import { discoverChaos, fetchLiveMembers } from './ninja-source.mjs';
 import { startOfTodayManila } from './dashboard-time.mjs';
 import { buildRecentActivityEvents } from './rep-tracker-utils.mjs';
 
-const FRESH_MS=60000,AGING_MS=300000,syncLocks=new Map();
+const FRESH_MS=90000,AGING_MS=180000,syncLocks=new Map();
 const nowIso=()=>new Date().toISOString();
 const safeText=(value)=>String(value??'').trim();
 const asInt=(value,fallback=0)=>Number.isFinite(Number(value))?Math.trunc(Number(value)):fallback;
