@@ -5,8 +5,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const INTERVAL_MS = 5 * 60 * 1000;
-const ACTIVE_MAX_AGE_MS = 15 * 60 * 1000;
-const DELAYED_MAX_AGE_MS = 30 * 60 * 1000;
+const ACTIVE_MAX_AGE_MS = 7 * 60 * 1000;
+const DELAYED_MAX_AGE_MS = 15 * 60 * 1000;
 
 export async function GET() {
   const readErrors = {
@@ -33,7 +33,7 @@ export async function GET() {
   }
 
   const storage = storageHealth();
-  const lastRunAt = latestDb?.completed_at || latestDb?.finished_at || sync?.lastRunAt || null;
+  const lastRunAt = sync?.lastRunAt || latestDb?.completed_at || latestDb?.finished_at || null;
   const lastRunAtMs = lastRunAt ? new Date(lastRunAt).getTime() : NaN;
   const ageMs = Number.isFinite(lastRunAtMs) ? Math.max(0, Date.now() - lastRunAtMs) : null;
 
@@ -41,7 +41,7 @@ export async function GET() {
   if (ageMs !== null && ageMs <= ACTIVE_MAX_AGE_MS) status = 'active';
   else if (ageMs !== null && ageMs <= DELAYED_MAX_AGE_MS) status = 'delayed';
 
-  const overall = latestDb?.status || sync?.overall || null;
+  const overall = sync?.overall || latestMonitorSync?.status || latestDb?.status || null;
   const syncError = latestDb?.error_message || sync?.error || null;
   const databaseError = readErrors.database;
 
@@ -61,7 +61,7 @@ export async function GET() {
     season: sync?.season || latestDb?.season || null,
     clansSeen: Number(latestDb?.clans_count || latestDb?.clans_seen || sync?.clansSeen || 0),
     clansWithMemberData: Number(sync?.clansWithMemberData || 0),
-    membersSeen: Number(latestDb?.members_count || sync?.membersSeen || 0),
+    membersSeen: Number(sync?.membersSeen || latestDb?.members_count || 0),
     memberErrors: Number(sync?.memberErrors || 0),
     historyClansStored: Number(sync?.historyClansStored || 0),
     historyClansChanged: Number(sync?.historyClansChanged || 0),
@@ -70,8 +70,13 @@ export async function GET() {
     memberSources: sync?.memberSources || {},
     source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
     error: databaseError || syncError,
-    warning: overall === 'warning' || Boolean(databaseError),
+    warning: status !== 'active' || overall === 'warning' || Boolean(databaseError),
     readErrors,
+    monitorWarning: status === 'offline'
+      ? 'Monitor has no successful sync within the last 15 minutes.'
+      : status === 'delayed'
+        ? 'Monitor is delayed; the last successful sync is older than 7 minutes.'
+        : null,
     durable: storage.durable,
     storageProvider: storage.provider,
     storage,

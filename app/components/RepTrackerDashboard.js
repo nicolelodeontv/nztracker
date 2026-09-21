@@ -258,6 +258,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
     {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
+    {data?.freshness?.warning&&<div className="notice bad">{data.freshness.warning}</div>}
     {syncing&&data&&!dashboardRefreshing&&<div className="notice good">UPDATING LIVE DATA…</div>}
     {dashboardError&&data&&<div className="notice bad">UPDATE FAILED · {dashboardError}<button onClick={()=>refresh()}>RETRY</button></div>}
     {message&&<div className={`notice ${/fail|error|blocked|stale|missing/i.test(message)?'bad':'good'}`}>{message}<button onClick={()=>setMessage('')}>×</button></div>}
