@@ -16,6 +16,21 @@ jobs:
         run: |
           set -euo pipefail
           echo "Running Ninja Zenshin full sync: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          response="$(curl --fail --silent --show-error --max-time 240             -H 'Accept: application/json'             -H 'User-Agent: NinjaZenshinGitHubSync/7.0'             "$TRACKER_URL")"
-          echo "$response"
-          echo "$response" | jq -e '(.membersSeen // 0) > 0' >/dev/null
+          set +e
+          http_code="$(curl --silent --show-error --max-time 240 -o response.json -w '%{http_code}' \
+            -H 'Accept: application/json' \
+            -H 'User-Agent: NinjaZenshinGitHubSync/7.0' \
+            "$TRACKER_URL")"
+          curl_exit=$?
+          set -e
+          echo "HTTP $http_code"
+          cat response.json
+          if [ "$curl_exit" -ne 0 ]; then
+            echo "curl failed with exit code $curl_exit" >&2
+            exit "$curl_exit"
+          fi
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "sync-all returned HTTP $http_code" >&2
+            exit 1
+          fi
+          jq -e '(.membersSeen // 0) > 0' response.json >/dev/null
