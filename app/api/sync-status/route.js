@@ -33,8 +33,9 @@ export async function GET() {
   }
 
   const storage = storageHealth();
-  // The monitor heartbeat is the primary scheduler signal. Keep legacy sync_runs
-  // as a fallback so status remains readable during the scheduler migration.
+  // The monitor path is now the primary scheduler. Prefer its heartbeat over
+  // the legacy sync_runs table so the dashboard does not report stale status
+  // after the scheduler moves from /api/sync-all to /api/monitor.
   const lastRunAt = sync?.lastRunAt || latestDb?.completed_at || latestDb?.finished_at || null;
   const lastRunAtMs = lastRunAt ? new Date(lastRunAt).getTime() : NaN;
   const ageMs = Number.isFinite(lastRunAtMs) ? Math.max(0, Date.now() - lastRunAtMs) : null;
