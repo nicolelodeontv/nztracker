@@ -76,6 +76,31 @@ test('buildMemberRows merges live and history-only members, then sorts by reputa
   assert.equal(rows[0].gain, 4000);
 });
 
+test('buildMemberRows exposes current donation totals and time-window deltas', () => {
+  const donationPoints = [
+    { t: now - 24 * HOUR, r: 1000, g: 10, k: 2 },
+    { t: now - 6 * HOUR, r: 1100, g: 40, k: 5 },
+    { t: now - HOUR, r: 1200, g: 70, k: 8 },
+    { t: now, r: 1300, g: 100, k: 10 }
+  ];
+  const rows = buildMemberRows(
+    [{ id: '1', name: 'Donor', reputation: 1300, donatedGold: 100, donatedToken: 10 }],
+    { '1': { name: 'Donor', points: donationPoints } },
+    5,
+    now,
+  );
+  assert.equal(rows[0].donatedGold, 100);
+  assert.equal(rows[0].donatedToken, 10);
+  assert.equal(rows[0].donationGainGold, 30);
+  assert.equal(rows[0].donationGainToken, 2);
+  assert.equal(rows[0].donationGainGold1H, 30);
+  assert.equal(rows[0].donationGainToken1H, 2);
+  assert.equal(rows[0].donationGainGold6H, 60);
+  assert.equal(rows[0].donationGainToken6H, 5);
+  assert.equal(rows[0].donationGainGold24H, 90);
+  assert.equal(rows[0].donationGainToken24H, 8);
+});
+
 test('deriveEvents ignores non-gains and events older than 24 hours', () => {
   const members = [{ id: '1', name: 'A' }];
   const historyMembers = {
