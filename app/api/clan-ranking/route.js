@@ -5,11 +5,10 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 15;
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-const FALLBACK_SEASON_END = '2026-09-14T00:00:00+08:00';
 
 function seasonEndsAt(countdown, capturedAt) {
   const remaining = Number(countdown?.remainingSeconds);
-  if (!Number.isFinite(remaining) || remaining < 0) return FALLBACK_SEASON_END;
+  if (!Number.isFinite(remaining) || remaining < 0) return null;
   const base = new Date(capturedAt || Date.now()).getTime();
   return new Date(base + remaining * 1000).toISOString();
 }
@@ -43,7 +42,7 @@ function responseFor(snapshot, sourceStatus, extra = {}) {
     ok: true,
     serverNow: snapshot?.serverNow || fetchedAt || new Date().toISOString(),
     season: snapshot?.season || 'Season 2',
-    seasonEndsAt: snapshot?.seasonEndsAt || seasonEndsAt(snapshot?.countdown, fetchedAt) || FALLBACK_SEASON_END,
+    seasonEndsAt: snapshot?.seasonEndsAt || seasonEndsAt(snapshot?.countdown, fetchedAt),
     countdown: snapshot?.countdown || null,
     rows: snapshot?.rows || [],
     fetchedAt,
