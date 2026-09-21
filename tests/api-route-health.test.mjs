@@ -5,9 +5,13 @@ const root = new URL('../', import.meta.url);
 const f = (p) => new URL(p, root).href;
 const secret = 'x'.repeat(32);
 const members = Array.from({length: 30}, (_, i) => ({ id: String(i + 1), name: `M${i + 1}`, level: 90, reputation: 1000 + i }));
-const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], season: 'Season 3', capturedAt: '2026-09-21T07:40:03.000Z', source: 'test' };
+const ranking = { rows: [{ clanId: '3', clan: 'Chaos', memberCurrent: 30 }], season: 'Season 3', capturedAt: new Date(Date.now() - 60_000).toISOString(), source: 'test' };
 const config = { clan_id: '3', clan_name: 'Chaos', current_season: 'Season 3', expected_member_count: 30 };
 
+mock.module(f('app/lib/rep-drift.mjs'), { exports: {
+  readRepDrift: async () => null,
+  updateRepDrift: async () => null
+}});
 mock.module(f('app/lib/rep-tracker.js'), { exports: {
   dashboardData: async () => ({ configured: true, config, season: 'Season 3', rows: [], stats: {}, freshness: { status: 'live', ageSeconds: 5 }, lastSuccessfulSyncAt: ranking.capturedAt }),
   recentActivity: async () => [],

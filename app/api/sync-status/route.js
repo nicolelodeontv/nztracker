@@ -1,5 +1,6 @@
 import { readSyncStatus, storageHealth } from '../../lib/member-history.js';
 import { getLatestSync, dbStatus } from '../../../lib/supabase-db.mjs';
+import { readRepDrift } from '../../lib/rep-drift.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,14 @@ export async function GET() {
   } catch (error) {
     readErrors.latestSync = error instanceof Error ? error.message : String(error);
     readErrors.database = readErrors.database || readErrors.latestSync;
+  }
+
+  let repDrift = null;
+  try {
+    const clanId = (sync?.trackedMemberClanIds || [])[0];
+    if (clanId) repDrift = await readRepDrift(clanId);
+  } catch (error) {
+    readErrors.latestSync = readErrors.latestSync || (error instanceof Error ? error.message : String(error));
   }
 
   const storage = storageHealth();
@@ -71,6 +80,7 @@ export async function GET() {
     source: sync?.source || 'https://ninjazenshin.online/?panel=clan-ranking',
     error: databaseError || syncError,
     warning: overall === 'warning' || Boolean(databaseError),
+    repDrift,
     readErrors,
     durable: storage.durable,
     storageProvider: storage.provider,

@@ -7,6 +7,7 @@ import { buildTrackedClanTargets, parseTrackedClanIds } from '../../../app/lib/m
 import { summarizeMemberRecording } from '../../../app/lib/member-recording.mjs';
 import { getConfig } from '../../../app/lib/rep-tracker.js';
 import { upsertClans, recordSyncRun, dbStatus } from '../../../lib/supabase-db.mjs';
+import { updateRepDrift } from '../../../app/lib/rep-drift.mjs';
 import { recordClanHistory, upsertLeaderboardRows, upsertMemberRoster, upsertRepTrackerSnapshots } from '../../../lib/multisource-db.mjs';
 
 export const runtime = 'nodejs';
@@ -186,6 +187,27 @@ async function runSyncAll(request) {
   const memberSummary = summarizeMemberRecording(trackedClans, memberResults);
   const memberCount = memberResults.reduce((sum, result) => sum + Number(result.recordableCount || 0), 0);
   const ambiguousCount = memberResults.reduce((sum, result) => sum + Number(result.ambiguousCount || 0), 0);
+  let repDrift = null;
+  try {
+    const config = await getConfig();
+    const tracked = trackedClans.find((clan) => String(clan.clanId) === String(config?.clan_id));
+    const result = memberResults.find((item) => String(item.clanId) === String(config?.clan_id));
+    const sourceRow = ranking?.rows?.find((row) => String(row.clanId) === String(config?.clan_id));
+    if (tracked && result && sourceRow && Array.isArray(result.members) && result.members.length) {
+      const memberRep = result.members
+        .filter((member) => member?.id && !member?.identityAmbiguous && member?.name)
+        .reduce((sum, member) => sum + Number(member.reputation || member.rep || 0), 0);
+      repDrift = await updateRepDrift({
+        clanId: config.clan_id,
+        season: ranking?.season || 'Unknown',
+        sourceRep: Number(sourceRow.reputation || 0),
+        memberRep,
+        checkedAt: result.fetchedAt || startedAt.toISOString()
+      });
+    }
+  } catch (error) {
+    console.warn('REP drift check failed', error);
+  }
 
   const historyResults = await Promise.allSettled(
     memberResults
@@ -223,7 +245,8 @@ async function runSyncAll(request) {
       ...historyErrors.map((result) => errorText(result.reason))
     ].filter(Boolean).join(' | ') || null,
     historyStoredMembers,
-    historyChangedClans
+    historyChangedClans,
+    repDrift
   };
 
   let roster = { stored: false, count: 0, joined: 0, left: 0, errors: 0 };
@@ -304,6 +327,7 @@ async function runSyncAll(request) {
       clansSeen: ranking?.rows?.length || 0,
       membersSeen: memberCount,
       trackedMemberClanIds: trackedClanIds,
+      repDrift,
       memberErrors,
       memberSources: Object.fromEntries(memberResults.map((result) => [result.clanId, result.source || 'unknown'])),
       sources: sourceStatus,
@@ -334,6 +358,7 @@ async function runSyncAll(request) {
         changedClans: historyChangedClans,
         errors: historyErrors.length
       },
+      repDrift,
       error: combinedError,
       source: ranking?.source || 'https://ninjazenshin.online/'
     });
