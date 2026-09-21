@@ -24,6 +24,21 @@ SUPABASE_SECRET_KEY=YOUR_SB_SECRET_KEY
 
 Do not expose these as `NEXT_PUBLIC_*` variables.
 
+## Sync Authorization
+
+Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server authorization:
+
+- `/api/sync-all` — production full sync called by Supabase pg_cron.
+- `/api/sync-clans` — protected legacy sync endpoint.
+- `/api/monitor` — protected manual diagnostic endpoint.
+- `/api/source-debug` — protected upstream source diagnostic endpoint.
+
+When `CRON_SECRET` is unset, these endpoints remain open for backwards compatibility and emit a server-side warning. Once `CRON_SECRET` is configured, requests without the exact `Authorization: Bearer <secret>` header return HTTP 401.
+
+The Supabase pg_cron job must send the bearer header. The GitHub Actions manual diagnostic workflow reads the same value from the repository `CRON_SECRET` secret.
+
+The browser must never receive `CRON_SECRET`. The dashboard's background sync intentionally uses `GET /api/sync`, which remains the browser-facing sync exception and relies on the tracker sync interval/lock rather than the cron secret. `/api/clan-members` also remains public because the browser UI calls it directly and the route does not write tracking state.
+
 The storage tables are:
 
 - `rep_tracker_member_points` — sampled REP history points
