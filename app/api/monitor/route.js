@@ -4,6 +4,7 @@ import { parseRankingHtml } from '../../lib/source-parser.mjs';
 import { getConfig } from '../../lib/rep-tracker.js';
 import { buildTrackedClanTargets, parseTrackedClanIds } from '../../lib/member-snapshot.mjs';
 import { getMonitorStatus } from '../../lib/monitor-status.mjs';
+import { requireCronSecret } from '../../lib/cron-auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -84,6 +85,8 @@ async function resolveTrackedClans(rankingRows) {
 }
 
 export async function GET(request) {
+  const denied = requireCronSecret(request, '/api/monitor');
+  if (denied) return denied;
   const startedAt = new Date();
   try {
     const ranking = await collectRanking();

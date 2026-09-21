@@ -1,5 +1,6 @@
 import { scrapeClans, scrapeGame } from '../../../lib/scraper.mjs';
 import { recordMemberSnapshot, recordSyncStatus, storageHealth } from '../../../app/lib/member-history';
+import { requireCronSecret } from '../../../app/lib/cron-auth.mjs';
 import { recordRankingSnapshot } from '../../../app/lib/ranking-cache';
 import { fetchLiveMembers } from '../../../app/lib/ninja-source.mjs';
 import { buildTrackedClanTargets, parseTrackedClanIds } from '../../../app/lib/member-snapshot.mjs';
@@ -13,12 +14,6 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
-
-function authorized(request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return request.headers.get('authorization') === `Bearer ${secret}`;
-}
 
 function errorText(error) {
   if (error instanceof Error) return error.message;
@@ -72,8 +67,6 @@ async function resolveTrackedClanIds() {
 
 async function runSyncAll(request) {
   const startedAt = new Date();
-  if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
-
   const errors = [];
   let page = null;
   let ranking = null;
@@ -391,6 +384,8 @@ async function runSyncAll(request) {
 
 
 export async function GET(request) {
+  const denied = requireCronSecret(request, '/api/sync-all');
+  if (denied) return denied;
   const startedAt = new Date();
   if (!authorized(request)) return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
 

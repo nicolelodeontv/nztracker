@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import { requireCronSecret } from '../../lib/cron-auth.mjs';
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
 const ORIGIN = 'https://ninjazenshin.online';
@@ -23,7 +24,9 @@ function unique(values) {
 
 export const revalidate = 30;
 
-export async function GET() {
+export async function GET(request) {
+  const denied = requireCronSecret(request, '/api/source-debug');
+  if (denied) return denied;
   try {
     const response = await fetch(SOURCE, {
       next: { revalidate: 30 },
