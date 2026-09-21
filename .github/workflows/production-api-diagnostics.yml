@@ -6,10 +6,14 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect legacy member response
+      - name: Check dashboard source freshness
         shell: bash
         run: |
           set -u
-          html="$(curl -sS -L --max-time 20 'https://ninjazenshin.online/clan-ranking/members/3')"
-          echo '--- RESPONSE BODY ---'
-          printf '%s\n' "$html" | cut -c1-5000
+
+          echo '--- clans ---'
+          curl -sS -L --max-time 20 'https://nztracker.vercel.app/api/clans?limit=500' | jq '{season,lastUpdated,seasonEndsAt,firstCapturedAt:(.clans[0].capturedAt // null),count:(.clans|length)}'
+
+          echo '--- leaderboards ---'
+          curl -sS -L --max-time 20 'https://nztracker.vercel.app/api/leaderboards?limit=100' |
+            jq '{pveCount:(.pve|length),pvpCount:(.pvp|length),pveFirstCapturedAt:(.pve[0].capturedAt // null),pvpFirstCapturedAt:(.pvp[0].capturedAt // null),errors}'
