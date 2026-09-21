@@ -410,6 +410,28 @@ function snapshotMetricsEqual(a,b){
 }
 
 cks.delete(lockKey);}}
+async function firstTodayMemberPointMap(db,clanId,season,sinceIso,memberCount){
+  const firstByMember=new Map();
+  if(!memberCount)return firstByMember;
+  const pageSize=500;
+  for(let offset=0;;offset+=pageSize){
+    const {data,error}=await db.from('rep_tracker_member_points')
+      .select('member_id,rep,captured_at')
+      .eq('clan_id',clanId)
+      .eq('season',season)
+      .gte('captured_at',sinceIso)
+      .order('captured_at',{ascending:true})
+      .range(offset,offset+pageSize-1);
+    if(error)throw error;
+    for(const row of data||[]){
+      const id=String(row.member_id);
+      if(!firstByMember.has(id))firstByMember.set(id,Number(row.rep||0));
+    }
+    if(firstByMember.size>=memberCount||!data||data.length<pageSize)break;
+  }
+  return firstByMember;
+}
+
 async function latestMembers(clanId,season){
   const db=supabaseAdmin();
   const {data,error}=await db.from('rep_tracker_member_latest')
@@ -423,11 +445,12 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth,baselinesResult,hoursResult,todayPointsResult,syncRunsResult]=await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
     readSyncHealth().catch(()=>null),
+    db.from('rep_tracker_kv').select('value').eq('key','monitor:http-latest').maybeSingle().then(({data})=>data?.value||null),
     db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season),
     db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season),
     db.from('rep_tracker_member_points')
@@ -446,18 +469,13 @@ export async function dashboardData(){
   ]);
   if(baselinesResult.error)throw baselinesResult.error;
   if(hoursResult.error)throw hoursResult.error;
-  if(todayPointsResult.error)throw todayPointsResult.error;
   if(syncRunsResult.error)throw syncRunsResult.error;
 
   const ids=members.map((r)=>String(r.member_id));
+  const since=startOfTodayManila();
+  const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
   const syncFresh=freshness(syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
   const baselineMap=new Map((baselinesResult.data||[]).map((r)=>[String(r.member_id),r]));
-
-  const dayMap=new Map();
-  for(const row of todayPointsResult.data||[]){
-    const id=String(row.member_id);
-    if(!dayMap.has(id))dayMap.set(id,Number(row.rep||0));
-  }
 
   const hoursMap=new Map();
   for(const row of hoursResult.data||[]){
@@ -500,7 +518,6 @@ export async function dashboardData(){
   const globalRanking=rankingCache?.rows||[];
   const global=globalRankSummary(globalRanking,config.clan_id);
   const rankedRows=globalRanking.slice().sort((a,b)=>Number(a.rank||9999)-Number(b.rank||9999)).slice(0,10);
-  const since=startOfTodayManila();
   const elapsedTodayHours=Math.max((Date.now()-since.getTime())/3600000,1/60);
   const hourlyPace=todayGain/elapsedTodayHours;
   const projectedDailyGain=hourlyPace*24;
@@ -551,6 +568,7 @@ export async function dashboardData(){
     lastSuccessfulSyncAt:syncHealth?.lastHealthyAt||null,
     syncHealth:syncHealth||null,
     syncStatus:syncStatus||null,
+    httpHealth:httpHealth||null,
     global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null},
     globalRanking:rankedRows.map((row)=>({...row,change:rankingCache?.changes?.[String(row.clanId)]||null}))
   };
