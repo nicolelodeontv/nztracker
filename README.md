@@ -32,6 +32,7 @@ Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server 
 - `/api/sync-clans` — protected legacy sync endpoint.
 - `/api/monitor` — protected manual diagnostic endpoint.
 - `/api/source-debug` — protected upstream source diagnostic endpoint.
+- `/api/monitor-health` — protected external health-check endpoint used by the GitHub backup workflow.
 
 When `CRON_SECRET` is unset, these endpoints remain open for backwards compatibility and emit a server-side warning. Once `CRON_SECRET` is configured, requests without the exact `Authorization: Bearer <secret>` header return HTTP 401.
 
@@ -43,11 +44,11 @@ The storage tables are:
 
 - `rep_tracker_member_points` — sampled REP history points
 - `rep_tracker_member_latest` — latest member state used to decide whether a new point is needed
-- `rep_tracker_kv` — ranking cache, sync heartbeat, and retention guard
+- `rep_tracker_kv` — ranking cache, sync heartbeat, sync-health state, alert dedupe, and retention guards
 
-The ranking cache uses `ranking-cache:latest`; the sync heartbeat uses `sync-status:latest`.
+The ranking cache uses `ranking-cache:latest`; the sync heartbeat uses `sync-status:latest`; sync health state uses `sync-health:latest`.
 
-RLS is enabled on all three tables with no public policies. The server uses the Supabase secret/service-role credential.
+RLS is enabled across tracker tables with explicit service-role-only policies; public/anon/authenticated access remains denied. The server uses the Supabase secret/service-role credential.
 
 ## Member Tracking
 
@@ -61,7 +62,7 @@ A member point is recorded when:
 2. At least 5 minutes have passed since the last point.
 3. REP changed since the last point.
 
-The latest-member table is updated on every successful live snapshot so `last_seen_at` stays current. History points older than 30 days are removed at most once per hour.
+The latest-member table is updated on every successful live snapshot so `last_seen_at` stays current. History points older than 30 days are removed at most once per hour. Sync-run diagnostics older than 90 days are also pruned at most once per hour.
 
 ## Reliability
 
@@ -77,7 +78,7 @@ echo "$response" | jq -e '(.membersSeen // 0) > 0'
 
 A run with zero members or member errors is reported as `warning`, not `success`.
 
-A ranking-cache write failure is isolated from member monitoring so the member pipeline can continue and report the cache error.
+A ranking-cache write failure is isolated from member monitoring so the member pipeline can continue and report the cache error. `/api/monitor-health` checks for stale runs, zero-member runs, member errors, sync errors, and ranking-cache failures, and sends deduplicated Discord alerts when `DISCORD_WEBHOOK_URL` is configured.
 
 `vercel.json` intentionally keeps Git-based deployments disabled; production deployments continue through the dedicated Vercel Production Deploy GitHub Action.
 
@@ -165,6 +166,9 @@ The older multi-source ranking, leaderboard, and sync tables are retired by `202
 
 The dashboard exposes:
 - one-minute sync countdown and freshness
+- sync health strip with last success, current age, next sync, consecutive successes, and last recorded error
+- compact operations tabs for overview, REP pace/attention, and global ranking
+- member filtering, search, and sorting
 - global clan rank, gap to the next rank, and pace estimate
 - 1H / 3H / 6H / 12H / 24H / 7D REP burn analysis
 - needs-attention member signals

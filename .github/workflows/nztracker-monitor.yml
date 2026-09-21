@@ -13,6 +13,7 @@ jobs:
       - name: Run monitor backup
         env:
           TRACKER_URL: https://chaoszenshintracker.vercel.app/api/monitor
+          HEALTH_URL: https://chaoszenshintracker.vercel.app/api/monitor-health
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
@@ -21,18 +22,34 @@ jobs:
             echo "GitHub Actions secret CRON_SECRET is not configured." >&2
             exit 1
           fi
+
+          set +e
+          health_code="$(curl --silent --show-error --max-time 30 -o pre-health.json -w '%{http_code}' \
+            -H 'Accept: application/json' \
+            -H 'User-Agent: NinjaZenshinGitHubMonitorBackup/1.1' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$HEALTH_URL")"
+          health_curl_exit=$?
+          set -e
+          echo "Pre-monitor health HTTP $health_code"
+          if [ "$health_curl_exit" -eq 0 ]; then
+            cat pre-health.json
+          else
+            echo "Pre-monitor health check could not be completed; continuing to backup sync." >&2
+          fi
+
           set +e
           http_code="$(curl --silent --show-error --max-time 240 -o response.json -w '%{http_code}' \
             -H 'Accept: application/json' \
-            -H 'User-Agent: NinjaZenshinGitHubMonitorBackup/1.0' \
+            -H 'User-Agent: NinjaZenshinGitHubMonitorBackup/1.1' \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$TRACKER_URL")"
           curl_exit=$?
           set -e
-          echo "HTTP $http_code"
+          echo "Monitor HTTP $http_code"
           cat response.json
           if [ "$curl_exit" -ne 0 ]; then
-            echo "curl failed with exit code $curl_exit" >&2
+            echo "monitor curl failed with exit code $curl_exit" >&2
             exit "$curl_exit"
           fi
           if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
@@ -40,3 +57,23 @@ jobs:
             exit 1
           fi
           jq -e '(.ok == true) and (.status == "success" or .status == "skipped")' response.json >/dev/null
+
+          set +e
+          post_health_code="$(curl --silent --show-error --max-time 30 -o post-health.json -w '%{http_code}' \
+            -H 'Accept: application/json' \
+            -H 'User-Agent: NinjaZenshinGitHubMonitorBackup/1.1' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$HEALTH_URL")"
+          post_health_curl_exit=$?
+          set -e
+          echo "Post-monitor health HTTP $post_health_code"
+          cat post-health.json
+          if [ "$post_health_curl_exit" -ne 0 ]; then
+            echo "Post-monitor health check failed." >&2
+            exit "$post_health_curl_exit"
+          fi
+          if [ "$post_health_code" -lt 200 ] || [ "$post_health_code" -ge 300 ]; then
+            echo "Post-monitor health endpoint returned HTTP $post_health_code" >&2
+            exit 1
+          fi
+          jq -e '.healthy == true' post-health.json >/dev/null

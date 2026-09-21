@@ -75,4 +75,36 @@ async function fromAmf(clanId){const response=await fetchWithTimeout(AMF_ORIGIN,
 function parseLegacyMemberHtml(text){const rows=text.match(/<tr[\s\S]*?<\/tr>/gi)||[],parsed=[];for(const row of rows){const cells=(row.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/gi)||[]).map((cell)=>clean(cell.replace(/<[^>]+>/g,' ')));if(cells.length<2)continue;const lower=cells.map((cell)=>cell.toLowerCase());if(lower.includes('member')||lower.includes('reputation'))continue;const name=clean(cells[1]||cells[0]);if(!name)continue;parsed.push({id:'',name,level:toNumber(cells[2])??0,reputation:toNumber(cells[3])});}return parsed;}
 async function fromLegacy(clanId){const target=`${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}?t=${Date.now()}`,response=await fetchWithTimeout(target,{cache:'no-store',headers:{Accept:'text/html,application/json,text/plain,*/*','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}});if(!response.ok)throw new Error(`Legacy member source returned HTTP ${response.status}.`);const text=await response.text();let members;try{const payload=JSON.parse(text),rawMembers=Array.isArray(payload?.members)?payload.members:Array.isArray(payload)?payload:[];members=normalizeMembers(rawMembers);}catch{members=normalizeMembers(parseLegacyMemberHtml(text));}if(!members.length)throw new Error('Legacy member source returned no valid members.');return{clanId,members,count:members.length,fetchedAt:new Date().toISOString(),source:target,service:'legacy-live',stale:false};}
 export async function fetchLiveMembers(clanId){const key=String(clanId||'').trim();if(!key||!/^[a-zA-Z0-9_-]+$/.test(key))throw new Error('A valid Ninja Zenshin clanId is required.');const active=inflight.get(key);if(active)return active;const request=(async()=>{try{return await fromAmf(key);}catch(amfError){try{return{...(await fromLegacy(key)),fallbackReason:amfError instanceof Error?amfError.message:String(amfError)};}catch(legacyError){const error=new Error(`Live member sources failed. AMF: ${amfError instanceof Error?amfError.message:String(amfError)} Legacy: ${legacyError instanceof Error?legacyError.message:String(legacyError)}`);error.cause=amfError;throw error;}}})();inflight.set(key,request);try{return await request;}finally{inflight.delete(key);}}
+
+function storeMemberCache(clanId,payload){
+  memberCache.set(String(clanId),{savedAt:Date.now(),payload});
+  if(memberCache.size>100){
+    const oldest=[...memberCache.entries()].sort((a,b)=>a[1].savedAt-b[1].savedAt)[0];
+    if(oldest)memberCache.delete(oldest[0]);
+  }
+}
+
+function getMemberCache(clanId){
+  const entry=memberCache.get(String(clanId));
+  if(!entry)return null;
+  return {...entry,ageMs:Date.now()-entry.savedAt};
+}
+
+export async function fetchCachedMembers(clanId){
+  const payload=await fetchLiveMembers(clanId).catch((error)=>{
+    const cached=getMemberCache(clanId);
+    if(cached&&cached.ageMs<=LAST_KNOWN_MAX_AGE_MS){
+      console.warn('Serving last-known Ninja Zenshin member data',{clanId,cacheAgeSeconds:Math.round(cached.ageMs/1000)});
+      return {...cached.payload,stale:true,fallbackReason:error instanceof Error?error.message:String(error),servedAt:new Date().toISOString()};
+    }
+    throw error;
+  });
+  if(!payload.stale&&Array.isArray(payload.members)&&payload.members.length)storeMemberCache(clanId,payload);
+  return {
+    ...payload,
+    members:Array.isArray(payload.members)?payload.members.map((member)=>({...member})):[],
+    stale:Boolean(payload.stale),
+    servedAt:new Date().toISOString()
+  };
+}
 export async function discoverChaos(){const response=await fetchWithTimeout(`${RANKING_SOURCE}&_nz=${Date.now()}`,{cache:'no-store',headers:{Accept:'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8','Cache-Control':'no-cache',Pragma:'no-cache','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}});if(!response.ok)throw new Error(`Clan ranking source returned HTTP ${response.status}.`);const capturedAt=new Date().toISOString(),parsed=parseRankingHtml(await response.text()),row=parsed.rows?.find((item)=>String(item.clan||'').trim().toLocaleLowerCase()==='chaos');if(!row?.clanId)throw new Error('Clan Chaos was found, but its clan ID could not be discovered from the public ranking source.');const countdownSeconds=Number(parsed.countdown?.remainingSeconds);const finalDayAt=Number.isFinite(countdownSeconds)&&countdownSeconds>=0?new Date(new Date(capturedAt).getTime()+countdownSeconds*1000).toISOString():null;return{clanId:String(row.clanId),clanName:row.clan,expectedMemberCount:row.memberCurrent||null,currentSeason:parsed.season||null,finalDayAt,countdown:parsed.countdown||null,capturedAt,source:RANKING_SOURCE,row,ranking:{...parsed,fetchedAt:capturedAt,source:RANKING_SOURCE}};}

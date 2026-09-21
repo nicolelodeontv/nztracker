@@ -3,8 +3,9 @@ import { discoverChaos, fetchLiveMembers } from './ninja-source.mjs';
 import { startOfTodayManila } from './dashboard-time.mjs';
 import { buildRecentActivityEvents } from './rep-tracker-utils.mjs';
 import { globalRankSummary, readRankingSnapshot } from './ranking-cache.js';
+import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 
-const FRESH_MS=90000,AGING_MS=180000,syncLocks=new Map();
+const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
 const nowIso=()=>new Date().toISOString();
 const safeText=(value)=>String(value??'').trim();
 const asInt=(value,fallback=0)=>Number.isFinite(Number(value))?Math.trunc(Number(value)):fallback;
@@ -67,6 +68,46 @@ async function upsertMembers({clanId,season,members,capturedAt}) {
   const {error:latestUpsertError}=await db.from('rep_tracker_member_latest').upsert(latestUpserts,{onConflict:'clan_id,season,member_id'});
   if(latestUpsertError)throw latestUpsertError;
 }
+async function runSyncRunRetention(db,nowMs){
+  try{
+    const {data:guard,error:guardError}=await db.from('rep_tracker_kv').select('value,updated_at').eq('key',SYNC_RUN_RETENTION_KEY).maybeSingle();
+    if(guardError)throw guardError;
+    const lastRunMs=guard?.value?.ranAt?Date.parse(guard.value.ranAt):Date.parse(guard?.updated_at||'');
+    if(Number.isFinite(lastRunMs)&&nowMs-lastRunMs<SYNC_RUN_RETENTION_INTERVAL_MS)return{deleted:0,skipped:true};
+    const cutoff=new Date(nowMs-90*24*60*60*1000).toISOString();
+    const {count,error:deleteError}=await db.from('rep_tracker_sync_runs').delete({count:'exact'}).lt('started_at',cutoff);
+    if(deleteError)throw deleteError;
+    const ranAt=new Date(nowMs).toISOString();
+    const {error:kvError}=await db.from('rep_tracker_kv').upsert({key:SYNC_RUN_RETENTION_KEY,value:{ranAt},updated_at:ranAt},{onConflict:'key'});
+    if(kvError)throw kvError;
+    return{deleted:Number(count||0),skipped:false};
+  }catch(error){
+    console.warn('Sync run retention failed',error);
+    return{deleted:0,skipped:false,error:error instanceof Error?error.message:String(error)};
+  }
+}
+
+async function firstTodaySnapshotMap(db,clanId,season,sinceIso,memberCount){
+  const firstByMember=new Map();
+  if(!memberCount)return firstByMember;
+  const pageSize=1000;
+  for(let offset=0;;offset+=pageSize){
+    const {data,error}=await db.from('rep_tracker_snapshots')
+      .select('member_id,reputation,captured_at')
+      .eq('clan_id',clanId).eq('season',season)
+      .gte('captured_at',sinceIso)
+      .order('captured_at',{ascending:true})
+      .range(offset,offset+pageSize-1);
+    if(error)throw error;
+    for(const row of data||[]){
+      const id=String(row.member_id);
+      if(!firstByMember.has(id))firstByMember.set(id,Number(row.reputation||0));
+    }
+    if(firstByMember.size>=memberCount||!data||data.length<pageSize)break;
+  }
+  return firstByMember;
+}
+
 async function previousSnapshotMap(clanId,season,memberIds,capturedAt){if(!memberIds.length)return new Map();const db=supabaseAdmin();const before=new Date(new Date(capturedAt).getTime()-1000).toISOString();const{data,error}=await db.from('rep_tracker_snapshots').select('member_id,ign,level,reputation,stamina,max_stamina,source,captured_at').eq('clan_id',clanId).eq('season',season).in('member_id',memberIds).lt('captured_at',before).order('captured_at',{ascending:false}).limit(memberIds.length*2);if(error)throw error;const out=new Map();for(const row of data||[])if(!out.has(String(row.member_id)))out.set(String(row.member_id),row);return out;}
 function snapshotMetricsEqual(a,b){
   return String(a?.ign || '') === String(b?.ign || '')
@@ -84,7 +125,7 @@ export async function syncTracker({force=false,admin='system'}={}){const lockKey
 if(changedSnapshotRows.length){
   const{error:insertError}=await db.from('rep_tracker_snapshots').upsert(changedSnapshotRows,{onConflict:'clan_id,season,member_id,captured_at'});
   if(insertError)throw insertError;
-}await upsertMembers({clanId:config.clan_id,season,members:live.members,capturedAt});await db.from('rep_tracker_sync_runs').update({status:'success',members_returned:returned,members_expected:expected||null,completed_at:capturedAt,details:{service:live.service,source:live.source}}).eq('id',runId);await audit('Live sync completed',{clanId:config.clan_id,season,returned,expected,service:live.service},admin);return{reused:false,live,config,season,discovery,suspiciousCount:snapshotRows.filter((r)=>r.suspicious).length};}catch(error){await db.from('rep_tracker_sync_runs').update({status:'failed',completed_at:nowIso(),error_message:error instanceof Error?error.message:String(error)}).eq('id',runId);throw error;}})();syncLocks.set(lockKey,task);try{return await task;}finally{syncLocks.delete(lockKey);}}
+}await upsertMembers({clanId:config.clan_id,season,members:live.members,capturedAt});await db.from('rep_tracker_sync_runs').update({status:'success',members_returned:returned,members_expected:expected||null,completed_at:capturedAt,details:{service:live.service,source:live.source}}).eq('id',runId);await runSyncRunRetention(db,Date.now());await recordSyncHealth({outcome:'success',at:capturedAt,error:null});await audit('Live sync completed',{clanId:config.clan_id,season,returned,expected,service:live.service},admin);return{reused:false,live,config,season,discovery,suspiciousCount:snapshotRows.filter((r)=>r.suspicious).length};}catch(error){await db.from('rep_tracker_sync_runs').update({status:'failed',completed_at:nowIso(),error_message:error instanceof Error?error.message:String(error)}).eq('id',runId);await recordSyncHealth({outcome:'error',at:nowIso(),error:error instanceof Error?error.message:String(error)}).catch(()=>{});await runSyncRunRetention(db,Date.now());throw error;}})();syncLocks.set(lockKey,task);try{return await task;}finally{syncLocks.delete(lockKey);}}
 async function latestMembers(clanId,season){
   const db=supabaseAdmin();
   const {data,error}=await db.from('rep_tracker_member_latest')
@@ -98,12 +139,13 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus] = await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth] = await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
-    db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null)
+    db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
+    readSyncHealth().catch(()=>null)
   ]);
-  const ids=members.map((r)=>String(r.member_id));const[{data:trackerSync,error:trackerSyncError},{data:legacySync,error:legacySyncError}]=await Promise.all([db.from('rep_tracker_sync_runs').select('completed_at,members_returned').eq('clan_id',config.clan_id).eq('status','success').not('completed_at','is',null).order('completed_at',{ascending:false}).limit(1).maybeSingle(),db.from('sync_runs').select('completed_at').eq('status','success').not('completed_at','is',null).order('completed_at',{ascending:false}).limit(1).maybeSingle()]);if(trackerSyncError&&legacySyncError)throw trackerSyncError||legacySyncError;const latestSync=trackerSync?.completed_at?trackerSync:legacySync;const syncFresh=freshness(latestSync?.completed_at||null);const{data:baselines}=await db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season).in('member_id',ids.length?ids:['_']);const baselineMap=new Map((baselines||[]).map((r)=>[String(r.member_id),r]));const since=startOfTodayManila();const{data:dayRows}=await db.from('rep_tracker_snapshots').select('member_id,reputation').eq('clan_id',config.clan_id).eq('season',season).gte('captured_at',since.toISOString()).order('captured_at',{ascending:true}).limit(Math.max(ids.length,1));const dayMap=new Map();for(const row of dayRows||[])if(!dayMap.has(String(row.member_id)))dayMap.set(String(row.member_id),Number(row.reputation));const{data:hoursRows}=await db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season);const hoursMap=new Map();for(const row of hoursRows||[])hoursMap.set(String(row.member_id),(hoursMap.get(String(row.member_id))||0)+Number(row.total_hours||0));const rows=members.map((row)=>{const baseline=baselineMap.get(String(row.member_id)),gain=baseline?Number(row.reputation)-Number(baseline.baseline_rep):0,today=dayMap.has(String(row.member_id))?Number(row.reputation)-dayMap.get(String(row.member_id)):0,hours=hoursMap.get(String(row.member_id))||0;return{id:String(row.member_id),member:row.member_name,level:Number(row.level||0),rep:Number(row.rep||0),baseline:baseline?.baseline_rep??null,gain,todayGain:today,hours,repPerHour:hours>0?gain/hours:0,source:'Ninja Zenshin live member monitor',capturedAt:row.last_seen_at,suspicious:false,status:syncFresh.status};}).sort((a,b)=>b.rep-a.rep);const totalRep=rows.reduce((s,r)=>s+r.rep,0),totalGain=rows.reduce((s,r)=>s+r.gain,0),todayGain=rows.reduce((s,r)=>s+r.todayGain,0),totalHours=rows.reduce((s,r)=>s+r.hours,0);const{count:suspiciousCount}=await db.from('rep_tracker_snapshots').select('*',{count:'exact',head:true}).eq('clan_id',config.clan_id).eq('season',season).eq('suspicious',true);const globalRanking=rankingCache?.rows||[];
+  const ids=members.map((r)=>String(r.member_id));const syncFresh=freshness(syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);const{data:baselines}=await db.from('rep_tracker_baselines').select('*').eq('clan_id',config.clan_id).eq('season',season).in('member_id',ids.length?ids:['_']);const baselineMap=new Map((baselines||[]).map((r)=>[String(r.member_id),r]));const since=startOfTodayManila();const dayMap=await firstTodaySnapshotMap(db,config.clan_id,season,since.toISOString(),ids.length);const{data:hoursRows}=await db.from('rep_tracker_hours').select('member_id,total_hours').eq('clan_id',config.clan_id).eq('season',season);const hoursMap=new Map();for(const row of hoursRows||[])hoursMap.set(String(row.member_id),(hoursMap.get(String(row.member_id))||0)+Number(row.total_hours||0));const rows=members.map((row)=>{const baseline=baselineMap.get(String(row.member_id)),gain=baseline?Number(row.reputation)-Number(baseline.baseline_rep):0,today=dayMap.has(String(row.member_id))?Number(row.reputation)-dayMap.get(String(row.member_id)):0,hours=hoursMap.get(String(row.member_id))||0;return{id:String(row.member_id),member:row.member_name,level:Number(row.level||0),rep:Number(row.rep||0),baseline:baseline?.baseline_rep??null,gain,todayGain:today,hours,repPerHour:hours>0?gain/hours:0,source:'Ninja Zenshin live member monitor',capturedAt:row.last_seen_at,suspicious:false,status:syncFresh.status};}).sort((a,b)=>b.rep-a.rep);const totalRep=rows.reduce((s,r)=>s+r.rep,0),totalGain=rows.reduce((s,r)=>s+r.gain,0),todayGain=rows.reduce((s,r)=>s+r.todayGain,0),totalHours=rows.reduce((s,r)=>s+r.hours,0);const{count:suspiciousCount}=await db.from('rep_tracker_snapshots').select('*',{count:'exact',head:true}).eq('clan_id',config.clan_id).eq('season',season).eq('suspicious',true);const globalRanking=rankingCache?.rows||[];
   const global=globalRankSummary(globalRanking,config.clan_id);
   const rankedRows=globalRanking.slice().sort((a,b)=>Number(a.rank||9999)-Number(b.rank||9999)).slice(0,10);
   const elapsedTodayHours=Math.max((Date.now()-since.getTime())/3600000,1/60);
@@ -115,7 +157,8 @@ export async function dashboardData(){
     configured:true,config,season,rows,
     stats:{totalRep,totalGain,todayGain,activeMembers:rows.length,totalHours,avgRepPerHour:totalHours?totalGain/totalHours:0,suspiciousCount:suspiciousCount||0},
     freshness:syncFresh,
-    lastSuccessfulSyncAt:latestSync?.completed_at||null,
+    lastSuccessfulSyncAt:syncHealth?.lastHealthyAt||null,
+    syncHealth:syncHealth||null,
     syncStatus:syncStatus||null,
     global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null},
     globalRanking:rankedRows.map((row)=>({...row,change:rankingCache?.changes?.[String(row.clanId)]||null}))

@@ -4,6 +4,7 @@ import { getMonitorStatus } from '../../lib/monitor-status.mjs';
 import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
 import { MONITOR_WINDOW_MS, claimMonitorWindow, completeMonitorWindow, pruneMonitorWindows, releaseMonitorWindow } from '../../lib/monitor-idempotency.mjs';
 import { syncTracker } from '../../lib/rep-tracker.js';
+import { recordSyncHealth } from '../../lib/sync-health.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,12 @@ export async function GET(request) {
     const memberSources = result.live?.source
       ? { [result.live.source]: 1 }
       : {};
+
+    await recordSyncHealth({
+      outcome: status==='success' ? 'success' : 'warning',
+      at: finishedAt.toISOString(),
+      error: rankingCacheError
+    }).catch((error)=>console.warn('Unable to record sync health',error));
 
     await recordSyncStatus({
       version: 6,

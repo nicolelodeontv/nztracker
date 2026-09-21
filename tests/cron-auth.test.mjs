@@ -63,6 +63,7 @@ test('state-changing diagnostic routes use shared cron authorization', async () 
     '../app/api/sync-clans/route.js',
     '../app/api/monitor/route.js',
     '../app/api/source-debug/route.js',
+    '../app/api/monitor-health/route.js',
   ];
 
   for (const file of files) {

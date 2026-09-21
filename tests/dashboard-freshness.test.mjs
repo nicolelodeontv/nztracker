@@ -14,15 +14,13 @@ test('freshness classification uses the last successful sync timestamp', () => {
   assert.equal(freshnessAt('2026-09-21T05:45:29.119Z', now), 'stale');
 });
 
-test('dashboard source reads the latest successful rep-tracker sync', async () => {
+test('dashboard source uses canonical sync health instead of deleted legacy sync_runs', async () => {
   const source = await readFile(new URL('../app/lib/rep-tracker.js', import.meta.url), 'utf8');
-  assert.match(source, /from\('rep_tracker_sync_runs'\)/);
-  assert.match(source, /select\('completed_at'\)/);
-  assert.match(source, /\.eq\('status','success'\)/);
-  assert.match(source, /\.order\('completed_at',\{ascending:false\}\)/);
-  assert.match(source, /const syncFresh=freshness\(latestSync\?\.completed_at\|\|null\)/);
-  assert.match(source, /status:syncFresh\.status/);
-  assert.match(source, /lastSuccessfulSyncAt:latestSync\?\.completed_at\|\|null/);
+  assert.match(source, /readSyncHealth\(\)/);
+  assert.match(source, /syncFresh=freshness\(syncHealth\?\.lastHealthyAt\|\|syncStatus\?\.lastRunAt\|\|null\)/);
+  assert.match(source, /lastSuccessfulSyncAt:syncHealth\?\.lastHealthyAt\|\|null/);
+  assert.doesNotMatch(source, /from\('sync_runs'\)/);
+  assert.doesNotMatch(source, /latestSync\?\.completed_at/);
 });
 
 test('member status is not derived from snapshot captured_at', async () => {
