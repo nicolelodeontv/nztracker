@@ -167,7 +167,7 @@ function SyncHealthStrip({data}) {
   const httpStatus=Number(http.statusCode||0);
   return <section className="sync-health-strip" aria-label="Sync health">
     <div><span>LAST MEMBER SYNC</span><b>{ageSeconds===null?'—':new Date(lastHealthy).toLocaleTimeString()}</b></div>
-    <div><span>CURRENT AGE</span><b className={ageSeconds!==null&&ageSeconds<=90?'up':ageSeconds!==null&&ageSeconds<=180?'warn-text':'down'}>{ageSeconds===null?'—':age(ageSeconds)}</b></div>
+    <div><span>CURRENT AGE</span><b className={ageSeconds!==null&&ageSeconds<=30?'up':ageSeconds!==null&&ageSeconds<=90?'warn-text':'down'}>{ageSeconds===null?'—':age(ageSeconds)}</b></div>
     <div><span>NEXT SYNC</span><b>{nextSeconds===null?'—':nextSeconds<60?nextSeconds+'s':Math.ceil(nextSeconds/60)+'m'}</b></div>
     <div><span>MEMBERS</span><b className={health.lastMemberStatus==='success'?'up':'warn-text'}>{String(health.lastMemberStatus||data?.syncStatus?.memberStatus||'—').toUpperCase()}</b></div>
     <div><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
