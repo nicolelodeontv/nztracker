@@ -92,7 +92,7 @@ export async function GET(request) {
     await recordSyncStatus({
       version: 6,
       status: 'active',
-      overall: finalStatus,
+      overall: overallOutcome,
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
       intervalMs: SYNC_INTERVAL_MS,
@@ -122,7 +122,7 @@ export async function GET(request) {
     return Response.json({
       ok: true,
       mode: 'monitor',
-      status: finalStatus,
+      status: overallOutcome,
       reused: Boolean(result.reused),
       season: result.season || result.config?.current_season || null,
       clanId: result.config?.clan_id || null,
