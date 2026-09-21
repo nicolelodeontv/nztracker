@@ -8,7 +8,9 @@ const HISTORY_PREFIX = 'supabase/member-history';
 const SYNC_STATUS_KEY = 'sync-status:latest';
 const RETENTION_KEY = 'retention:last-run';
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;
+const RETENTION_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const locks = new Map();
+let lastRetentionCheckAt = 0;
 
 const normalizeSeason = (season) => String(season || 'Season 2').trim().replace(/[^a-zA-Z0-9._-]+/g, '_');
 const normalizeClanId = (clanId) => String(clanId || '').trim();
@@ -64,6 +66,8 @@ export function resolveRetentionDays(options = {}) {
 }
 
 async function runRetention(db, nowMs, options = {}) {
+  if (nowMs - lastRetentionCheckAt < RETENTION_CHECK_INTERVAL_MS) return { deleted: 0, skipped: true, cached: true };
+  lastRetentionCheckAt = nowMs;
   const { data: guard, error: guardError } = await db
     .from('rep_tracker_kv')
     .select('value,updated_at')
