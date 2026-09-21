@@ -84,14 +84,14 @@ function SyncHealthStrip({data}) {
   const health=data?.syncHealth||{};
   const stats=data?.stats||{};
   const http=data?.httpHealth||{};
-  const lastHealthy=health.lastHealthyAt?Date.parse(health.lastHealthyAt):NaN;
+  const lastHealthy=health.lastMemberSuccessAt?Date.parse(health.lastMemberSuccessAt):health.lastHealthyAt?Date.parse(health.lastHealthyAt):NaN;
   const ageSeconds=Number.isFinite(lastHealthy)?Math.max(0,Math.floor((now-lastHealthy)/1000)):null;
   const next=data?.syncStatus?.nextExpectedAt?Date.parse(data.syncStatus.nextExpectedAt):NaN;
   const nextSeconds=Number.isFinite(next)?Math.max(0,Math.ceil((next-now)/1000)):null;
   const successRate=Number.isFinite(Number(stats.syncSuccessRate))?Math.round(Number(stats.syncSuccessRate)*100):0;
   const httpStatus=Number(http.statusCode||0);
   return <section className="sync-health-strip" aria-label="Sync health">
-    <div><span>LAST SUCCESS</span><b>{ageSeconds===null?'—':new Date(lastHealthy).toLocaleTimeString()}</b></div>
+    <div><span>LAST MEMBER SYNC</span><b>{ageSeconds===null?'—':new Date(lastHealthy).toLocaleTimeString()}</b></div>
     <div><span>CURRENT AGE</span><b className={ageSeconds!==null&&ageSeconds<=90?'up':ageSeconds!==null&&ageSeconds<=180?'warn-text':'down'}>{ageSeconds===null?'—':age(ageSeconds)}</b></div>
     <div><span>NEXT SYNC</span><b>{nextSeconds===null?'—':nextSeconds<60?nextSeconds+'s':Math.ceil(nextSeconds/60)+'m'}</b></div>
     <div><span>MEMBERS</span><b className={health.lastMemberStatus==='success'?'up':'warn-text'}>{String(health.lastMemberStatus||data?.syncStatus?.memberStatus||'—').toUpperCase()}</b></div>
