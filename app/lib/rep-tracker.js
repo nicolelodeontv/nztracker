@@ -136,7 +136,7 @@ export async function syncTracker({force=false,admin='system'}={}) {
         .limit(1)
         .maybeSingle();
       const lastCompleted=last.data?.completed_at?Date.parse(last.data.completed_at):0;
-      if(lastCompleted&&Date.now()-lastCompleted<Math.max(30,config.sync_interval_seconds||45)*1000){
+      if(lastCompleted&&Date.now()-lastCompleted<SYNC_RUN_REUSE_GUARD_MS){
         return {
           reused:true,
           config,
