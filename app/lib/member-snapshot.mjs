@@ -1,4 +1,4 @@
-export const DEFAULT_TRACKED_CLAN_IDS = Object.freeze(['3']);
+export const DEFAULT_TRACKED_CLAN_IDS = Object.freeze([]);
 export const MEMBER_SNAPSHOT_HEARTBEAT_MS = 60 * 60 * 1000;
 
 const VALID_CLAN_ID = /^[a-zA-Z0-9_-]+$/;
@@ -13,11 +13,11 @@ function numericOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-export function parseTrackedClanIds(value) {
+export function parseTrackedClanIds(value, fallbackIds = DEFAULT_TRACKED_CLAN_IDS) {
   const configured = clean(value);
-  const source = configured ? configured.split(',') : DEFAULT_TRACKED_CLAN_IDS;
-  const ids = [...new Set(source.map(clean).filter((id) => id && VALID_CLAN_ID.test(id)))];
-  return ids.length ? ids : [...DEFAULT_TRACKED_CLAN_IDS];
+  const fallback = Array.isArray(fallbackIds) ? fallbackIds : [];
+  const source = configured ? configured.split(',') : fallback;
+  return [...new Set(source.map(clean).filter((id) => id && VALID_CLAN_ID.test(id)))];
 }
 
 export function buildTrackedClanTargets(rankingRows, trackedIds) {
@@ -32,7 +32,7 @@ export function buildTrackedClanTargets(rankingRows, trackedIds) {
     const ranked = byId.get(id);
     return ranked
       ? { ...ranked, clanId: id }
-      : { clanId: id, clan: id === '3' ? 'Chaos' : `Tracked clan ${id}`, memberCurrent: 0 };
+      : { clanId: id, clan: `Tracked clan ${id}`, memberCurrent: 0 };
   });
 }
 
