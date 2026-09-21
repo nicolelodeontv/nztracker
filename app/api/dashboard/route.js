@@ -28,7 +28,7 @@ export async function GET() {
         serverTime: new Date().toISOString(),
         freshness: data.freshness || freshness(null),
       },
-      { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      { headers: { 'Cache-Control': 'public, max-age=0, s-maxage=15, stale-while-revalidate=45' } }
     );
   } catch (error) {
     return Response.json(
