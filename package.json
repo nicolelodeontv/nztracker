@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --experimental-test-module-mocks --test"
+    "test": "node --experimental-test-module-mocks --experimental-specifier-resolution=node --test"
   },
   "engines": { "node": "24.x" },
   "dependencies": {
