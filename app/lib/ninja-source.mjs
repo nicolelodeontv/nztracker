@@ -1,4 +1,5 @@
 import { parseRankingHtml } from './source-parser.mjs';
+import { readLastKnownMembers, writeLastKnownMembers, MEMBER_CACHE_MAX_AGE_MS } from './sync-source-state.mjs';
 
 export const AMF_ORIGIN = process.env.GAME_AMF_ORIGIN || 'https://amf.ninjazenshin.online/';
 export const LEGACY_MEMBER_API = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online'}/clan-ranking/members/`;
@@ -6,13 +7,40 @@ export const RANKING_SOURCE = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninj
 export const SERVICE = process.env.GAME_MEMBER_SERVICE || 'ClanService.getMemberList';
 export const RESPONSE_TARGET = process.env.GAME_MEMBER_RESPONSE_TARGET || '/1';
 const DEFAULT_MAX_STAMINA = 200;
-const UPSTREAM_TIMEOUT_MS = 7000;
+export const UPSTREAM_TIMEOUT_MS = 7000;
+export const UPSTREAM_MAX_ATTEMPTS = 2;
+export const UPSTREAM_RETRY_DELAYS_MS = [0, 500];
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const memberCache = new Map();
 const inflight = new Map();
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const toNumber = (value) => { if(value===null||value===undefined||value==='')return null;const number=Number(String(value).replace(/[^0-9.-]/g,''));return Number.isFinite(number)?number:null; };
-async function fetchWithTimeout(url,options={}){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),UPSTREAM_TIMEOUT_MS);try{return await fetch(url,{...options,signal:controller.signal});}catch(error){if(error?.name==='AbortError')throw new Error(`Upstream request timed out after ${UPSTREAM_TIMEOUT_MS/1000}s.`);throw error;}finally{clearTimeout(timer);}}
+export function isRetryableUpstreamStatus(status){return RETRYABLE_STATUS_CODES.has(Number(status));}
+export function isRetryableUpstreamError(error){return Boolean(error?.name==='AbortError'||error?.code==='ECONNRESET'||error?.code==='ETIMEDOUT'||error?.code==='EAI_AGAIN'||/timed out|timeout|fetch failed|socket hang up|network/i.test(String(error?.message||error)));}
+const sleep=(ms)=>new Promise((resolve)=>setTimeout(resolve,ms));
+async function fetchWithTimeout(url,options={}){
+  let lastError=null;
+  for(let attempt=0;attempt<UPSTREAM_MAX_ATTEMPTS;attempt++){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),UPSTREAM_TIMEOUT_MS);
+    try{
+      const response=await fetch(url,{...options,signal:controller.signal});
+      if(attempt<UPSTREAM_MAX_ATTEMPTS-1&&isRetryableUpstreamStatus(response.status)){
+        try{await response.body?.cancel();}catch{}
+        await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt+1]||0);
+        continue;
+      }
+      return response;
+    }catch(error){
+      lastError=error?.name==='AbortError'?new Error('Upstream request timed out after '+(UPSTREAM_TIMEOUT_MS/1000)+'s.'):error;
+      if(attempt>=UPSTREAM_MAX_ATTEMPTS-1||!isRetryableUpstreamError(error))throw lastError;
+      await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt+1]||0);
+    }finally{clearTimeout(timer);}
+  }
+  throw lastError||new Error('Upstream request failed.');
+}
 function pushU16(target,value){target.push((value>>>8)&255,value&255);}function pushU32(target,value){target.push((value>>>24)&255,(value>>>16)&255,(value>>>8)&255,value&255);}function pushUtf(target,value){const bytes=textEncoder.encode(String(value??''));if(bytes.length>65535)throw new Error('AMF string is too long.');pushU16(target,bytes.length);target.push(...bytes);}
 export function buildMemberRequest(clanId){const output=[];output.push(0,0);pushU16(output,0);pushU16(output,1);pushUtf(output,SERVICE);pushUtf(output,RESPONSE_TARGET);pushU32(output,0xffffffff);output.push(0x0a);pushU32(output,1);output.push(2);pushUtf(output,clanId);return new Uint8Array(output);}
 class Reader{constructor(bytes){this.bytes=bytes instanceof Uint8Array?bytes:new Uint8Array(bytes);this.view=new DataView(this.bytes.buffer,this.bytes.byteOffset,this.bytes.byteLength);this.offset=0;this.references=[];}ensure(count){if(this.offset+count>this.bytes.byteLength)throw new Error(`Invalid AMF response: truncated at byte ${this.offset}.`);}u8(){this.ensure(1);return this.view.getUint8(this.offset++);}u16(){this.ensure(2);const value=this.view.getUint16(this.offset);this.offset+=2;return value;}u32(){this.ensure(4);const value=this.view.getUint32(this.offset);this.offset+=4;return value;}f64(){this.ensure(8);const value=this.view.getFloat64(this.offset);this.offset+=8;return value;}readBytes(count){this.ensure(count);const value=this.bytes.slice(this.offset,this.offset+count);this.offset+=count;return value;}string16(){return textDecoder.decode(this.readBytes(this.u16()));}string32(){return textDecoder.decode(this.readBytes(this.u32()));}amf0(){const type=this.u8();switch(type){case 0:return this.f64();case 1:return this.u8()===1;case 2:return this.string16();case 3:return this.object();case 5:case 6:return null;case 7:return this.references[this.u16()]??null;case 8:this.u32();return this.object();case 10:return this.array();case 11:this.f64();this.u16();return null;case 12:return this.string32();case 16:{const className=this.string16();const value=this.object();if(value&&typeof value==='object')value.__className=className;return value;}case 17:throw new Error('Ninja Zenshin returned AMF3 data.');default:throw new Error(`Unsupported AMF0 type 0x${type.toString(16).padStart(2,'0')}.`);}}object(){const result={};this.references.push(result);while(true){const keyLength=this.u16();if(keyLength===0){const marker=this.u8();if(marker===9)break;throw new Error(`Invalid AMF object terminator 0x${marker.toString(16)}.`);}const key=textDecoder.decode(this.readBytes(keyLength));result[key]=this.amf0();}return result;}array(){const length=this.u32(),result=[];this.references.push(result);for(let index=0;index<length;index++)result.push(this.amf0());return result;}}
@@ -91,20 +119,31 @@ function getMemberCache(clanId){
 }
 
 export async function fetchCachedMembers(clanId){
-  const payload=await fetchLiveMembers(clanId).catch((error)=>{
-    const cached=getMemberCache(clanId);
-    if(cached&&cached.ageMs<=LAST_KNOWN_MAX_AGE_MS){
-      console.warn('Serving last-known Ninja Zenshin member data',{clanId,cacheAgeSeconds:Math.round(cached.ageMs/1000)});
-      return {...cached.payload,stale:true,fallbackReason:error instanceof Error?error.message:String(error),servedAt:new Date().toISOString()};
+  const key=String(clanId||'').trim();
+  try{
+    const payload=await fetchLiveMembers(key);
+    if(Array.isArray(payload.members)&&payload.members.length){
+      storeMemberCache(key,payload);
+      writeLastKnownMembers({clanId:key,members:payload.members,fetchedAt:payload.fetchedAt,source:payload.source,service:payload.service})
+        .catch((error)=>console.warn('Durable member cache write failed',error));
     }
+    return {...payload,members:Array.isArray(payload.members)?payload.members.map((member)=>({...member})):[],stale:false,servedAt:new Date().toISOString()};
+  }catch(error){
+    const memory=getMemberCache(key);
+    if(memory&&memory.ageMs<=MEMBER_CACHE_MAX_AGE_MS){
+      console.warn('Serving in-memory last-known Ninja Zenshin member data',{clanId:key,cacheAgeSeconds:Math.round(memory.ageMs/1000)});
+      return {...memory.payload,members:Array.isArray(memory.payload.members)?memory.payload.members.map((member)=>({...member})):[],stale:true,fallbackReason:error instanceof Error?error.message:String(error),servedAt:new Date().toISOString()};
+    }
+    try{
+      const durable=await readLastKnownMembers(key);
+      if(durable&&durable.ageMs<=MEMBER_CACHE_MAX_AGE_MS&&Array.isArray(durable.members)&&durable.members.length){
+        console.warn('Serving durable last-known Ninja Zenshin member data',{clanId:key,cacheAgeSeconds:Math.round(durable.ageMs/1000)});
+        const payload={clanId:key,members:durable.members.map((member)=>({...member})),count:durable.members.length,fetchedAt:durable.fetchedAt,savedAt:durable.savedAt,source:durable.source,service:durable.service};
+        storeMemberCache(key,payload);
+        return {...payload,stale:true,fallbackReason:error instanceof Error?error.message:String(error),servedAt:new Date().toISOString()};
+      }
+    }catch(cacheError){console.warn('Durable member cache read failed',cacheError);}
     throw error;
-  });
-  if(!payload.stale&&Array.isArray(payload.members)&&payload.members.length)storeMemberCache(clanId,payload);
-  return {
-    ...payload,
-    members:Array.isArray(payload.members)?payload.members.map((member)=>({...member})):[],
-    stale:Boolean(payload.stale),
-    servedAt:new Date().toISOString()
-  };
+  }
 }
 export async function discoverChaos(){const response=await fetchWithTimeout(`${RANKING_SOURCE}&_nz=${Date.now()}`,{cache:'no-store',headers:{Accept:'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8','Cache-Control':'no-cache',Pragma:'no-cache','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}});if(!response.ok)throw new Error(`Clan ranking source returned HTTP ${response.status}.`);const capturedAt=new Date().toISOString(),parsed=parseRankingHtml(await response.text()),row=parsed.rows?.find((item)=>String(item.clan||'').trim().toLocaleLowerCase()==='chaos');if(!row?.clanId)throw new Error('Clan Chaos was found, but its clan ID could not be discovered from the public ranking source.');const countdownSeconds=Number(parsed.countdown?.remainingSeconds);const finalDayAt=Number.isFinite(countdownSeconds)&&countdownSeconds>=0?new Date(new Date(capturedAt).getTime()+countdownSeconds*1000).toISOString():null;return{clanId:String(row.clanId),clanName:row.clan,expectedMemberCount:row.memberCurrent||null,currentSeason:parsed.season||null,finalDayAt,countdown:parsed.countdown||null,capturedAt,source:RANKING_SOURCE,row,ranking:{...parsed,fetchedAt:capturedAt,source:RANKING_SOURCE}};}

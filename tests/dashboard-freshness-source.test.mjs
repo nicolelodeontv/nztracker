@@ -17,8 +17,8 @@ test('freshness classification uses the last successful sync timestamp', () => {
 test('dashboard freshness uses canonical sync health state', async () => {
   const source = await readFile(new URL('../app/lib/rep-tracker.js', import.meta.url), 'utf8');
   assert.match(source, /readSyncHealth\(\)/);
-  assert.match(source, /syncFresh=freshness\(syncHealth\?\.lastHealthyAt\|\|syncStatus\?\.lastRunAt\|\|null\)/);
-  assert.match(source, /lastSuccessfulSyncAt:syncHealth\?\.lastHealthyAt\|\|null/);
+  assert.match(source, /syncFresh=freshness\(syncHealth\?\.lastMemberSuccessAt\|\|syncHealth\?\.lastHealthyAt\|\|syncStatus\?\.lastRunAt\|\|null\)/);
+  assert.match(source, /lastSuccessfulSyncAt:syncHealth\?\.lastMemberSuccessAt\|\|syncHealth\?\.lastHealthyAt\|\|null/);
   assert.doesNotMatch(source, /from\('sync_runs'\)/);
   assert.doesNotMatch(source, /latestSync\?\.completed_at/);
 });

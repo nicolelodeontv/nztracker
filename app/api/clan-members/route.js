@@ -2,7 +2,7 @@ import { fetchCachedMembers } from '../../lib/ninja-source.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
-export const maxDuration=15;
+export const maxDuration=30;
 
 function clean(value){return String(value??'').trim();}
 function validClanId(value){return /^[a-zA-Z0-9_-]+$/.test(value);}

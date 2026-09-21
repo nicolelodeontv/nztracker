@@ -66,9 +66,9 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 ## Reliability
 
-Production syncing is handled by **Supabase pg_cron**, which is the single one-minute scheduler. The `nztracker-full-sync-5m` pg_cron job runs every minute and calls `/api/monitor`. Its existing name is retained to avoid creating a duplicate scheduler.
+Production syncing is handled by **Supabase pg_cron**, with the `nztracker-full-sync-5m` job running every minute and calling `/api/monitor`. The member pipeline is the one-minute path; ranking/discovery refreshes are cached for 5 minutes so a temporary ranking-page outage does not block member REP tracking.
 
-The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary.
+The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary. A separate Supabase HTTP-health job records the actual `/api/monitor` response from `pg_net`, because a successful cron enqueue is not the same as a successful application response.
 
 The workflow requires the API response to report more than zero members:
 
@@ -84,16 +84,19 @@ A ranking-cache write failure is isolated from member monitoring so the member p
 
 ## Architecture
 
-```
+```text
 Ninja Zenshin Game
         ↓
 [Supabase pg_cron] (every 1 min)
         ↓
 [API: /api/monitor]
-        ├── Full clan ranking → canonical ranking cache + ranking history
-        ├── Tracked members → canonical member state + REP history
-        ├── Ranking cache → rep_tracker_kv
-        └── Sync heartbeat → rep_tracker_kv
+        ├── Tracked members → canonical member state + 5-minute REP samples
+        ├── Discovery/ranking cache → refreshed about every 5 minutes
+        ├── Last-known member cache → durable fallback in rep_tracker_kv
+        └── Sync health → rep_tracker_kv
+        ↓
+[Supabase HTTP-health job] (every 1 min)
+        └── actual pg_net HTTP result → rep_tracker_kv
         ↓
 [Next.js APIs / Dashboard]
 ```
@@ -148,14 +151,15 @@ The unit tests cover member-point sampling, member-history response shape, and m
 
 ## Production Health Monitoring
 
-The sync itself runs from **Supabase pg_cron** every minute. GitHub Actions does not schedule production syncs; the full-sync workflow is manual-only diagnostics.
+The primary sync runs from **Supabase pg_cron** every minute. GitHub Actions provides a 5-minute backup monitor, while the `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`.
 
-The `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`. It checks:
+Health monitoring checks:
 
-- `/api/sync-status` with `curl --fail` and requires an active status or a `lastRunAt` within the previous 15 minutes.
-- `/api/dashboard` with `curl --fail` and requires `configured: true`.
+- `/api/sync-status` for current cadence and recent execution.
+- `/api/dashboard` for configured canonical data.
+- `/api/monitor-health` with the cron secret for missed syncs, member/ranking health, and the persisted actual HTTP response from `pg_net`.
 
-No secrets are required. A failing scheduled workflow is surfaced through GitHub Actions and follows the repository owner's Actions notification settings.
+The member source uses AMF first, then the public member endpoint as a live fallback, and retries transient upstream errors before failing.
 
 
 ## Canonical data model
@@ -166,7 +170,7 @@ The older multi-source ranking, leaderboard, and sync tables are retired by `202
 
 The dashboard exposes:
 - one-minute sync countdown and freshness
-- sync health strip with last success, current age, next sync, consecutive successes, and last recorded error
+- sync health strip with member/ranking state, actual HTTP status, sync completion rate, missed intervals, and last recorded error
 - compact operations tabs for overview, REP pace/attention, and global ranking
 - member filtering, search, and sorting
 - global clan rank, gap to the next rank, and pace estimate
@@ -174,4 +178,4 @@ The dashboard exposes:
 - needs-attention member signals
 - live member detail refresh with keyboard-accessible drawer controls
 
-Production deployments include a smoke test for `/api/sync-status`, `/api/health`, and `/api/dashboard`.
+Production deployments include a smoke test for `/api/sync-status`, `/api/health`, `/api/dashboard`, and authenticated `/api/monitor-health`.

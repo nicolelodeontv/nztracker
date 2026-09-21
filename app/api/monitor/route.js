@@ -62,22 +62,37 @@ export async function GET(request) {
     }
 
     const rankingRows = Array.isArray(ranking?.rows) ? ranking.rows.length : undefined;
+    const rankingStatus = result.reused
+      ? (result.lastDetails?.rankingStatus || 'cached')
+      : (rankingRows ? (result.discovery?.stale ? 'cached-stale' : 'fresh') : 'unavailable');
+    const memberSource = result.live?.service === 'legacy-live' ? 'legacy' : result.live?.service ? 'amf' : null;
+    const discoveryStatus = result.discoveryStatus || (result.discoveryError ? 'stale' : 'fresh');
+    const memberStatus = result.memberStatus || (result.reused ? 'success' : 'unknown');
     const trackedMemberClanIds = result.config?.clan_id ? [String(result.config.clan_id)] : [];
     const clansWithMemberData = trackedMemberClanIds.length && membersSeen > 0 ? trackedMemberClanIds.length : 0;
-    const memberSources = result.live?.source
-      ? { [result.live.source]: 1 }
-      : {};
+    const memberSources = memberSource
+      ? { [memberSource]: 1 }
+      : (result.lastDetails?.memberSource ? { [result.lastDetails.memberSource]: 1 } : {});
 
+    const overallOutcome =
+      status==='error'
+        ? 'error'
+        : (rankingCacheError || result.discoveryError || memberSource==='legacy' ? 'warning' : 'success');
     await recordSyncHealth({
-      outcome: status==='success' ? 'success' : 'warning',
-      at: finishedAt.toISOString(),
-      error: rankingCacheError
+      outcome:overallOutcome,
+      at:finishedAt.toISOString(),
+      error:rankingCacheError||result.discoveryError||null,
+      memberStatus,
+      memberSource,
+      discoveryStatus,
+      rankingStatus,
+      durationMs:result.durationMs||null
     }).catch((error)=>console.warn('Unable to record sync health',error));
 
     await recordSyncStatus({
       version: 6,
       status: 'active',
-      overall: status,
+      overall: overallOutcome,
       lastRunAt: finishedAt.toISOString(),
       nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
       intervalMs: SYNC_INTERVAL_MS,
@@ -93,6 +108,11 @@ export async function GET(request) {
       rankingCacheError,
       rankingRows,
       memberSources,
+      memberStatus,
+      memberSource,
+      discoveryStatus,
+      rankingStatus,
+      syncDurationMs: result.durationMs || null,
       source: result.live?.source || ranking?.source || SOURCE
     });
 
@@ -102,7 +122,7 @@ export async function GET(request) {
     return Response.json({
       ok: true,
       mode: 'monitor',
-      status,
+      status: overallOutcome,
       reused: Boolean(result.reused),
       season: result.season || result.config?.current_season || null,
       clanId: result.config?.clan_id || null,
@@ -148,7 +168,18 @@ export async function GET(request) {
       console.error('Unable to persist monitor error heartbeat', heartbeatError);
     }
 
-    console.error('monitor failed', error);
+    await recordSyncHealth({
+      outcome:'error',
+      at:finishedAt.toISOString(),
+      error:error instanceof Error ? error.message : String(error),
+      memberStatus:'error',
+      memberSource:null,
+      discoveryStatus:'error',
+      rankingStatus:'unavailable',
+      durationMs:finishedAt.getTime()-startedAt.getTime()
+    }).catch((healthError)=>console.warn('Unable to persist monitor failure health',healthError));
+
+        console.error('monitor failed', error);
     return Response.json({
       ok: false,
       status: 'error',

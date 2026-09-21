@@ -9,7 +9,8 @@ const ranking = { rows:[{clanId:'3',clan:'Chaos',memberCurrent:30}], season:'Sea
 const config={clan_id:'3',clan_name:'Chaos',current_season:'Season 3',expected_member_count:30};
 let monitorMode='success';
 let heartbeatPayloads=[];
-let syncHealthState={consecutiveSuccesses:4,lastHealthyAt:ranking.capturedAt,lastAlertKey:null};
+let syncHealthState={consecutiveSuccesses:4,lastHealthyAt:ranking.capturedAt,lastAlertKey:null,lastMemberStatus:'success',lastRankingStatus:'fresh'};
+let httpHealthState={statusCode:200,timedOut:false,errorMsg:null,created:ranking.capturedAt};
 
 mock.module(f('app/lib/rep-tracker.js'),{exports:{
   dashboardData:async()=>({configured:true,config,season:'Season 3',rows:[],stats:{},freshness:{status:'live',ageSeconds:5},lastSuccessfulSyncAt:ranking.capturedAt}),
@@ -42,6 +43,7 @@ mock.module(f('app/lib/ranking-cache.js'),{exports:{
 mock.module(f('app/lib/monitor-status.mjs'),{exports:{getMonitorStatus:()=> 'success'}});
 mock.module(f('app/lib/sync-health.mjs'),{exports:{
   readSyncHealth:async()=>syncHealthState,
+  readMonitorHttpHealth:async()=>httpHealthState,
   recordSyncHealth:async({outcome='success',at=ranking.capturedAt,error=null}={})=>{syncHealthState={...syncHealthState,lastRunAt:at,lastHealthyAt:outcome==='success'?at:syncHealthState.lastHealthyAt,consecutiveSuccesses:outcome==='success'?Number(syncHealthState.consecutiveSuccesses||0)+1:0,lastError:outcome==='error'?error:syncHealthState.lastError};return syncHealthState;},
   updateSyncHealthAlert:async({alertKey})=>{syncHealthState={...syncHealthState,lastAlertKey:alertKey};return syncHealthState;}
 }});
@@ -127,3 +129,16 @@ test('monitor-health returns a healthy status with shared auth',async()=>{
   delete process.env.CRON_SECRET;
 });
 
+
+test('monitor-health detects an actual HTTP monitor failure',async()=>{
+  process.env.CRON_SECRET=secret;
+  httpHealthState={statusCode:502,timedOut:false,errorMsg:null,created:new Date().toISOString()};
+  const r=await monitorHealthGET(request('/api/monitor-health',secret));
+  const b=await body(r);
+  assert.equal(r.status,200);
+  assert.equal(b.ok,true);
+  assert.equal(b.healthy,false);
+  assert.ok(b.problems.includes('HTTP_REQUEST_FAILURE'));
+  httpHealthState={statusCode:200,timedOut:false,errorMsg:null,created:new Date().toISOString()};
+  delete process.env.CRON_SECRET;
+});

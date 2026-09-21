@@ -8,6 +8,8 @@ on:
 jobs:
   health:
     runs-on: ubuntu-latest
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
       - name: Check sync status
         run: |
@@ -31,3 +33,17 @@ jobs:
           curl --fail --silent --show-error --max-time 30             https://chaoszenshintracker.vercel.app/api/dashboard > dashboard.json
           jq -e '.configured == true' dashboard.json > /dev/null
           echo "dashboard configured"
+
+      - name: Check monitor health
+        run: |
+          set -euo pipefail
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is required for monitor health check." >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error --max-time 30 \
+            -H 'Accept: application/json' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            https://chaoszenshintracker.vercel.app/api/monitor-health > monitor-health.json
+          jq -e '.ok == true and .healthy == true and (.problems | length) == 0' monitor-health.json >/dev/null
+          echo "monitor health healthy"
