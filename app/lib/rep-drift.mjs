@@ -1,3 +1,5 @@
+import { supabaseAdmin } from './supabase-admin.js';
+
 export const REP_DRIFT_FLAG_AFTER_CYCLES = 2;
 const DRIFT_KEY_PREFIX = 'rep-drift:';
 
@@ -63,3 +65,32 @@ export function nextRepDriftState(previous, comparison, season, checkedAt) {
 }
 
 export const repDriftKey = (clanId) => `${DRIFT_KEY_PREFIX}${String(clanId)}`;
+
+export async function readRepDrift(clanId) {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from('rep_tracker_kv')
+    .select('value')
+    .eq('key', repDriftKey(clanId))
+    .maybeSingle();
+  if (error) throw error;
+  return data?.value && typeof data.value === 'object' ? data.value : null;
+}
+
+export async function updateRepDrift({ clanId, season, sourceRep, memberRep, checkedAt = new Date().toISOString() }) {
+  const db = supabaseAdmin();
+  const comparison = compareRepTotals(sourceRep, memberRep);
+  const previous = await readRepDrift(clanId);
+  const state = nextRepDriftState(previous, comparison, season, checkedAt);
+  const payload = {
+    ...state,
+    mismatched: comparison.mismatched,
+    updatedAt: checkedAt
+  };
+  const { error } = await db.from('rep_tracker_kv').upsert({
+    key: repDriftKey(clanId),
+    value: payload,
+    updated_at: checkedAt
+  }, { onConflict: 'key' });
+  if (error) throw error;
+  return payload;
+}
