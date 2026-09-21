@@ -40,3 +40,34 @@ update public.rep_tracker_config
 set sync_interval_seconds = 10,
     updated_at = now()
 where id = 'main';
+
+ 
+do $$
+declare
+  existing_job_id bigint;
+begin
+  select jobid
+    into existing_job_id
+  from cron.job
+  where jobname = 'nztracker-monitor-health-1m'
+  limit 1;
+
+  if existing_job_id is not null then
+    perform cron.unschedule(existing_job_id);
+  end if;
+
+  perform cron.schedule(
+    'nztracker-monitor-health-1m',
+    '1 minute',
+    $cron$
+      select net.http_get(
+        'https://chaoszenshintracker.vercel.app/api/monitor-health',
+        headers := jsonb_build_object(
+          'Accept', 'application/json',
+          'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'nztracker_cron_secret')
+        ),
+        timeout_milliseconds := 30000
+      ) as request_id
+    $cron$
+  );
+end $$;
