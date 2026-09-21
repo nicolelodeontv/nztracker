@@ -4,7 +4,7 @@ Complete system to automatically sync Ninja Zenshin clan rankings and tracked-me
 
 ## What You're Getting
 
-- Automatically monitor clan rankings every minute
+- Automatically sync the tracked clan every 10 seconds
 - Store current rankings, member state, sync status, ranking history, and REP history in Supabase Postgres
 - Display live, updated clan rankings and Chaos operations on the site
 - Track member REP changes with live member heartbeats
@@ -66,7 +66,7 @@ The latest-member table is updated on every successful live snapshot so `last_se
 
 ## Reliability
 
-Production syncing is handled by **Supabase pg_cron**, with the `nztracker-full-sync-5m` job running every minute and calling `/api/monitor`. The member pipeline is the one-minute path; ranking/discovery refreshes are cached for 5 minutes so a temporary ranking-page outage does not block member REP tracking.
+Production syncing is handled by **Supabase pg_cron**, with the `nztracker-full-sync-5m` job running every 10 seconds and calling `/api/monitor`. The member pipeline is now a near-real-time path; ranking/discovery refreshes remain cached for 5 minutes so a temporary ranking-page outage does not block member REP tracking.
 
 The repository's GitHub monitor backup runs every 5 minutes and is protected by the same cron secret; the Supabase scheduler remains primary. A separate Supabase HTTP-health job records the actual `/api/monitor` response from `pg_net`, because a successful cron enqueue is not the same as a successful application response.
 
@@ -87,7 +87,7 @@ A ranking-cache write failure is isolated from member monitoring so the member p
 ```text
 Ninja Zenshin Game
         ↓
-[Supabase pg_cron] (every 1 min)
+[Supabase pg_cron] (every 10 sec)
         ↓
 [API: /api/monitor]
         ├── Tracked members → canonical member state + 5-minute REP samples
@@ -108,7 +108,7 @@ Ninja Zenshin Game
 3. Set `TRACKED_CLAN_IDS` if you want to track one or more specific clans. If unset, `rep_tracker_config.clan_id` is used.
 4. Deploy the application.
 5. Open `/api/health` and confirm `provider: "supabase"` and a durable storage status.
-6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/monitor` every minute; verify `membersSeen > 0` and history points are stored.
+6. Open `/api/monitor` or confirm the Supabase pg_cron job is invoking `/api/monitor` every 10 seconds; verify `membersSeen > 0` and history points are stored.
 7. Open `/api/member-history?clanId=<id>&season=<season>&hours=168` to verify the history response.
 
 ## Canonical Supabase Tables
@@ -151,7 +151,7 @@ The unit tests cover member-point sampling, member-history response shape, and m
 
 ## Production Health Monitoring
 
-The primary sync runs from **Supabase pg_cron** every minute. GitHub Actions provides a 5-minute backup monitor, while the `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`.
+The primary sync runs from **Supabase pg_cron** every 10 seconds. GitHub Actions provides a 5-minute backup monitor, while the `Production Health Check` workflow runs every 15 minutes plus `workflow_dispatch`.
 
 Health monitoring checks:
 
@@ -169,7 +169,7 @@ The current dashboard reads current member state from `rep_tracker_member_latest
 The older multi-source ranking, leaderboard, and sync tables are retired by `20260921150100_remove_legacy_storage.sql`. Apply that migration only after the canonical application has been deployed and the production smoke test passes.
 
 The dashboard exposes:
-- one-minute sync countdown and freshness
+- ten-second sync countdown and freshness
 - sync health strip with member/ranking state, actual HTTP status, sync completion rate, missed intervals, and last recorded error
 - compact operations tabs for overview, REP pace/attention, and global ranking
 - member filtering, search, and sorting

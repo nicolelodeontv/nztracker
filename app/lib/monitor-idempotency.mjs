@@ -1,6 +1,6 @@
 import { supabaseAdmin } from './supabase-admin.js';
 
-export const MONITOR_WINDOW_MS = 60 * 1000;
+export const MONITOR_WINDOW_MS = 10 * 1000;
 const WINDOW_PREFIX = 'monitor-window:';
 
 export function monitorWindowKey(nowMs = Date.now()) {
