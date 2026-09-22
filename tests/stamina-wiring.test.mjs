@@ -42,6 +42,6 @@ test('stamina migration provides atomic, season-scoped state and the RPC',async(
   assert.match(sql,/for update/);
   assert.match(sql,/last_recovery_at/);
   assert.match(sql,/p_current_rep bigint/);
-  assert.match(sql,/revoke all on function public\\.advance_rep_tracker_stamina/);
-  assert.match(sql,/grant execute on function public\\.advance_rep_tracker_stamina.*service_role/);
+  assert.match(sql,/revoke all on function public\.advance_rep_tracker_stamina/);
+  assert.match(sql,/grant execute on function public\.advance_rep_tracker_stamina.*service_role/);
 });
