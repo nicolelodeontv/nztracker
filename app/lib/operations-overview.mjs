@@ -1,9 +1,11 @@
 const ATTENTION_STATUSES = new Set(['NO GAIN','IDLE','MISSING','RESET']);
 
 export function memberDisplayName(row) {
-  const value = row?.member ?? row?.name ?? row?.ign ?? row?.id;
-  const name = String(value ?? '').trim();
-  return name || 'Unknown member';
+  for (const value of [row?.member, row?.name, row?.ign, row?.id]) {
+    const name = String(value ?? '').trim();
+    if (name) return name;
+  }
+  return 'Unknown member';
 }
 
 function memberKey(row) {
