@@ -53,6 +53,7 @@ export function calculateStaminaStep({
 }
 
 export function isBleedingMember(stamina) {
+  if (stamina == null || !Number.isFinite(Number(stamina))) return false;
   return Number(stamina) <= BLEEDING_STAMINA_THRESHOLD;
 }
 
