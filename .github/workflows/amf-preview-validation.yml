@@ -1,0 +1,57 @@
+name: AMF Preview Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_ORG_ID: team_rx6g4OQD04E4zewjHyifD7xh
+      VERCEL_PROJECT_ID: prj_QLVtFPim28aj0XbOQEkCD0I8tAHn
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Deploy Preview
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          URL="$(npx --yes vercel@latest deploy --yes --token "$VERCEL_TOKEN" | tail -n 1)"
+          echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Preview URL: $URL"
+
+      - name: Inspect game client AMF contract
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.preview_url }}"
+          RESPONSE="$(curl --fail --silent --show-error --max-time 20 "$URL/api/amf-discovery")"
+          echo "$RESPONSE" | jq .
+      - name: Probe AMF without persistence
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.preview_url }}"
+          RESPONSE="$(curl --fail --silent --show-error --max-time 20             -H "Authorization: Bearer $CRON_SECRET"             "$URL/api/amf-probe?clanId=3")"
+          echo "$RESPONSE" | jq .
+          jq -e '.ok == true and .source == "amf" and (.count // 0) > 0 and .diagnostics.status == "success" and (.diagnostics.httpStatus // 0) == 200' <<< "$RESPONSE" >/dev/null

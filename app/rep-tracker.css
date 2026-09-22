@@ -79,7 +79,8 @@ button{color:inherit}
 .btn.primary,.header-right>.btn:last-child{background:var(--orange);color:#140A00;border-color:var(--orange);font-weight:600}
 .btn.danger{border-color:var(--red);color:var(--red);background:rgba(185,28,28,.06)}
 .btn.full{width:100%}
-.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn:disabled{opacity:.55;cursor:not-allowed;border-color:var(--line);color:var(--text-dim);background:var(--panel-2)}
+.btn:disabled:hover{border-color:var(--line);color:var(--text-dim);background:var(--panel-2)}
 
 .ops-nav{display:flex;justify-content:center;align-items:center;gap:26px;margin-bottom:26px;padding:6px 10px;border-bottom:1px solid var(--line);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none}
 .ops-nav button{position:relative;background:transparent;border:0;color:var(--text-dim);min-height:40px;padding:0;cursor:pointer;font:600 14px var(--title);letter-spacing:.3px;white-space:nowrap}
@@ -473,6 +474,15 @@ body{font-size:15px;line-height:1.45}
 .source-diagnostic-grid span{font-size:11px;line-height:1.35}
 .source-diagnostic-grid b{font-size:13px;line-height:1.35}
 .source-diagnostic-grid small{font-size:11px;line-height:1.4}
+.final-lock-state{align-content:center}
+.lock-checklist{display:grid;gap:8px;width:min(520px,100%);margin:10px auto 0;text-align:left}
+.lock-check{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel-2)}
+.lock-check>b{display:grid;place-items:center;width:20px;height:20px;flex:0 0 20px;border-radius:50%;font:700 12px var(--mono)}
+.lock-check.met>b{border:1px solid rgba(126,242,154,.45);color:#7ef29a;background:rgba(126,242,154,.08)}
+.lock-check.unmet>b{border:1px solid rgba(248,113,113,.45);color:var(--red-readable);background:rgba(248,113,113,.08)}
+.lock-check span{display:grid;gap:2px;min-width:0}
+.lock-check strong{font:700 11px/1.35 var(--mono);letter-spacing:.03em}
+.lock-check small{color:var(--text-dim);font:500 10px/1.4 var(--mono)}
 .danger-panel p{font-size:13px;line-height:1.5}
 .themed-modal p,.modal p{font-size:13px;line-height:1.55}
 .drawer-head p{font-size:12px;line-height:1.45}

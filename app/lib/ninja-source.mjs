@@ -1,11 +1,12 @@
 import { parseRankingHtml } from './source-parser.mjs';
 import { readLastKnownMembers, writeLastKnownMembers, MEMBER_CACHE_MAX_AGE_MS } from './sync-source-state.mjs';
 
+export const GAME_SOURCE_ORIGIN = process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online';
 export const AMF_ORIGIN = process.env.GAME_AMF_ORIGIN || 'https://amf.ninjazenshin.online/';
-export const LEGACY_MEMBER_API = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online'}/clan-ranking/members/`;
-export const RANKING_SOURCE = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online'}/?panel=clan-ranking`;
+export const LEGACY_MEMBER_API = `${GAME_SOURCE_ORIGIN}/clan-ranking/members/`;
+export const RANKING_SOURCE = `${GAME_SOURCE_ORIGIN}/?panel=clan-ranking`;
 export const SERVICE = process.env.GAME_MEMBER_SERVICE || 'ClanService.getMemberList';
-export const RESPONSE_TARGET = process.env.GAME_MEMBER_RESPONSE_TARGET || '/1';
+export const RESPONSE_TARGET = process.env.GAME_MEMBER_RESPONSE_TARGET || '/1/onResult';
 const DEFAULT_MAX_STAMINA = 200;
 export const UPSTREAM_TIMEOUT_MS = 4500;
 export const UPSTREAM_MAX_ATTEMPTS = 2;
@@ -13,6 +14,8 @@ export const UPSTREAM_RETRY_DELAYS_MS = [0, 250];
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const memberCache = new Map();
 const inflight = new Map();
+let amfConsecutiveFailures = 0;
+const AMF_ALERT_THRESHOLDS = new Set([1,5,25,100,500,1000,2000]);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -103,24 +106,39 @@ export function normalizeMembers(rawMembers){
     identityAmbiguous:nameCounts.get(member.identityKey)>1
   }));
 }
-async function fromAmf(clanId){
+async function fromAmf(clanId,extraHeaders={}){
   const started=Date.now();
+  let response=null;
   try{
-    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:RANKING_SOURCE,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
+    response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:GAME_SOURCE_ORIGIN,Pragma:'no-cache',Referer:`${GAME_SOURCE_ORIGIN}/`,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0',...extraHeaders}});
+    const contentType=response.headers.get('content-type')||null;
+    const contentLength=response.headers.get('content-length')||null;
     const bytes=new Uint8Array(await response.arrayBuffer());
-    if(!response.ok)throw new Error(`AMF service returned HTTP ${response.status}.`);
+    if(!response.ok)throw new Error(`AMF service returned HTTP ${response.status} ${response.statusText||''}.`.trim());
     if(!bytes.length)throw new Error('AMF service returned an empty response.');
     const bodyData=parseMemberResponse(bytes);
     if(!bodyData||typeof bodyData!=='object')throw new Error('AMF response did not contain an object result.');
-    if(bodyData.status&&String(bodyData.status)!=='1')throw new Error(`Member service returned status ${bodyData.status}.`);
+    const bodyStatus=bodyData.status;
+    const bodyMessage=bodyData.message??bodyData.error??bodyData.faultString??bodyData.description??null;
+    const bodyCode=bodyData.code??bodyData.errorCode??bodyData.faultCode??null;
+    const bodyKeys=Object.keys(bodyData).slice(0,20);
+    if(bodyStatus!==undefined&&String(bodyStatus)!=='1'){
+      const error=new Error([ `Member service returned application status ${String(bodyStatus)}.`, bodyMessage!=null?`message=${String(bodyMessage).slice(0,240)}`:null, bodyCode!=null?`code=${String(bodyCode).slice(0,120)}`:null, `keys=${bodyKeys.join(',')||'none'}` ].filter(Boolean).join(' '));
+      error.amfResponse={status:bodyStatus,message:bodyMessage,code:bodyCode,keys:bodyKeys,httpStatus:response.status,httpStatusText:response.statusText,contentType,contentLength};
+      throw error;
+    }
     const rawMembers=Array.isArray(bodyData.result)?bodyData.result:Array.isArray(bodyData.members)?bodyData.members:[];
     const members=normalizeMembers(rawMembers);
     if(!members.length)throw new Error('AMF member result contained no valid members.');
-    return{clanId,members,count:members.length,fetchedAt:new Date().toISOString(),source:AMF_ORIGIN,service:SERVICE,stale:false,sourceDiagnostics:{amf:{status:'success',httpStatus:response.status,durationMs:Date.now()-started}}};
+    amfConsecutiveFailures=0;
+    return{clanId,members,count:members.length,fetchedAt:new Date().toISOString(),source:AMF_ORIGIN,service:SERVICE,stale:false,sourceDiagnostics:{amf:{status:'success',httpStatus:response.status,durationMs:Date.now()-started,responseStatus:bodyStatus??null,contentType,contentLength}}};
   }catch(error){
     const message=error instanceof Error?error.message:String(error);
     const enriched=error instanceof Error?error:new Error(message);
-    enriched.sourceDiagnostic={status:error?.name==='AbortError'||/timed out|timeout/i.test(message)?'timeout':'error',httpStatus:Number.isFinite(Number(error?.status))?Number(error.status):null,durationMs:Date.now()-started,error:message};
+    amfConsecutiveFailures+=1;
+    const responseMeta=response?{httpStatus:response.status,httpStatusText:response.statusText||null,contentType:response.headers.get('content-type')||null,contentLength:response.headers.get('content-length')||null}:null;
+    enriched.sourceDiagnostic={status:error?.name==='AbortError'||/timed out|timeout/i.test(message)?'timeout':'error',httpStatus:response?.status??(Number.isFinite(Number(error?.status))?Number(error.status):null),durationMs:Date.now()-started,error:message,amfFailureCount:amfConsecutiveFailures,request:{origin:AMF_ORIGIN,service:SERVICE,responseTarget:RESPONSE_TARGET,referer:`${GAME_SOURCE_ORIGIN}/`},response:responseMeta,amfResponse:error?.amfResponse||null};
+    if(AMF_ALERT_THRESHOLDS.has(amfConsecutiveFailures))console.warn('Ninja Zenshin AMF member source failure threshold reached',{clanId,consecutiveFailures:amfConsecutiveFailures,diagnostic:enriched.sourceDiagnostic});
     throw enriched;
   }
 }
@@ -144,6 +162,8 @@ async function fromLegacy(clanId){
     throw enriched;
   }
 }
+export async function probeAmfMemberSource(clanId,extraHeaders={}){return fromAmf(clanId,extraHeaders);}
+
 export async function fetchLiveMembers(clanId){
   const key=String(clanId||'').trim();
   if(!key||!/^[a-zA-Z0-9_-]+$/.test(key))throw new Error('A valid Ninja Zenshin clanId is required.');
