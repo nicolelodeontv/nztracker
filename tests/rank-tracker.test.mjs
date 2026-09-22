@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyRankChanges, formatRankChange } from '../app/lib/rank-tracker.mjs';
+import { applyRankChanges, compareMemberRank, formatRankChange, sortMembersByRank } from '../app/lib/rank-tracker.mjs';
 
 test('rank deltas persist correctly across three consecutive snapshots',()=>{
   const first=applyRankChanges([
@@ -53,16 +53,13 @@ test('rank ordering keeps tied REP members in the same final order as their disp
     {id:'zero-a',name:'Zero A',reputation:0,level:70}
   ]);
 
-  const displayedOrder=assigned
-    .slice()
-    .reverse()
-    .sort((a,b)=>a.rank-b.rank)
-    .map((row)=>row.id);
+  const displayedOrder=sortMembersByRank(assigned.slice().reverse()).map((row)=>row.id);
 
   assert.deepEqual(displayedOrder, assigned.map((row)=>row.id));
+  assert.equal(compareMemberRank(assigned[1],assigned[0]),-1);
   assert.deepEqual(assigned.map((row)=>({id:row.id,rank:row.rank})),[
-    {id:'rep400-other-level90',rank:1},
-    {id:'rep400-high-level',rank:2},
+    {id:'rep400-high-level',rank:1},
+    {id:'rep400-other-level90',rank:2},
     {id:'rep400-low-id',rank:3},
     {id:'zero-a',rank:4},
     {id:'zero-b',rank:5}
