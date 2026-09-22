@@ -31,6 +31,21 @@ export function applyRankChanges(members=[],previousRanks=new Map()){
   });
 }
 
+export function compareMemberRank(a={},b={}){
+  const rankA=numericRank(a?.rank);
+  const rankB=numericRank(b?.rank);
+  if(rankA!==null&&rankB!==null&&rankA!==rankB)return rankA-rankB;
+  if(rankA!==null&&rankB===null)return-1;
+  if(rankA===null&&rankB!==null)return 1;
+  return Number(b?.reputation??b?.rep??b?.current??0)-Number(a?.reputation??a?.rep??a?.current??0)
+    || Number(b?.level??0)-Number(a?.level??0)
+    || normalizeId(a?.id).localeCompare(normalizeId(b?.id));
+}
+
+export function sortMembersByRank(members=[]){
+  return(Array.isArray(members)?members:[]).slice().sort(compareMemberRank);
+}
+
 export function formatRankChange(delta){
   const value=Number(delta);
   if(!Number.isFinite(value)||value===0)return'—';

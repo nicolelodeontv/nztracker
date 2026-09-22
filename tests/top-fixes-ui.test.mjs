@@ -25,16 +25,8 @@ test('rep pace lists and Global Top expose the repaired states',async()=>{
   assert.match(source,/selectNeedsAttention\(rows,6\)/);
   assert.match(source,/memberDisplayName\(row\)/);
   assert.match(source,/attention-member/);
-  assert.match(source,/formatGlobalMove\(row\.change,moveTrackingAvailable\)/);
-  assert.match(source,/NOT YET TRACKED|formatGlobalMove/);
   assert.match(source,/TOP BURN/);
   assert.match(source,/NEEDS ATTENTION/);
-});
-
-test('global dashboard data exposes whether a previous ranking snapshot exists',async()=>{
-  const source=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
-  assert.match(source,/moveTrackingAvailable=Array\.isArray\(rankingCache\?\.previousRows\)/);
-  assert.match(source,/moveTrackingAvailable/);
 });
 
 test('ranking persistence migration is additive and indexed',async()=>{
@@ -50,4 +42,33 @@ test('sync path persists member ranks and records fresh ranking history',async()
   assert.match(source,/previous_rank:rankState\?\.previousRank/);
   assert.match(source,/recordRankingSnapshot\(/);
   assert.match(source,/readRankingHistory\(\{clanId:config\.clan_id,season/);
+});
+test('rank order is the shared render order on Dashboard, SSR data, and Members',async()=>{
+  const source=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
+  const tracker=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
+  assert.match(source,/compareMemberRank, formatRankChange, sortMembersByRank/);
+  assert.match(source,/const rows = useMemo\(\(\) => sortMembersByRank\(data\?\.rows \|\| \[\]\), \[data\?\.rows\]\)/);
+  assert.match(source,/if\(memberSort==='gain'\)/);
+  assert.match(source,/return compareMemberRank\(a,b\);/);
+  assert.match(tracker,/import \{ applyRankChanges, sortMembersByRank \} from '\.\/rank-tracker\.mjs';/);
+  assert.match(tracker,/const orderedRows=sortMembersByRank\(rows\);/);
+  assert.match(tracker,/configured:true,config,season,rows:orderedRows/);
+});
+
+test('Global Top distinguishes per-clan tracking state from a global history flag',async()=>{
+  const source=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
+  const overview=await readFile(new URL('../app/components/OperationsOverview.js',import.meta.url),'utf8');
+  assert.match(source,/previousTracked:/);
+  assert.match(source,/String\(previous\.clanId\|\|previous\.clan\|\|''\)===clanKey/);
+  assert.match(overview,/formatGlobalMove\(row\.change,row\.previousTracked\)/);
+  assert.match(overview,/rankingGap\(row,ranking\)/);
+});
+
+test('nav and admin logout spacing use the shared responsive layout rules',async()=>{
+  const source=await readFile(new URL('../app/rep-tracker.css',import.meta.url),'utf8');
+  const dashboard=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
+  assert.match(source,/\.ops-nav\{[^\n]*padding:12px 10px/);
+  assert.match(source,/@media\(max-width:720px\)[\s\S]*?padding:12px 8px/);
+  assert.match(source,/.admin-logout-actions\{margin-top:20px\}/);
+  assert.match(dashboard,/className="actions admin-logout-actions"/);
 });

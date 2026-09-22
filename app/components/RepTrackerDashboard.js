@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, PERIOD_HISTORY_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
 import { getSyncHealthAlertState } from '../lib/sync-health.mjs';
-import { formatRankChange } from '../lib/rank-tracker.mjs';
+import { compareMemberRank, formatRankChange, sortMembersByRank } from '../lib/rank-tracker.mjs';
 import OperationsOverview from './OperationsOverview.js';
 import ThemedModal from './ThemedModal.js';
 
@@ -425,7 +425,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     return () => { cancelled = true; clearInterval(timer); };
   }, [view, data?.configured, data?.config?.clan_id, data?.season]);
 
-  const rows = data?.rows || [];
+  const rows = useMemo(() => sortMembersByRank(data?.rows || []), [data?.rows]);
   const periodRows = useMemo(() => {
     const currentMembers = rows.map((row)=>({...row,name:row.member,reputation:row.rep,level:row.level}));
     if (!periodHistory?.members) return rows;
@@ -451,7 +451,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       if(memberSort==='gain')return Number(b.gain||0)-Number(a.gain||0);
       if(memberSort==='rate')return Number(b.gainPerHour||0)-Number(a.gainPerHour||0);
       if(memberSort==='activity')return Number(b.latestTs||0)-Number(a.latestTs||0);
-      return Number(b.current||b.rep||0)-Number(a.current||a.rep||0);
+      return compareMemberRank(a,b);
     });
   },[periodRows,memberFilter,memberQuery,memberSort]);
   const activity = data?.activity || [];
@@ -549,7 +549,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
         <div className="admin-grid"><div className="panel"><span className="eyebrow">SEASON SETTINGS</span><h3>Start / baseline</h3><label>Season<input value={seasonName} onChange={e=>setSeasonName(e.target.value)} placeholder="Season 4"/></label><label>Final day<input type="datetime-local" value={finalDay} onChange={e=>setFinalDay(e.target.value)}/></label><div className="actions"><button className="btn primary" onClick={requestStartSeason} disabled={!admin||busy}>START NEW SEASON</button><button className="btn" onClick={requestBaseline} disabled={!admin||busy}>CREATE BASELINE</button></div></div><div className="panel"><span className="eyebrow">SYNC</span><h3>Live source</h3><div className="source-meta"><span>Status <b>{data.freshness?.status?.toUpperCase()}</b></span><span>Last success <b>{age(data.freshness?.ageSeconds)}</b></span><span>Source <b>{rows[0]?.source || '—'}</b></span></div><button className="btn primary full" onClick={syncNow} disabled={!admin||busy}>SYNC NOW</button></div><div className="panel"><span className="eyebrow">MANUAL HOURS</span><h3>Track activity</h3><label>Member<select value={hoursMember} onChange={e=>setHoursMember(e.target.value)}><option value="">Select member</option>{rows.map(r=><option key={r.id} value={r.id}>{r.member}</option>)}</select></label><div className="split"><label>Date<input type="date" value={hoursDate} onChange={e=>setHoursDate(e.target.value)}/></label><label>Break min<input type="number" min="0" value={hoursBreak} onChange={e=>setHoursBreak(e.target.value)}/></label></div><div className="split"><label>Start<input type="time" value={hoursStart} onChange={e=>setHoursStart(e.target.value)}/></label><label>End<input type="time" value={hoursEnd} onChange={e=>setHoursEnd(e.target.value)}/></label></div><label>Notes<input value={hoursNotes} onChange={e=>setHoursNotes(e.target.value)} placeholder="Optional"/></label><button className="btn primary full" onClick={addHours} disabled={!admin||busy||!hoursMember||!hoursStart||!hoursEnd}>ADD MANUAL SESSION</button></div><div className="panel danger-panel"><span className="eyebrow">FINALIZATION</span><h3>{latestFinal?'FINAL DAY LOCKED':'Ready to lock'}</h3><p>{latestFinal?'Final results are read-only. A future correction must create a new version.':'Before locking, the system runs a fresh sync and blocks stale/incomplete data.'}</p><button className={`btn full ${finalLockReady?'danger':''}`} onClick={requestLockFinal} disabled={!finalLockReady}>LOCK FINAL DAY</button></div>
           <div className="panel source-diagnostic-panel"><span className="eyebrow">SOURCE DIAGNOSTICS</span><h3>AMF MEMBER SERVICE</h3><p className={data.syncHealth?.lastSourceHealth==='degraded'?'warn-text':''}>{data.syncHealth?.lastSourceWarning || (data.syncHealth?.lastMemberSource==='amf'?'AMF is active and healthy.':'AMF member service is not currently active.')}</p><div className="source-diagnostic-grid"><div><span>AMF</span><b>{String(data.syncHealth?.sourceDiagnostics?.amf?.status || '—').toUpperCase()}</b><small>{data.syncHealth?.sourceDiagnostics?.amf?.durationMs != null ? data.syncHealth.sourceDiagnostics.amf.durationMs+'ms' : 'No sample'}</small><small>Last OK {data.syncHealth?.lastAmfSuccessAt ? new Date(data.syncHealth.lastAmfSuccessAt).toLocaleTimeString() : '—'}</small><small>Reason {data.syncHealth?.sourceDiagnostics?.amf?.error || '—'}</small></div><div><span>LEGACY</span><b>{String(data.syncHealth?.sourceDiagnostics?.legacy?.status || '—').toUpperCase()}</b><small>{data.syncHealth?.sourceDiagnostics?.legacy?.durationMs != null ? data.syncHealth.sourceDiagnostics.legacy.durationMs+'ms' : 'No sample'}</small><small>Last OK {data.syncHealth?.lastLegacySuccessAt ? new Date(data.syncHealth.lastLegacySuccessAt).toLocaleTimeString() : '—'}</small></div><div><span>SOURCE</span><b>{String(data.syncHealth?.lastMemberSource || '—').toUpperCase()}</b><small>{data.syncHealth?.lastSourceHealth ? String(data.syncHealth.lastSourceHealth).toUpperCase() : '—'}</small><small>{data.syncHealth?.consecutiveSourceWarnings||0} degraded runs</small></div></div><small>Server-side source timings and diagnostic fields only; no raw AMF response body is exposed.</small></div>
         </div>
-        <div className="actions"><button className="btn" onClick={logout} disabled={busy}>LOG OUT</button></div>
+        <div className="actions admin-logout-actions"><button className="btn" onClick={logout} disabled={busy}>LOG OUT</button></div>
       </>
     );
   }

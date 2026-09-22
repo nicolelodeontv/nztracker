@@ -12,7 +12,6 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
   const ranking=Array.isArray(data?.globalRanking)?data.globalRanking:[];
   const top=selectTopBurn(rows,5);
   const attention=selectNeedsAttention(rows,6);
-  const moveTrackingAvailable=Boolean(data?.global?.moveTrackingAvailable);
   const periodRows=rows.filter((row)=>(row.historyMember?.points?.length||0)>=2);
   const hourly=periodRows.length?periodRows.reduce((sum,row)=>sum+Number(row.gainPerHour||0),0)/periodRows.length:null;
   const projectedDaily=data?.stats?.todayGainAvailable?Number(global?.projectedDailyGain||0):null;
@@ -84,7 +83,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
           <tbody>
             {ranking.map((row)=><tr key={row.clanId} className={String(row.clanId)===String(data?.config?.clan_id)?'is-chaos':''}>
               <td>#{row.rank}</td><td className="member-name">{row.clan}</td><td>{row.master||'—'}</td><td>{row.memberCurrent}/{row.memberMax}</td><td className="num">{fmt(row.reputation)}</td>
-              <td className={(row.change?.rankDelta||0)>0?'up':(row.change?.rankDelta||0)<0?'down':''}>{formatGlobalMove(row.change,moveTrackingAvailable)}</td>
+              <td className={(row.change?.rankDelta||0)>0?'up':(row.change?.rankDelta||0)<0?'down':''}>{formatGlobalMove(row.change,row.previousTracked)}</td>
               <td>{row.rank>1?rankingGap(row,ranking):'—'}</td>
             </tr>)}
           </tbody>
