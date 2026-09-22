@@ -2,7 +2,6 @@ import { finalHistory } from '../../../lib/rep-tracker';
 import { finalResultsToCsv } from '../../../lib/final-export.mjs';
 
 export const runtime='nodejs'; export const dynamic='force-dynamic';
-const csvCell=(v)=>`"${String(v??'').replaceAll('"','""')}"`;
 export async function GET(request){
   try{
     const p=new URL(request.url).searchParams; const season=p.get('season'); const format=p.get('format')||'csv';
