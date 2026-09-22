@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSyncHealthSnapshot } from '../app/lib/sync-health.mjs';
+import { buildSyncHealthSnapshot, getSyncHealthAlertState } from '../app/lib/sync-health.mjs';
 
 test('last failure timestamp follows the most recent consecutive degraded source failure', () => {
   const firstAt='2026-09-22T04:50:20.000Z';
@@ -57,6 +57,14 @@ test('recovery preserves the most recent failure timestamp for audit context', (
   assert.equal(recovered.lastFailureAt, failureAt);
   assert.equal(recovered.lastFailure, failure.lastFailure);
   assert.equal(recovered.lastSourceHealth, 'healthy');
+
+  const alert=getSyncHealthAlertState({
+    health:recovered,
+    stats:{syncSuccessRate:0.98}
+  });
+  assert.equal(alert.visible, false);
+  assert.equal(alert.degraded, false);
+  assert.equal(alert.lowRate, false);
 });
 
 test('shared sync-health banner reads the fresh lastFailureAt field and labels aggregate metrics as 60s updates', async () => {
