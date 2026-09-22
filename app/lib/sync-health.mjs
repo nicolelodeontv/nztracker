@@ -23,12 +23,14 @@ export function getSyncHealthAlertState({health={},stats={}}={}){
   const amfOnlyFallback=degraded && lastMemberSource==='legacy' && amfFailed && legacyHealthy;
   const legacyFailed=sourceDown || sourceFailed(legacyStatus) || (memberStatus==='error' && !amfOnlyFallback);
   const lowRate=Number.isFinite(rate)&&rate<0.7;
-  const urgent=legacyFailed || (lowRate&&!amfOnlyFallback);
+  const urgent=legacyFailed;
   const quietFallback=amfOnlyFallback && !urgent;
+  const quietRate=lowRate && !urgent && !quietFallback;
   return{
-    visible:urgent||quietFallback,
+    visible:urgent||quietFallback||quietRate,
     urgent,
     quietFallback,
+    quietRate,
     degraded,
     legacyFailed,
     lowRate,
