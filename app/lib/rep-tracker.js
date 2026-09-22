@@ -344,7 +344,7 @@ export async function syncTracker({force=false,admin='system'}={}) {
 
       await runSyncRunRetention(db,Date.now());
       await recordSyncHealth({
-        outcome:discoveryError?'warning':'success',
+        outcome:'success',
         at:capturedAt,
         error:discoveryError||null,
         memberStatus:'success',
