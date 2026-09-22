@@ -5,7 +5,7 @@ import { startOfTodayManila } from './dashboard-time.mjs';
 import { buildRecentActivityEvents } from './rep-tracker-utils.mjs';
 import { buildDailyClanRepTrend, globalRankSummary, readRankingHistory, readRankingSnapshot, recordRankingSnapshot } from './ranking-cache.js';
 import { recordMemberSnapshot } from './member-history.js';
-import { applyRankChanges } from './rank-tracker.mjs';
+import { applyRankChanges, sortMembersByRank } from './rank-tracker.mjs';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 
 const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
@@ -584,7 +584,8 @@ export async function dashboardData(){
       suspicious:false,
       status:syncFresh.status
     };
-  }).sort((a,b)=>b.rep-a.rep);
+  });
+  const orderedRows=sortMembersByRank(rows);
 
   const totalRep=rows.reduce((s,r)=>s+r.rep,0);
   const totalGain=rows.reduce((s,r)=>s+r.gain,0);
@@ -631,7 +632,7 @@ export async function dashboardData(){
   }
 
   return{
-    configured:true,config,season,rows,
+    configured:true,config,season,rows:orderedRows,
     stats:{
       totalRep,
       totalGain,
