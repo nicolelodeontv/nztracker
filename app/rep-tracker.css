@@ -35,7 +35,7 @@
 
 .ops-overview-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line)}
 .op-card{min-width:0;background:var(--panel);padding:14px}
-.op-card.op-hero{background:linear-gradient(135deg,var(--panel),rgba(249,115,22,0.035)))}
+.op-card.op-hero{background:linear-gradient(135deg,var(--panel),rgba(249,115,22,0.035))}
 .op-rank{font:600 48px var(--display);color:var(--accent);line-height:.9;margin:5px 0}
 .op-card>b{font:800 15px var(--title);letter-spacing:.1em}
 .op-number{display:block;font:600 34px var(--display);margin:5px 0 0}
@@ -65,17 +65,17 @@
 .ops-list-row.attention>strong{color:var(--warn)}
 .ops-list-row span small{display:block;color:var(--muted);font:600 8px var(--mono);margin-top:2px}
 .global-table{min-width:850px!important}
-.global-table .is-chaos{background:rgba(249,115,22,0.055))}
+.global-table .is-chaos{background:rgba(249,115,22,0.055)}
 .global-table .is-chaos td:nth-child(2){color:var(--accent)}
 .recent-change{animation:rep-flash 1.6s ease-out}
 .recent-change td:nth-child(4),.recent-change td:nth-child(5){color:var(--accent);font-weight:800}
-@keyframes rep-flash{0%{background:rgba(249,115,22,0.12))}100%{background:transparent}}
+@keyframes rep-flash{0%{background:rgba(249,115,22,0.12)}100%{background:transparent}}
 .rep-pulse{animation:rep-flash 1.6s ease-out}
 .drawer-check-meta{display:flex;align-items:center;gap:7px;margin:-4px 0 12px;padding:7px 9px;border:1px solid var(--line);background:var(--panel2);font:600 9px var(--mono);color:var(--muted)}
 .live-dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px rgba(251,146,60,.5)}
 .drawer-live-meta b{color:var(--good)}
-.drawer:focus{outline:2px solid rgba(249,115,22,0.35));outline-offset:-2px}
-.table-scroll tbody tr[role="button"]:focus{outline:2px solid rgba(249,115,22,0.5));outline-offset:-2px}
+.drawer:focus{outline:2px solid rgba(249,115,22,0.35);outline-offset:-2px}
+.table-scroll tbody tr[role="button"]:focus{outline:2px solid rgba(249,115,22,0.5);outline-offset:-2px}
 @media(max-width:1000px){.ops-overview-grid{grid-template-columns:1fr 1fr}.op-card.op-hero{grid-row:span 2}.ops-burn-grid{grid-template-columns:1fr}}
 @media(max-width:720px){
   .ops-overview-grid{grid-template-columns:1fr}
