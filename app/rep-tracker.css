@@ -43,15 +43,11 @@
   --shadow-logo:0 0 0 1px var(--red-deep),0 0 18px rgba(249,115,22,.45);
   --shadow-ember:0 0 8px 2px rgba(255,69,0,.7);
   --shadow-dot:0 0 6px rgba(255,69,0,.7);
-  --mono:var(--font-mono),'JetBrains Mono','SFMono-Regular',Consolas,monospace;
-  --display:var(--font-display),sans-serif;
-  --title:var(--font-title),sans-serif;
-  --body:var(--font-body),sans-serif;
 }
 
 *{box-sizing:border-box}
 html{background:var(--bg);scroll-padding-top:env(safe-area-inset-top,0px)}
-body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body);font-size:15px;min-height:100%}
+body{--mono:var(--font-mono),'JetBrains Mono','SFMono-Regular',Consolas,monospace;--display:var(--font-display),'Rajdhani','Segoe UI',sans-serif;--title:var(--font-title),'Rajdhani','Segoe UI',sans-serif;--body:var(--font-body),'Rajdhani','Segoe UI',sans-serif;margin:0;background:var(--bg);color:var(--text);font-family:var(--body);font-size:15px;min-height:100%}
 button,input,select{font:inherit}
 button{color:inherit}
 
