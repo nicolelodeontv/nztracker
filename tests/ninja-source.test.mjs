@@ -10,7 +10,7 @@ import {
 
 test('upstream retry policy retries transient HTTP failures', () => {
   assert.equal(UPSTREAM_MAX_ATTEMPTS, 2);
-  assert.equal(UPSTREAM_TIMEOUT_MS, 7000);
+  assert.equal(UPSTREAM_TIMEOUT_MS, 4500);
   assert.equal(isRetryableUpstreamStatus(502), true);
   assert.equal(isRetryableUpstreamStatus(503), true);
   assert.equal(isRetryableUpstreamStatus(504), true);
@@ -19,7 +19,7 @@ test('upstream retry policy retries transient HTTP failures', () => {
 });
 
 test('upstream retry policy recognizes transient network errors', () => {
-  assert.equal(isRetryableUpstreamError(new Error('Upstream request timed out after 7s.')), true);
+  assert.equal(isRetryableUpstreamError(new Error('Upstream request timed out after 4.5s.')), true);
   assert.equal(isRetryableUpstreamError(Object.assign(new Error('reset'), { code: 'ECONNRESET' })), true);
   assert.equal(isRetryableUpstreamError(new Error('permanent parse failure')), false);
 });
