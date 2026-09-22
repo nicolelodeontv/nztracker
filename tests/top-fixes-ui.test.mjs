@@ -25,16 +25,8 @@ test('rep pace lists and Global Top expose the repaired states',async()=>{
   assert.match(source,/selectNeedsAttention\(rows,6\)/);
   assert.match(source,/memberDisplayName\(row\)/);
   assert.match(source,/attention-member/);
-  assert.match(source,/formatGlobalMove\(row\.change,moveTrackingAvailable\)/);
-  assert.match(source,/NOT YET TRACKED|formatGlobalMove/);
   assert.match(source,/TOP BURN/);
   assert.match(source,/NEEDS ATTENTION/);
-});
-
-test('global dashboard data exposes whether a previous ranking snapshot exists',async()=>{
-  const source=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
-  assert.match(source,/moveTrackingAvailable=Array\.isArray\(rankingCache\?\.previousRows\)/);
-  assert.match(source,/moveTrackingAvailable/);
 });
 
 test('ranking persistence migration is additive and indexed',async()=>{
@@ -63,7 +55,7 @@ test('Global Top distinguishes per-clan tracking state from a global history fla
   const source=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
   const overview=await readFile(new URL('../app/components/OperationsOverview.js',import.meta.url),'utf8');
   assert.match(source,/previousTracked:/);
-  assert.match(source,/String\(previous\.clanId\|\|previous\.clan\|\|'\'\)===clanKey/);
+  assert.match(source,/String\(previous\.clanId\|\|previous\.clan\|\|''\)===clanKey/);
   assert.match(overview,/formatGlobalMove\(row\.change,row\.previousTracked\)/);
   assert.match(overview,/rankingGap\(row,ranking\)/);
 });
