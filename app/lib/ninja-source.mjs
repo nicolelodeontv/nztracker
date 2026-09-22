@@ -156,6 +156,8 @@ async function fromLegacy(clanId){
     throw enriched;
   }
 }
+export async function probeAmfMemberSource(clanId){return fromAmf(clanId);}
+
 export async function fetchLiveMembers(clanId){
   const key=String(clanId||'').trim();
   if(!key||!/^[a-zA-Z0-9_-]+$/.test(key))throw new Error('A valid Ninja Zenshin clanId is required.');
