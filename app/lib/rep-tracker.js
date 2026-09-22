@@ -598,6 +598,7 @@ export async function dashboardData(){
     .eq('suspicious',true);
 
   const globalRanking=rankingCache?.rows||[];
+  const moveTrackingAvailable=Array.isArray(rankingCache?.previousRows)&&rankingCache.previousRows.length>0;
   const clanRepTrend=buildDailyClanRepTrend(clanRepHistoryResult||[]);
   const global=globalRankSummary(globalRanking,config.clan_id);
   const rankedRows=globalRanking.slice().sort((a,b)=>Number(a.rank||9999)-Number(b.rank||9999)).slice(0,10);
@@ -658,7 +659,7 @@ export async function dashboardData(){
     syncStatus:syncStatus||null,
     httpHealth:httpHealth||null,
     clanRepTrend,
-    global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null},
+    global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null,moveTrackingAvailable},
     globalRanking:rankedRows.map((row)=>({...row,change:rankingCache?.changes?.[String(row.clanId)]||null}))
   };
 }
