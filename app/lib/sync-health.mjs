@@ -30,7 +30,7 @@ export async function recordSyncHealth({
   const isHealthy=outcome==='success';
   const isSourceDegraded=sourceHealth==='degraded';
   const next={
-    version:3,
+    version:4,
     lastRunAt:at,
     lastHealthyAt:isHealthy?at:(previous?.lastHealthyAt||null),
     lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||null),
