@@ -1,9 +1,10 @@
 import { parseRankingHtml } from './source-parser.mjs';
 import { readLastKnownMembers, writeLastKnownMembers, MEMBER_CACHE_MAX_AGE_MS } from './sync-source-state.mjs';
 
+export const GAME_SOURCE_ORIGIN = process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online';
 export const AMF_ORIGIN = process.env.GAME_AMF_ORIGIN || 'https://amf.ninjazenshin.online/';
-export const LEGACY_MEMBER_API = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online'}/clan-ranking/members/`;
-export const RANKING_SOURCE = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online'}/?panel=clan-ranking`;
+export const LEGACY_MEMBER_API = `${GAME_SOURCE_ORIGIN}/clan-ranking/members/`;
+export const RANKING_SOURCE = `${GAME_SOURCE_ORIGIN}/?panel=clan-ranking`;
 export const SERVICE = process.env.GAME_MEMBER_SERVICE || 'ClanService.getMemberList';
 export const RESPONSE_TARGET = process.env.GAME_MEMBER_RESPONSE_TARGET || '/1/onResult';
 const DEFAULT_MAX_STAMINA = 200;
@@ -104,7 +105,7 @@ export function normalizeMembers(rawMembers){
 async function fromAmf(clanId){
   const started=Date.now();
   try{
-    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:'https://ninjazenshin.online/','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
+    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:GAME_SOURCE_ORIGIN,Pragma:'no-cache',Referer:`${GAME_SOURCE_ORIGIN}/`,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
     const contentType=response.headers.get('content-type')||null;
     const contentLength=response.headers.get('content-length')||null;
     const bytes=new Uint8Array(await response.arrayBuffer());
@@ -131,7 +132,7 @@ async function fromAmf(clanId){
     const enriched=error instanceof Error?error:new Error(message);
     amfConsecutiveFailures+=1;
     const responseMeta=response?{httpStatus:response.status,httpStatusText:response.statusText||null,contentType:response.headers.get('content-type')||null,contentLength:response.headers.get('content-length')||null}:null;
-    enriched.sourceDiagnostic={status:error?.name==='AbortError'||/timed out|timeout/i.test(message)?'timeout':'error',httpStatus:response?.status??(Number.isFinite(Number(error?.status))?Number(error.status):null),durationMs:Date.now()-started,error:message,amfFailureCount:amfConsecutiveFailures,request:{origin:AMF_ORIGIN,service:SERVICE,responseTarget:RESPONSE_TARGET,referer:'https://ninjazenshin.online/'},response:responseMeta,amfResponse:error?.amfResponse||null};
+    enriched.sourceDiagnostic={status:error?.name==='AbortError'||/timed out|timeout/i.test(message)?'timeout':'error',httpStatus:response?.status??(Number.isFinite(Number(error?.status))?Number(error.status):null),durationMs:Date.now()-started,error:message,amfFailureCount:amfConsecutiveFailures,request:{origin:AMF_ORIGIN,service:SERVICE,responseTarget:RESPONSE_TARGET,referer:`${GAME_SOURCE_ORIGIN}/`},response:responseMeta,amfResponse:error?.amfResponse||null};
     if(AMF_ALERT_THRESHOLDS.has(amfConsecutiveFailures))console.warn('Ninja Zenshin AMF member source failure threshold reached',{clanId,consecutiveFailures:amfConsecutiveFailures,diagnostic:enriched.sourceDiagnostic});
     throw enriched;
   }
