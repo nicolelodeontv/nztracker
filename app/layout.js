@@ -1,10 +1,11 @@
-import { Baloo_2, Open_Sans, Teko } from 'next/font/google';
+import { JetBrains_Mono, Rajdhani } from 'next/font/google';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import './rep-tracker.css';
 
-const bodyFont=Open_Sans({variable:'--font-body',subsets:['latin'],weight:['400','600','700']});
-const titleFont=Baloo_2({variable:'--font-title',subsets:['latin'],weight:['500','600','700','800']});
-const displayFont=Teko({variable:'--font-display',subsets:['latin'],weight:['500','600','700']});
+const bodyFont=Rajdhani({variable:'--font-body',subsets:['latin'],weight:['500','600','700']});
+const titleFont=Rajdhani({variable:'--font-title',subsets:['latin'],weight:['600','700']});
+const displayFont=Rajdhani({variable:'--font-display',subsets:['latin'],weight:['500','600','700']});
+const monoFont=JetBrains_Mono({variable:'--font-mono',subsets:['latin'],weight:['400','500','600','700']});
 
 export const metadata={
   title:'CHAOS REP Tracker',
@@ -21,9 +22,9 @@ export const viewport={
   width:'device-width',
   initialScale:1,
   viewportFit:'cover',
-  themeColor:'#08090b'
+  themeColor:'#0A0A0A'
 };
 
 export default function RootLayout({children}){
-  return <html lang="en"><body className={[bodyFont.variable,titleFont.variable,displayFont.variable].join(' ')}>{children}<SpeedInsights/></body></html>;
+  return <html lang="en"><body className={[bodyFont.variable,titleFont.variable,displayFont.variable,monoFont.variable].join(' ')}>{children}<SpeedInsights/></body></html>;
 }

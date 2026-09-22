@@ -506,7 +506,7 @@ export async function dashboardData(){
       .eq('season',season)
       .gte('started_at',new Date(Date.now()-Math.max(1,Number(config.sync_interval_seconds||10))*1000*500).toISOString())
       .order('started_at',{ascending:false})
-      .limit(500),
+      .limit(180),
     db.from('rep_tracker_sync_runs')
       .select('id',{count:'exact',head:true})
       .eq('clan_id',config.clan_id)
