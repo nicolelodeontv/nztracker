@@ -10,6 +10,7 @@ import {
 test('memberDisplayName resolves the member field used by live rows and falls back safely', () => {
   assert.equal(memberDisplayName({ member: 'LiveName', name: 'HistoryName' }), 'LiveName');
   assert.equal(memberDisplayName({ name: 'HistoryName' }), 'HistoryName');
+  assert.equal(memberDisplayName({ member: '', name: 'HistoryName' }), 'HistoryName');
   assert.equal(memberDisplayName({ ign: 'IgnName' }), 'IgnName');
   assert.equal(memberDisplayName({ id: 'member-1' }), 'member-1');
   assert.equal(memberDisplayName({}), 'Unknown member');
