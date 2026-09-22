@@ -155,6 +155,10 @@ export async function GET(request) {
       membersSeen,
       memberErrors: 0,
       memberSources,
+      memberStatus,
+      memberSource,
+      sourceHealth:result.live?.sourceHealth||result.sourceHealth||'healthy',
+      sourceWarning:result.live?.fallbackReason||result.fallbackReason||null,
       rankingCache,
       rankingCacheError,
       rankingCacheAgeMs: rankingAgeMs,
@@ -185,6 +189,8 @@ export async function GET(request) {
         lastRunAt: finishedAt.toISOString(),
         nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
         intervalMs: SYNC_INTERVAL_MS,
+        sourceHealth:'down',
+        sourceWarning:null,
         source: SOURCE,
         error: error instanceof Error ? error.message : String(error)
       });
