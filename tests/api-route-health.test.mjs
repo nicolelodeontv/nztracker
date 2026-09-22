@@ -105,6 +105,7 @@ test('monitor executes with correct secret',async()=>{
   assert.equal(b.membersSeen,30);
   assert.equal(b.rankingRows,1);
   assert.equal(b.rankingCache.stored,true);
+  assert.equal(b.sourceHealth,'degraded');
   assert.equal(heartbeatPayloads.at(-1)?.intervalMs,60000);
   assert.equal(heartbeatPayloads.at(-1)?.overall,'success');
   assert.equal(heartbeatPayloads.at(-1)?.sourceHealth,'degraded');
