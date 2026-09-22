@@ -105,3 +105,13 @@ test('calculated stamina never drops below zero',()=>{
   });
   assert.equal(result.stamina,0);
 });
+
+
+test('unknown stamina does not count as a low-stamina member',()=>{
+  const state=calculateBleedingState([
+    {memberId:'a',stamina:null},
+    {memberId:'b',stamina:80}
+  ]);
+  assert.equal(state.lowStaminaCount,0);
+  assert.equal(state.bleeding,false);
+});
