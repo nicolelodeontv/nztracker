@@ -200,7 +200,7 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 .member-filters button,.period-switch button{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);color:var(--muted);padding:6px 9px;cursor:pointer;font:500 9px var(--mono)}
 .member-filters button.active,.period-switch button.active{background:var(--orange);border-color:var(--orange);color:#140A00}
 .member-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--card-gap)}
-.member-card{width:100%;min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--panel);color:var(--text);padding:18px;text-align:left;cursor:pointer;transition:border-color .15s ease,transform .15s ease}
+.member-card{width:100%;min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);background:var(--panel);color:var(--text);padding:var(--card-padding);text-align:left;cursor:pointer;transition:border-color .15s ease,transform .15s ease}
 .member-card:hover{border-color:var(--orange);transform:translateY(-1px)}
 .member-card h3{margin:6px 0;font:700 22px var(--title)}
 .member-card>b{font:700 22px var(--mono);color:var(--orange-soft)}
@@ -232,7 +232,7 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 
 .drawer-backdrop,.modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.78);backdrop-filter:blur(2px)}
 .drawer-backdrop{justify-content:flex-end}
-.drawer{width:min(620px,100%);height:100%;padding:18px;overflow:auto;background:var(--panel);border-left:1px solid var(--line)}
+.drawer{width:min(620px,100%);height:100%;padding:var(--card-padding);overflow:auto;background:var(--panel);border-left:1px solid var(--line)}
 
 .themed-modal-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.8);backdrop-filter:blur(3px);overscroll-behavior:contain}
 .themed-modal{position:relative;width:min(440px,100%);padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px rgba(185,28,28,.14);color:var(--text)}
