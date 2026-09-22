@@ -133,3 +133,6 @@ begin
            captured_at;
 end;
 $$;
+
+revoke all on function public.advance_rep_tracker_stamina(text, text, text, bigint, timestamptz) from public, anon, authenticated;
+grant execute on function public.advance_rep_tracker_stamina(text, text, text, bigint, timestamptz) to service_role;
