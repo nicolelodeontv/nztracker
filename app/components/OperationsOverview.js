@@ -14,8 +14,9 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
     .filter((row)=>['NO GAIN','IDLE','MISSING','RESET'].includes(row.status))
     .sort((a,b)=>Number(a.gain||0)-Number(b.gain||0))
     .slice(0,6);
-  const hourly=rows.length?rows.reduce((sum,row)=>sum+Number(row.gainPerHour||0),0)/rows.length:0;
-  const projectedDaily=Number(global?.projectedDailyGain||0);
+  const periodRows=rows.filter((row)=>(row.historyMember?.points?.length||0)>=2);
+  const hourly=periodRows.length?periodRows.reduce((sum,row)=>sum+Number(row.gainPerHour||0),0)/periodRows.length:null;
+  const projectedDaily=data?.stats?.todayGainAvailable?Number(global?.projectedDailyGain||0):null;
   const eta=Number.isFinite(Number(global?.targetEtaHours))?Number(global.targetEtaHours):null;
 
   return <section className="ops-overview" aria-label="Operations overview">
@@ -36,10 +37,10 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
       </article>
       <article className="op-card">
         <span className="eyebrow">PACE ESTIMATE</span>
-        <strong className="op-number">+{fmt(projectedDaily)}</strong>
-        <span className="op-meta">PROJECTED REP / 24H</span>
-        <div className="op-stat-row"><span>Current daily gain</span><b>+{fmt(data?.stats?.todayGain)}</b></div>
-        <div className="op-stat-row"><span>Member avg period rate</span><b>{fmt(hourly)} /h</b></div>
+        <strong className="op-number">{projectedDaily===null?'—':'+'+fmt(projectedDaily)}</strong>
+        <span className="op-meta">PROJECTED REP / 24H · BASED ON TODAY</span>
+        <div className="op-stat-row"><span title="Cumulative REP change since the first recorded snapshot today.">Current daily gain</span><b>{data?.stats?.todayGainAvailable?'+'+fmt(data?.stats?.todayGain):'—'}</b></div>
+        <div className="op-stat-row"><span title="Average member REP/hour calculated from recorded history for the selected period. This is separate from manually tracked work hours.">Member avg period rate · {periodLabels[periodHours]}</span><b>{hourly===null?'—':fmt(hourly)+' /h'}</b></div>
         <div className="op-stat-row"><span>Target ETA</span><b>{eta===null?'—':eta<1?'<1h':eta.toFixed(1)+'h'}</b></div>
       </article>
       <article className="op-card">
