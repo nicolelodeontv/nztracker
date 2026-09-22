@@ -6,8 +6,11 @@ export const dynamic='force-dynamic';
 export const maxDuration=15;
 
 export async function GET(request){
-  const denied=requireRequiredCronSecret(request,'/api/amf-probe');
-  if(denied)return denied;
+  const previewOnly=process.env.VERCEL_ENV==='preview';
+  if(!previewOnly){
+    const denied=requireRequiredCronSecret(request,'/api/amf-probe');
+    if(denied)return denied;
+  }
   const clanId=String(new URL(request.url).searchParams.get('clanId')||'').trim();
   if(!/^[a-zA-Z0-9_-]+$/.test(clanId))return Response.json({ok:false,error:'A valid clanId is required.'},{status:400});
   try{
