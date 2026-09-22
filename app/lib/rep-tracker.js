@@ -600,7 +600,7 @@ export async function dashboardData(){
   const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
   const syncFresh=freshness(syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
   const baselineMap=new Map((baselinesResult.data||[]).map((r)=>[String(r.member_id),r]));
-  const trackedStaminaRows=rows.map((row)=>({memberId:String(row.id),stamina:row.stamina,maxStamina:row.maxStamina})).filter((row)=>Number.isFinite(Number(row.stamina)));
+  const trackedStaminaRows=rows.map((row)=>({memberId:String(row.id),stamina:row.stamina,maxStamina:row.maxStamina})).filter((row)=>row.stamina!=null&&Number.isFinite(Number(row.stamina)));
   const staminaTrackingReady=rows.length>0&&trackedStaminaRows.length===rows.length;
   const staminaSummary=staminaTrackingReady
     ? {...calculateBleedingState(trackedStaminaRows),trackedMemberCount:trackedStaminaRows.length,trackingReady:true}
