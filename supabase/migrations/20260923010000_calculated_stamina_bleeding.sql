@@ -24,6 +24,9 @@ create table if not exists public.rep_tracker_stamina_state (
 create index if not exists rep_tracker_stamina_state_clan_season
   on public.rep_tracker_stamina_state (clan_id, season);
 
+alter table public.rep_tracker_stamina_state enable row level security;
+revoke all on table public.rep_tracker_stamina_state from public, anon, authenticated;
+
 create or replace function public.advance_rep_tracker_stamina(
   p_clan_id text,
   p_season text,
@@ -136,3 +139,4 @@ $$;
 
 revoke all on function public.advance_rep_tracker_stamina(text, text, text, bigint, timestamptz) from public, anon, authenticated;
 grant execute on function public.advance_rep_tracker_stamina(text, text, text, bigint, timestamptz) to service_role;
+grant select on table public.rep_tracker_stamina_state to service_role;
