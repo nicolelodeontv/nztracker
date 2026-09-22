@@ -6,7 +6,9 @@ export const maxDuration = 10;
 
 export async function GET() {
   try {
-    return Response.json({ ok: true, ...(await liveData()) }, {
+    const data=await liveData();
+    const sourceHealth=data?.syncHealth?.lastSourceHealth||'unknown';
+    return Response.json({ ok: true, sourceState:{health:sourceHealth,source:data?.syncHealth?.lastMemberSource||null,warning:data?.syncHealth?.lastSourceWarning||null}, ...data }, {
       headers: {
         'Cache-Control': 'no-store, max-age=0',
         'X-Accel-Buffering': 'no'
