@@ -76,6 +76,35 @@ test('buildMemberRows merges live and history-only members, then sorts by reputa
   assert.equal(rows[0].gain, 4000);
 });
 
+test('buildMemberRows collapses a historical ID change when the IGN matches', () => {
+  const members = [{ id: 'new-id', name: 'ChaosSannin', reputation: 5000, level: 80 }];
+  const historyMembers = {
+    'old-id': {
+      name: 'ChaosSannin',
+      level: 79,
+      points: [
+        { t: now - 8 * HOUR, r: 1000 },
+        { t: now - 4 * HOUR, r: 3000 }
+      ]
+    },
+    'new-id': {
+      name: 'ChaosSannin',
+      level: 80,
+      points: [
+        { t: now - HOUR, r: 4000 },
+        { t: now, r: 5000 }
+      ]
+    }
+  };
+
+  const rows = buildMemberRows(members, historyMembers, 5, now);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 'new-id');
+  assert.equal(rows[0].name, 'ChaosSannin');
+  assert.equal(rows[0].status, 'ACTIVE');
+  assert.equal(rows[0].gain, 2000);
+});
+
 test('deriveEvents ignores non-gains and events older than 24 hours', () => {
   const members = [{ id: '1', name: 'A' }];
   const historyMembers = {
