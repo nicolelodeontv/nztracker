@@ -36,6 +36,15 @@ export async function GET(){
       }
     };
     collect(SOURCE_ORIGIN+'/?panel=clan-ranking',page.text);
+    const swfCandidates=[...page.text.matchAll(/(?:src|data|movie|value)=["']([^"']+\\.swf[^"']*)["']/gi)]
+      .map(m=>{try{return new URL(m[1],SOURCE_ORIGIN).toString();}catch{return m[1];}})
+      .filter((url,index,all)=>all.indexOf(url)===index)
+      .slice(0,20);
+    const attributeHints=[...page.text.matchAll(/(?:src|data|movie)=["']([^"']+)["']/gi)]
+      .map(m=>m[1])
+      .filter(value=>/swf|game|client|loader/i.test(value))
+      .slice(0,40);
+
     const scriptResults=await Promise.all(scripts.map(async(url)=>{
       try{
         const result=await fetchText(url,5000);
@@ -45,7 +54,7 @@ export async function GET(){
         return{url,status:null,ok:false,error:error instanceof Error?error.message:String(error)};
       }
     }));
-    return Response.json({ok:true,sourceOrigin:SOURCE_ORIGIN,amfOrigin:AMF_ORIGIN,page:{status:page.status,ok:page.ok,contentType:page.contentType,size:page.text.length},scripts:scriptResults,matches:matches.slice(0,40)},{headers:{'Cache-Control':'no-store, max-age=0'}});
+    return Response.json({ok:true,sourceOrigin:SOURCE_ORIGIN,amfOrigin:AMF_ORIGIN,page:{status:page.status,ok:page.ok,contentType:page.contentType,size:page.text.length},swfCandidates,attributeHints,scripts:scriptResults,matches:matches.slice(0,40)},{headers:{'Cache-Control':'no-store, max-age=0'}});
   }catch(error){
     return Response.json({ok:false,error:error instanceof Error?error.message:String(error)},{status:502});
   }
