@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
-// The Supabase scheduler runs this monitor once per minute.
+// The Supabase scheduler invokes this monitor on the same ten-second cadence as the tracker.
 const SYNC_INTERVAL_MS = MONITOR_WINDOW_MS;
 
 export async function GET(request) {
