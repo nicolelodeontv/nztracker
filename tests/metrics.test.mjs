@@ -84,7 +84,7 @@ test('buildMemberRows collapses a historical ID change when the IGN matches', ()
       level: 79,
       points: [
         { t: now - 8 * HOUR, r: 1000 },
-        { t: now - 4 * HOUR, r: 3000 }
+        { t: now - 6 * HOUR, r: 3000 }
       ]
     },
     'new-id': {
