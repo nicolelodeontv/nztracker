@@ -75,9 +75,12 @@ export async function GET(request) {
     }
 
     const rankingRows = Array.isArray(ranking?.rows) ? ranking.rows.length : undefined;
+    const rankingAgeMs = Number.isFinite(Date.parse(ranking?.fetchedAt || ''))
+      ? Math.max(0, Date.now() - Date.parse(ranking.fetchedAt))
+      : null;
     const rankingStatus = result.reused
       ? (result.lastDetails?.rankingStatus || 'cached')
-      : (rankingRows ? (result.discovery?.stale ? 'cached-stale' : 'fresh') : 'unavailable');
+      : (rankingRows ? (rankingCache?.refreshed ? 'fresh' : 'cached') : 'unavailable');
     const memberSource = result.live?.service === 'legacy-live' ? 'legacy' : result.live?.service ? 'amf' : null;
     const discoveryStatus = result.discoveryStatus || (result.discoveryError ? 'stale' : 'fresh');
     const memberStatus = result.memberStatus || (result.reused ? 'success' : 'unknown');
@@ -102,10 +105,7 @@ export async function GET(request) {
       sourceDiagnostics:result.live?.sourceDiagnostics||null,
       discoveryStatus,
       rankingStatus,
-      durationMs:result.durationMs||null,
-      sourceHealth:result.sourceHealth || (memberSource==='legacy'?'degraded':'healthy'),
-      sourceWarning:result.fallbackReason||null,
-      sourceDiagnostics:result.sourceDiagnostics||null
+      durationMs:result.durationMs||null
     }).catch((error)=>console.warn('Unable to record sync health',error));
 
     await recordSyncStatus({
@@ -125,6 +125,7 @@ export async function GET(request) {
       historyClansChanged: result.reused ? undefined : 1,
       rankingCacheStored: rankingRows === undefined ? undefined : Boolean(rankingCache?.stored),
       rankingCacheError,
+      rankingCacheAgeMs: rankingAgeMs,
       rankingRows,
       memberSources,
       memberStatus,
@@ -155,6 +156,7 @@ export async function GET(request) {
       memberSources,
       rankingCache,
       rankingCacheError,
+      rankingCacheAgeMs: rankingAgeMs,
       rankingRows,
       suspiciousCount: Number(result.suspiciousCount || 0),
       startedAt: startedAt.toISOString(),
