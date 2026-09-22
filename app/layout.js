@@ -30,5 +30,5 @@ export const viewport={
 };
 
 export default function RootLayout({children}){
-  return <html lang="en"><body className={[bodyFont.variable,titleFont.variable,displayFont.variable,monoFont.variable].join(' ')}><div className="site-shell"><div className="site-content">{children}</div><footer className="site-footer">Chaos REP Tracker · Created by <a href="https://discord.com/users/396080330702061588" target="_blank" rel="noopener noreferrer">Michol</a></footer></div><SpeedInsights/></body></html>;
+  return <html lang="en"><body className={[bodyFont.variable,titleFont.variable,displayFont.variable,monoFont.variable].join(' ')}><div className="site-shell"><div className="site-content">{children}</div><footer className="site-footer" aria-label="Chaos REP Tracker">Chaos REP Tracker · Created by <a href="https://discord.com/users/396080330702061588" target="_blank" rel="noopener noreferrer">Michol</a></footer></div><SpeedInsights/></body></html>;
 }
