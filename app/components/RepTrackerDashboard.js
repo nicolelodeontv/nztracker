@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, PERIOD_HISTORY_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
+import { getSyncHealthAlertState } from '../lib/sync-health.mjs';
 import OperationsOverview from './OperationsOverview.js';
 import ThemedModal from './ThemedModal.js';
 
@@ -119,11 +120,9 @@ function SyncHealthStrip({data}) {
 function SyncHealthAlert({data}) {
   const stats=data?.stats||{};
   const health=data?.syncHealth||{};
-  const rate=Number(stats.syncSuccessRate);
-  const degraded=String(health.lastSourceHealth||'').toLowerCase()==='degraded';
-  const lowRate=Number.isFinite(rate)&&rate<0.7;
-  if(!degraded&&!lowRate)return null;
-  const rateText=Number.isFinite(rate)?Math.round(rate*100)+'%':'—';
+  const alertState=getSyncHealthAlertState({health,stats});
+  if(!alertState.visible)return null;
+  const {degraded,rateText}=alertState;
   const title=degraded?'SYNC HEALTH DEGRADED':'SYNC RATE BELOW 70%';
   const reason=degraded
     ? (health.lastSourceWarning||'Member source fallback is active.')
