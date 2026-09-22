@@ -402,3 +402,79 @@ footer{margin-top:30px;padding:0;text-align:center;color:var(--text-dim);font:50
 .admin-login-form .btn.full{width:100%;margin:0}
 
 .ops-app .page-head p{color:var(--muted)!important}
+
+/* Accessibility/readability pass: preserve the dark fire theme while raising minimum text size and contrast. */
+:root{
+  --muted:#C2B7AE;
+  --text-muted:#C2B7AE;
+  --text-dim:#A79C93;
+  --red-readable:#F87171;
+  --red-readable-strong:#EF4444;
+  --dim-row-text:#AAA099;
+}
+body{font-size:15px;line-height:1.45}
+.brand>div>small{font-size:12px;line-height:1.35;color:var(--text-dim)}
+.connection,.header-live,.header-right time{font-size:12px;line-height:1.35}
+.btn{font-size:12px;line-height:1.25}
+.sync-cluster-title{font-size:11px;line-height:1.35;letter-spacing:.1em}
+.sync-field span{font-size:11px;line-height:1.35;letter-spacing:.06em}
+.sync-field b{font-size:12px;line-height:1.4}
+.sync-countdown{font-size:12px;line-height:1.35}
+.sync-field b.warn-text,.warn-text{color:var(--red-readable-strong)}
+.sync-field b.down,.status.stale{color:var(--red-readable)}
+.eyebrow{font-size:11px;line-height:1.35;letter-spacing:.07em}
+.season-box span{font-size:11px;line-height:1.35}
+.season-band p,.page-head p{font-size:13px;line-height:1.45}
+.ops-tabs button{font-size:11px;line-height:1.25}
+.op-meta{font-size:12px;line-height:1.45}
+.op-target span{font-size:12px;line-height:1.35}
+.op-target em{font-size:12px;line-height:1.35;color:var(--red-readable)}
+.op-card small{font-size:12px;line-height:1.5}
+.op-stat-row{font-size:12px;line-height:1.45}
+.ops-list-row>b{font-size:13px;line-height:1.35}
+.ops-list-row>span{font-size:13px;line-height:1.4}
+.ops-list-row>strong{font-size:12px;line-height:1.35}
+.ops-list-row>em{font-size:12px;line-height:1.35}
+.ops-list-row.attention>b{font-size:0}
+.ops-list-row.attention>span small{font-size:11px;line-height:1.35;color:var(--text-dim)}
+.stats-grid span{font-size:11px;line-height:1.35}
+.stats-grid b{font-size:19px}
+.section-title h2,.section-title h3{line-height:1.15}
+.section-title>span{font-size:12px;line-height:1.4}
+.table-scroll table{font-size:13.5px;line-height:1.45}
+.table-scroll th{font-size:11px;line-height:1.35;letter-spacing:.055em;padding-top:10px;padding-bottom:10px}
+.table-scroll td{font-size:13.5px;line-height:1.45;padding-top:11px;padding-bottom:11px}
+.table-scroll tbody tr.dim-row td,
+.table-scroll tbody tr.dim-row .member-name,
+.table-scroll tbody tr.dim-row .num,
+.gain-zero{color:var(--dim-row-text)!important}
+.suspicious-flag{color:var(--red-readable)!important;font-size:11px;line-height:1.35}
+.activity>div,.top-list>div{gap:14px;padding-top:11px;padding-bottom:11px}
+.activity time,.top-list em{font-size:12px;line-height:1.4;color:var(--text-dim)}
+.top-list b{color:var(--text-dim)}
+.top-list strong{font-size:13px}
+.member-filters button,.period-switch button{font-size:11px;line-height:1.25;padding:7px 10px}
+.member-card>div{font-size:12px;line-height:1.4}
+.member-card .eyebrow{font-size:11px}
+.member-card h3{line-height:1.15}
+.admin-grid label{font-size:11px;line-height:1.4}
+.source-meta{font-size:12px;line-height:1.45}
+.source-diagnostic-grid span{font-size:11px;line-height:1.35}
+.source-diagnostic-grid b{font-size:13px;line-height:1.35}
+.source-diagnostic-grid small{font-size:11px;line-height:1.4}
+.danger-panel p{font-size:13px;line-height:1.5}
+.themed-modal p,.modal p{font-size:13px;line-height:1.55}
+.drawer-head p{font-size:12px;line-height:1.45}
+.drawer-check-meta{font-size:11px;line-height:1.4}
+.mini-stats span{font-size:11px;line-height:1.35}
+.chart-empty,.loading{font-size:12px;line-height:1.45}
+.timeline-row time{font-size:12px;line-height:1.4}
+.nz-card-head span,.nz-list-row span{font-size:12px;line-height:1.4}
+.nz-empty{font-size:12px;line-height:1.45}
+.empty-state p{font-size:13px;line-height:1.6}
+footer{font-size:12px;line-height:1.4;color:var(--text-dim)}
+@media(max-width:720px){
+  .member-controls input,.member-controls select{font-size:13px}
+  .table-scroll td,.table-scroll table{font-size:13px}
+  .section-title>span{font-size:11px}
+}

@@ -15,6 +15,10 @@ export const metadata={
     title:'CHAOS REP Tracker',
     description:'Live Ninja Zenshin clan reputation operations tracker.',
     type:'website'
+  },
+  icons:{
+    icon:[{url:'/chaos-icon.jpg',type:'image/jpeg'}],
+    apple:[{url:'/chaos-icon.jpg',type:'image/jpeg'}]
   }
 };
 
