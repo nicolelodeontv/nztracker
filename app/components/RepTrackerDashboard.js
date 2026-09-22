@@ -416,7 +416,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
   if (adminLoading) {
     adminContent = <div className="panel"><div className="loading">CHECKING ADMIN SESSION…</div></div>;
   } else if (!admin) {
-    adminContent = <div className="panel"><span className="eyebrow">SECURE ADMIN</span><h3>ADMIN LOGIN</h3><p>Sign in to access protected administration actions.</p><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password" onKeyDown={e=>e.key==='Enter'&&login()}/><button className="btn primary full" onClick={login} disabled={busy}>SIGN IN</button></div>;
+    adminContent = <div className="panel admin-login-card"><span className="eyebrow">SECURE ADMIN</span><h3>ADMIN LOGIN</h3><p>Sign in to access protected administration actions.</p><input autoFocus type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Admin password" onKeyDown={e=>e.key==='Enter'&&login()}/><button className="btn primary full" onClick={login} disabled={busy}>SIGN IN</button></div>;
   } else if (!data) {
     adminContent = <div className="panel"><div className="loading">LOADING TRACKER DATA…</div></div>;
   } else {
