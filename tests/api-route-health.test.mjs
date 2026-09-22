@@ -20,7 +20,7 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
     if(monitorMode==='error')throw new Error('test monitor failure');
     return {
       reused:false,
-      live:{members,source:'test'},
+      live:{members,source:'test',service:'legacy-live',sourceHealth:'degraded',fallbackReason:'AMF probe timed out',sourceDiagnostics:{amf:{status:'timeout',durationMs:3000},legacy:{status:'success',durationMs:120}}},
       config,
       season:'Season 3',
       discovery:{ranking},
@@ -38,9 +38,11 @@ mock.module(f('app/lib/member-history.js'),{exports:{
 mock.module(f('app/lib/ranking-cache.js'),{exports:{
   recordRankingSnapshot:async()=>({stored:true,rowCount:1}),
   readRankingSnapshot:async()=>ranking,
+  rankingSnapshotNeedsRefresh:(value)=>!value||Date.now()-Date.parse(value.fetchedAt)>=60000,
+  RANKING_REFRESH_MAX_AGE_MS:60000
 }});
 mock.module(f('app/lib/ninja-source.mjs'),{exports:{
-  discoverChaos:async()=>({ranking}),
+  fetchRankingSnapshot:async()=>ranking,
 }});
 
 mock.module(f('app/lib/monitor-status.mjs'),{exports:{getMonitorStatus:()=> 'success'}});
@@ -104,6 +106,8 @@ test('monitor executes with correct secret',async()=>{
   assert.equal(b.rankingRows,1);
   assert.equal(b.rankingCache.stored,true);
   assert.equal(heartbeatPayloads.at(-1)?.intervalMs,60000);
+  assert.equal(heartbeatPayloads.at(-1)?.overall,'success');
+  assert.equal(heartbeatPayloads.at(-1)?.sourceHealth,'degraded');
   delete process.env.CRON_SECRET;
 });
 
