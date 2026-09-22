@@ -1,5 +1,6 @@
 import { readRankingSnapshot } from '../../lib/ranking-cache.js';
 import { finalHistory } from '../../lib/rep-tracker.js';
+import { finalResultsToCsv } from '../../lib/final-export.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -17,9 +18,7 @@ export async function GET(request){
       if(!finals.length)return Response.json({ok:false,error:'No finalized result found.'},{status:404});
       const final=finals[0],members=final.raw_snapshot?.rows||[];
       if(format==='json')return new Response(JSON.stringify(final,null,2),{headers:{'Content-Type':'application/json; charset=utf-8','Content-Disposition':'attachment; filename="'+final.season+'-final.json"','Cache-Control':'no-store'}});
-      const headers=['Rank','Member ID','IGN','Level','Baseline REP','Final REP','REP Gain','Hours','REP/Hour','Status'];
-      const body=members.map((row,i)=>[i+1,row.id,row.member,row.level,row.baseline,row.rep,row.gain,row.hours,row.repPerHour,row.suspicious?'SUSPICIOUS':row.status].map(esc).join(',')).join('\n');
-      return new Response(headers.map(esc).join(',')+'\n'+body+'\n',{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="'+final.season+'-final.csv"','Cache-Control':'no-store'}});
+      return new Response(finalResultsToCsv(members),{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="'+final.season+'-final.csv"','Cache-Control':'no-store'}});
     }
     if(type!=='clans')return Response.json({ok:false,error:'Only clan and final exports are supported by the canonical tracker.'},{status:400});
     const snapshot=await readRankingSnapshot();
