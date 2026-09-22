@@ -507,8 +507,8 @@ body{font-size:15px;line-height:1.45}
   }
   .ops-nav button{
     flex:0 0 auto;
-    min-height:44px;
-    padding:0 2px 10px;
+    min-height:40px;
+    padding:0 2px;
   }
 
   .table-scroll{
