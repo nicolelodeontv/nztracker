@@ -40,6 +40,12 @@ jobs:
           echo "preview_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Preview URL: $URL"
 
+      - name: Inspect game client AMF contract
+        run: |
+          set -euo pipefail
+          URL="${{ steps.deploy.outputs.preview_url }}"
+          RESPONSE="$(curl --fail --silent --show-error --max-time 20 "$URL/api/amf-discovery")"
+          echo "$RESPONSE" | jq .
       - name: Probe AMF without persistence
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
