@@ -31,7 +31,7 @@ Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server 
 - `/api/sync-all` — production full sync called by Supabase pg_cron.
 - `/api/sync-clans` — protected legacy sync endpoint.
 - `/api/monitor` — protected manual diagnostic endpoint.
-- `/api/source-debug` — admin-only persisted upstream source diagnostic endpoint.
+- `/api/source-debug` — protected upstream source diagnostic endpoint.
 - `/api/monitor-health` — protected external health-check endpoint used by the GitHub backup workflow.
 
 When `CRON_SECRET` is unset, these endpoints remain open for backwards compatibility and emit a server-side warning. Once `CRON_SECRET` is configured, requests without the exact `Authorization: Bearer <secret>` header return HTTP 401.
@@ -169,7 +169,7 @@ The current dashboard reads current member state from `rep_tracker_member_latest
 The older multi-source ranking, leaderboard, and sync tables are retired by `20260921150100_remove_legacy_storage.sql`. Apply that migration only after the canonical application has been deployed and the production smoke test passes.
 
 The dashboard exposes:
-- ten-second sync countdown and freshness
+- ten-second member sync countdown and freshness
 - sync health strip with member/ranking state, actual HTTP status, sync completion rate, missed intervals, source health, and last recorded error
 - 5-second lightweight live refreshes with a 60-second full dashboard refresh cadence
 - Period-history polling runs every 60 seconds and pauses outside the Dashboard/Members views to reduce repeated history queries.
