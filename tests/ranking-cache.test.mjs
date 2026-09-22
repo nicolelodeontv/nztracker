@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeRankingChanges, globalRankSummary } from '../app/lib/ranking-cache.js';
+import { computeRankingChanges, globalRankSummary, rankingSnapshotNeedsRefresh, RANKING_REFRESH_MAX_AGE_MS } from '../app/lib/ranking-cache.js';
 
 test('ranking changes compare current and previous snapshots',()=>{
   const changes=computeRankingChanges([
@@ -19,6 +19,14 @@ test('ranking changes compare current and previous snapshots',()=>{
     toReputation:30000
   });
   assert.equal(changes['6'],undefined);
+});
+
+test('ranking snapshot refresh policy is minute-level',()=>{
+  const now=Date.parse('2026-09-22T00:01:00.000Z');
+  assert.equal(rankingSnapshotNeedsRefresh(null,now),true);
+  assert.equal(rankingSnapshotNeedsRefresh({fetchedAt:'2026-09-22T00:00:30.000Z'},now),false);
+  assert.equal(rankingSnapshotNeedsRefresh({fetchedAt:'2026-09-22T00:00:00.000Z'},now),true);
+  assert.equal(RANKING_REFRESH_MAX_AGE_MS,60000);
 });
 
 test('global rank summary exposes target gap',()=>{
