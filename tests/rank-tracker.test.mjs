@@ -56,6 +56,7 @@ test('rank ordering keeps tied REP members in the same final order as their disp
   const displayedOrder=sortMembersByRank(assigned.slice().reverse()).map((row)=>row.id);
 
   assert.deepEqual(displayedOrder, assigned.map((row)=>row.id));
+  assert.deepEqual(sortMembersByRank(assigned.slice().reverse()).map((row)=>row.rank), [1,2,3,4,5]);
   assert.equal(compareMemberRank(assigned[1],assigned[0]),1);
   assert.deepEqual(assigned.map((row)=>({id:row.id,rank:row.rank})),[
     {id:'rep400-high-level',rank:1},
