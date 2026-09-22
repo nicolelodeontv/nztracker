@@ -25,3 +25,11 @@ test('ranking persistence migration is additive and indexed',async()=>{
   assert.match(sql,/add column if not exists previous_rank integer/);
   assert.match(sql,/rep_tracker_member_latest_rank_lookup/);
 });
+
+test('sync path persists member ranks and records fresh ranking history',async()=>{
+  const source=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
+  assert.match(source,/applyRankChanges\(members,previousRanks\)/);
+  assert.match(source,/previous_rank:rankState\?\.previousRank/);
+  assert.match(source,/recordRankingSnapshot\(/);
+  assert.match(source,/readRankingHistory\(\{clanId:config\.clan_id,season/);
+});
