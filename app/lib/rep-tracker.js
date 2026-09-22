@@ -598,7 +598,6 @@ export async function dashboardData(){
     .eq('suspicious',true);
 
   const globalRanking=rankingCache?.rows||[];
-  const moveTrackingAvailable=Array.isArray(rankingCache?.previousRows)&&rankingCache.previousRows.length>0;
   const clanRepTrend=buildDailyClanRepTrend(clanRepHistoryResult||[]);
   const global=globalRankSummary(globalRanking,config.clan_id);
   const rankedRows=globalRanking.slice().sort((a,b)=>Number(a.rank||9999)-Number(b.rank||9999)).slice(0,10);
@@ -659,8 +658,11 @@ export async function dashboardData(){
     syncStatus:syncStatus||null,
     httpHealth:httpHealth||null,
     clanRepTrend,
-    global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null,moveTrackingAvailable},
-    globalRanking:rankedRows.map((row)=>({...row,change:rankingCache?.changes?.[String(row.clanId)]||null}))
+    global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null},
+    globalRanking:rankedRows.map((row)=>{
+      const clanKey=String(row.clanId||row.clan||'');
+      return{...row,change:rankingCache?.changes?.[clanKey]||null,previousTracked:(rankingCache?.previousRows||[]).some((previous)=>String(previous.clanId||previous.clan||'')===clanKey)};
+    })
   };
 }
 export async function createBaseline(admin){const data=await dashboardData();if(!data.configured)throw new Error('Clan and season are not configured. Sync live data first.');const db=supabaseAdmin();const{data:existing}=await db.from('rep_tracker_baselines').select('member_id').eq('clan_id',data.config.clan_id).eq('season',data.season);if(existing?.length)throw new Error(`Season baseline already exists for ${existing.length} members.`);const capturedAt=nowIso(),rows=data.rows.map((row)=>({season:data.season,clan_id:data.config.clan_id,member_id:row.id,ign:row.member,level:row.level,baseline_rep:row.rep,captured_at:capturedAt}));const{error}=await db.from('rep_tracker_baselines').insert(rows);if(error)throw error;await db.from('rep_tracker_seasons').update({baseline_created_at:capturedAt}).eq('season',data.season);await audit('Created season baseline',{season:data.season,memberCount:rows.length},admin);return{season:data.season,count:rows.length,capturedAt};}
