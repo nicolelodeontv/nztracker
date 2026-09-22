@@ -23,15 +23,15 @@ export async function GET(){
       .map(src=>new URL(src,SOURCE_ORIGIN).toString())
       .filter((url,index,all)=>all.indexOf(url)===index)
       .slice(0,16);
-    const patterns=[/ClanService\\.getMemberList/gi,/amf\\.ninjazenshin\\.online/gi,/application\\/x-amf/gi,/\\/1\\/onResult/gi,/sendRequest/gi,/AMFMessage/gi,/Authorization/gi,/Bearer/gi,/X-API-Key/gi,/apiKey/gi,/accessToken/gi,/authToken/gi,/csrf/gi,/token/gi,/Cookie/gi,/session/gi,/credentials/gi,/401/gi];
+    const patterns=['ClanService.getMemberList','amf.ninjazenshin.online','application/x-amf','/1/onResult','sendRequest','AMFMessage','Authorization','Bearer','X-API-Key','apiKey','accessToken','authToken','csrf','token','Cookie','session','credentials','401'];
     const matches=[];
     const collect=(url,text)=>{
+      const lower=text.toLowerCase();
       for(const pattern of patterns){
-        pattern.lastIndex=0;
-        const match=pattern.exec(text);
-        if(match){
-          const index=Math.max(0,match.index-220);
-          matches.push({url,pattern:pattern.source,snippet:text.slice(index,index+520).replace(/\\s+/g,' ').trim()});
+        const needle=pattern.toLowerCase();
+        const index=lower.indexOf(needle);
+        if(index>=0){
+          matches.push({url,pattern,snippet:text.slice(Math.max(0,index-220),index+520).replace(/\\s+/g,' ').trim()});
         }
       }
     };
