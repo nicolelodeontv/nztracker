@@ -600,22 +600,6 @@ export async function dashboardData(){
   const dayMap=await firstTodayMemberPointMap(db,config.clan_id,season,since.toISOString(),ids.length);
   const syncFresh=freshness(syncHealth?.lastMemberSuccessAt||syncHealth?.lastHealthyAt||syncStatus?.lastRunAt||null);
   const baselineMap=new Map((baselinesResult.data||[]).map((r)=>[String(r.member_id),r]));
-  const trackedStaminaRows=rows.map((row)=>({memberId:String(row.id),stamina:row.stamina,maxStamina:row.maxStamina})).filter((row)=>row.stamina!=null&&Number.isFinite(Number(row.stamina)));
-  const staminaTrackingReady=rows.length>0&&trackedStaminaRows.length===rows.length;
-  const staminaSummary=staminaTrackingReady
-    ? {...calculateBleedingState(trackedStaminaRows),trackedMemberCount:trackedStaminaRows.length,trackingReady:true}
-    : {
-        bleeding:null,
-        lowStaminaCount:trackedStaminaRows.filter((row)=>Number(row.stamina)<=70).length,
-        memberCount:rows.length,
-        trackedMemberCount:trackedStaminaRows.length,
-        ratio:rows.length?trackedStaminaRows.length/rows.length:0,
-        threshold:70,
-        minimumRatio:0.5,
-        mode:'CALCULATED',
-        trackingReady:false
-      };
-
   const hoursMap=new Map();
   for(const row of hoursResult.data||[]){
     const id=String(row.member_id);
@@ -649,6 +633,22 @@ export async function dashboardData(){
       staminaMode:row.stamina==null?null:'CALCULATED'
     };
   });
+  const trackedStaminaRows=rows.map((row)=>({memberId:String(row.id),stamina:row.stamina,maxStamina:row.maxStamina})).filter((row)=>row.stamina!=null&&Number.isFinite(Number(row.stamina)));
+  const staminaTrackingReady=rows.length>0&&trackedStaminaRows.length===rows.length;
+  const staminaSummary=staminaTrackingReady
+    ? {...calculateBleedingState(trackedStaminaRows),trackedMemberCount:trackedStaminaRows.length,trackingReady:true}
+    : {
+        bleeding:null,
+        lowStaminaCount:trackedStaminaRows.filter((row)=>Number(row.stamina)<=70).length,
+        memberCount:rows.length,
+        trackedMemberCount:trackedStaminaRows.length,
+        ratio:rows.length?trackedStaminaRows.length/rows.length:0,
+        threshold:70,
+        minimumRatio:0.5,
+        mode:'CALCULATED',
+        trackingReady:false
+      };
+
   const orderedRows=sortMembersByRank(rows);
 
   const totalRep=rows.reduce((s,r)=>s+r.rep,0);
