@@ -232,6 +232,21 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 .drawer-backdrop,.modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.78);backdrop-filter:blur(2px)}
 .drawer-backdrop{justify-content:flex-end}
 .drawer{width:min(620px,100%);height:100%;padding:18px;overflow:auto;background:var(--panel);border-left:1px solid var(--line)}
+
+.themed-modal-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.8);backdrop-filter:blur(3px);overscroll-behavior:contain}
+.themed-modal{position:relative;width:min(440px,100%);padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:0 24px 70px rgba(0,0,0,.7),0 0 0 1px rgba(185,28,28,.14);color:var(--text)}
+.themed-modal h3{margin:5px 46px 8px 0;color:var(--text);font:700 26px var(--display);letter-spacing:.04em}
+.themed-modal p{margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.55}
+.themed-modal-close{position:absolute;top:12px;right:12px}
+.themed-modal-input{display:block;width:100%;margin:0 0 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--text);padding:9px 10px;outline:none}
+.themed-modal-input::placeholder{color:var(--text-dim)}
+.themed-modal-input:focus{border-color:var(--orange);box-shadow:0 0 0 2px rgba(249,115,22,.1)}
+.themed-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.themed-modal-actions .full-confirm{min-width:140px}
+.themed-modal-actions .btn.danger{background:var(--red);color:var(--text);border-color:var(--red)}
+.themed-modal-actions .btn.danger:hover{background:#DC2626;border-color:#DC2626}
+.themed-modal-alert .themed-modal-actions{justify-content:flex-end}
+
 .modal{position:relative;width:min(420px,100%);padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:0 24px 60px rgba(0,0,0,.65),0 0 0 1px rgba(185,28,28,.12);color:var(--text)}
 .modal h3{margin:4px 0 8px;color:var(--text);font:700 26px var(--display);letter-spacing:.04em}
 .modal p{margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.55}
@@ -290,7 +305,7 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 .empty-state.compact{min-height:118px;display:grid;place-items:center;align-content:center;gap:6px}
 .empty-state h1,.empty-state h3{margin:4px 0;color:var(--text);font:700 22px var(--display);letter-spacing:.04em}
 .empty-state p{margin:2px 0;color:var(--muted);font:500 10px var(--mono);line-height:1.6}
-.ops-tabs button:focus-visible,.btn:focus-visible,.member-filters button:focus-visible,.period-switch button:focus-visible,.member-card:focus-visible,.icon-btn:focus-visible{outline:2px solid var(--orange-soft);outline-offset:2px}
+.ops-tabs button:focus-visible,.btn:focus-visible,.member-filters button:focus-visible,.period-switch button:focus-visible,.member-card:focus-visible,.icon-btn:focus-visible,.themed-modal-input:focus-visible{outline:2px solid var(--orange-soft);outline-offset:2px}
 .ops-app button svg,.ops-app [role="button"] svg{color:var(--orange-soft);stroke:currentColor}
 .ops-app .icon-btn{color:var(--orange-soft)}
 .table-scroll{scrollbar-color:var(--red) var(--panel-2);scrollbar-width:thin}
