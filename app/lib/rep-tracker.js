@@ -3,7 +3,7 @@ import { discoverChaos, fetchLiveMembers } from './ninja-source.mjs';
 import { DISCOVERY_CACHE_KEY, DISCOVERY_MAX_AGE_MS, DISCOVERY_RETRY_COOLDOWN_MS, readDiscoveryCache, writeDiscoveryCache, writeLastKnownMembers } from './sync-source-state.mjs';
 import { startOfTodayManila } from './dashboard-time.mjs';
 import { buildRecentActivityEvents } from './rep-tracker-utils.mjs';
-import { buildDailyClanRepTrend, globalRankSummary, readRankingHistory, readRankingSnapshot } from './ranking-cache.js';
+import { buildDailyClanRepTrend, globalRankSummary, readRankingHistory, readRankingSnapshot, recordRankingSnapshot } from './ranking-cache.js';
 import { recordMemberSnapshot } from './member-history.js';
 import { applyRankChanges } from './rank-tracker.mjs';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
@@ -177,6 +177,13 @@ export async function syncTracker({force=false,admin='system'}={}) {
           lastAttemptAt:fresh.capturedAt,
           lastError:null
         }).catch((error)=>console.warn('Discovery cache write failed',error));
+        if(fresh.ranking?.rows?.length){
+          await recordRankingSnapshot({
+            ...fresh.ranking,
+            season:fresh.currentSeason||fresh.ranking.season||null,
+            fetchedAt:fresh.capturedAt
+          }).catch((error)=>console.warn('Ranking history write failed',error));
+        }
         config=await updateConfig({
           clan_id:fresh.clanId,
           clan_name:fresh.clanName,
