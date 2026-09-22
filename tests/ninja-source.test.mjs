@@ -37,7 +37,8 @@ test('member normalization keeps stable IDs and deduplicates repeated IDs', () =
 
 test('source failover records per-source diagnostics without exposing response bodies', async () => {
   const source = await (await import('node:fs/promises')).readFile(new URL('../app/lib/ninja-source.mjs', import.meta.url), 'utf8');
-  assert.match(source, /sourceDiagnostics:\{amf:\{status:'success',httpStatus:response\.status,durationMs:Date\.now\(\)-started\}/);
+  assert.match(source, /sourceDiagnostics:\{amf:\{status:'success',httpStatus:response\.status,durationMs:Date\.now\(\)-started,responseStatus:bodyStatus\?\?null/);
   assert.match(source, /sourceHealth:'degraded'/);
+  assert.match(source, /request:\{origin:AMF_ORIGIN,service:SERVICE,responseTarget:RESPONSE_TARGET/);
   assert.match(source, /error\.sourceDiagnostics=\{amf:amfDiagnostic,legacy:legacyDiagnostic\}/);
 });
