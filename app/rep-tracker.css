@@ -183,7 +183,9 @@ button{color:inherit}
 .ops-list-row>em{color:var(--muted);font:500 10px var(--mono);font-style:normal;white-space:nowrap}
 .ops-list-row.attention{grid-template-columns:8px minmax(0,1fr) auto auto}
 .ops-list-row.attention>b{width:6px;height:18px;padding:0;font-size:0;background:var(--red);border-radius:2px;box-shadow:0 0 8px rgba(185,28,28,.35)}
-.ops-list-row.attention>span small{display:block;margin-top:2px;color:var(--text-dim);font:500 8px var(--mono);letter-spacing:.05em}
+.ops-list-row.attention>span{display:flex;align-items:center;gap:8px;min-width:0}
+.ops-list-row.attention>span>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font:600 11px var(--mono)}
+.ops-list-row.attention>span small{display:inline-flex;align-items:center;flex:0 0 auto;margin-top:0;padding:2px 5px;border:1px solid rgba(185,28,28,.35);border-radius:999px;color:var(--red-soft);background:rgba(185,28,28,.08);font:600 8px var(--mono);letter-spacing:.05em}
 .ops-list-row.attention>strong{color:var(--text)}
 .period-switch{display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:flex-end;padding-top:0}
 .period-switch button{min-width:44px;min-height:44px;padding:7px 10px;line-height:1}
