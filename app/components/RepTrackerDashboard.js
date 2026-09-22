@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, PERIOD_HISTORY_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
+import { getSyncHealthAlertState } from '../lib/sync-health.mjs';
 import OperationsOverview from './OperationsOverview.js';
 import ThemedModal from './ThemedModal.js';
 
@@ -109,8 +110,8 @@ function SyncHealthStrip({data}) {
     </div></div>
     <div className="sync-cluster"><div className="sync-cluster-title">MONITOR</div><div className="sync-cluster-grid">
       <div className="sync-field"><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
-      <div className="sync-field"><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
-      <div className="sync-field"><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
+      <div className="sync-field"><span>SYNC RATE · 60S</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
+      <div className="sync-field"><span>MISSED · 60S</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
       <div className="sync-field sync-field-wide"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
     </div></div>
   </section>;
@@ -119,17 +120,15 @@ function SyncHealthStrip({data}) {
 function SyncHealthAlert({data}) {
   const stats=data?.stats||{};
   const health=data?.syncHealth||{};
-  const rate=Number(stats.syncSuccessRate);
-  const degraded=String(health.lastSourceHealth||'').toLowerCase()==='degraded';
-  const lowRate=Number.isFinite(rate)&&rate<0.7;
-  if(!degraded&&!lowRate)return null;
-  const rateText=Number.isFinite(rate)?Math.round(rate*100)+'%':'—';
+  const alertState=getSyncHealthAlertState({health,stats});
+  if(!alertState.visible)return null;
+  const {degraded,rateText}=alertState;
   const title=degraded?'SYNC HEALTH DEGRADED':'SYNC RATE BELOW 70%';
   const reason=degraded
     ? (health.lastSourceWarning||'Member source fallback is active.')
     : 'Recorded successful syncs are below the configured schedule target.';
-  const lastFailure=health.lastErrorAt
-    ? new Date(health.lastErrorAt).toLocaleString()+' · '+(health.lastError||'Sync failed.')
+  const lastFailure=health.lastFailureAt
+    ? new Date(health.lastFailureAt).toLocaleString()+' · '+(health.lastFailure||'Failure detected.')
     : null;
   return <section className="sync-health-alert" role="status" aria-label="Sync health warning">
     <div className="sync-health-alert-icon">!</div>
