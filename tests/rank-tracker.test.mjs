@@ -43,3 +43,28 @@ test('new members have no false rank indicator and labels are stable',()=>{
   assert.equal(formatRankChange(-2),'▼2');
   assert.equal(formatRankChange(0),'—');
 });
+
+test('rank ordering keeps tied REP members in the same final order as their displayed ranks',()=>{
+  const assigned=applyRankChanges([
+    {id:'rep400-low-id',name:'Rep400 Low ID',reputation:400,level:80},
+    {id:'rep400-high-level',name:'Rep400 High Level',reputation:400,level:90},
+    {id:'rep400-other-level90',name:'Rep400 Other Level 90',reputation:400,level:90},
+    {id:'zero-b',name:'Zero B',reputation:0,level:70},
+    {id:'zero-a',name:'Zero A',reputation:0,level:70}
+  ]);
+
+  const displayedOrder=assigned
+    .slice()
+    .reverse()
+    .sort((a,b)=>a.rank-b.rank)
+    .map((row)=>row.id);
+
+  assert.deepEqual(displayedOrder, assigned.map((row)=>row.id));
+  assert.deepEqual(assigned.map((row)=>({id:row.id,rank:row.rank})),[
+    {id:'rep400-other-level90',rank:1},
+    {id:'rep400-high-level',rank:2},
+    {id:'rep400-low-id',rank:3},
+    {id:'zero-a',rank:4},
+    {id:'zero-b',rank:5}
+  ]);
+});
