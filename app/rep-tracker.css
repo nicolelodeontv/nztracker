@@ -533,7 +533,7 @@ body{font-size:15px;line-height:1.45}
     align-items:center;
     gap:12px;
     padding-bottom:10px;
-    margin-bottom:10px;
+    margin-bottom:0;
   }
   .brand{width:100%;min-width:0}
   .header-right{width:100%;justify-content:flex-start;gap:8px}
@@ -544,7 +544,7 @@ body{font-size:15px;line-height:1.45}
     justify-content:flex-start;
     gap:18px;
     margin-bottom:20px;
-    padding:12px 8px;
+    padding:0 8px 12px;
   }
   .ops-nav button{
     flex:0 0 auto;
