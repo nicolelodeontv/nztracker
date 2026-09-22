@@ -53,7 +53,7 @@ body{--mono:var(--font-mono),'JetBrains Mono','SFMono-Regular',Consolas,monospac
 button,input,select{font:inherit}
 button{color:inherit}
 
-.ops-app{min-height:100vh;max-width:1100px;margin:0 auto;padding:28px 20px 60px;background:var(--bg)}
+.ops-app{min-height:auto;max-width:1100px;margin:0 auto;padding:28px 20px 28px;background:var(--bg)}
 
 .ops-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:22px;border-bottom:1px solid var(--line);margin-bottom:26px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:14px;min-width:0}
@@ -335,8 +335,8 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 .ops-nav::-webkit-scrollbar{display:none}
 
 .site-shell{min-height:100vh;display:flex;flex-direction:column;min-width:0}
-.site-content{flex:1 0 auto;min-width:0}
-.site-footer{flex:0 0 auto;margin-top:30px;padding:0 16px 22px;text-align:center;color:var(--text-dim);font:500 12px/1.4 var(--mono)}
+.site-content{min-width:0}
+.site-footer{flex:0 0 auto;margin-top:20px;padding:0 16px 22px;text-align:center;color:var(--text-dim);font:500 12px/1.4 var(--mono)}
 .site-footer a{color:var(--orange);text-decoration:underline;text-decoration-color:rgba(249,115,22,.45);text-underline-offset:3px;transition:color .15s ease,text-decoration-color .15s ease}
 .site-footer a:hover,.site-footer a:focus-visible{color:var(--orange-soft);text-decoration-color:var(--orange-soft)}
 
@@ -363,7 +363,7 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
   .skeleton-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media(max-width:720px){
-  .ops-app{padding:18px 12px 40px}
+  .ops-app{padding:18px 12px 24px}
   .ops-header{align-items:flex-start}
   .header-right{justify-content:flex-start}
   .header-right time{display:none}
@@ -587,7 +587,7 @@ body{font-size:15px;line-height:1.45}
   .responsive-data-table.final-results-table tbody td:nth-child(6)::before{content:'HOURS'}
   .responsive-data-table.final-results-table tbody td:nth-child(7)::before{content:'REP / HR'}
 
-  .site-footer{margin-top:24px;padding-bottom:18px;font-size:11px}
+  .site-footer{margin-top:18px;padding-bottom:18px;font-size:11px}
 }
 @media(max-width:380px){
   .ops-app{padding-left:10px;padding-right:10px}
