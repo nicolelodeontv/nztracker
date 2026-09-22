@@ -131,7 +131,7 @@ async function fromAmf(clanId){
     const enriched=error instanceof Error?error:new Error(message);
     amfConsecutiveFailures+=1;
     const responseMeta=response?{httpStatus:response.status,httpStatusText:response.statusText||null,contentType:response.headers.get('content-type')||null,contentLength:response.headers.get('content-length')||null}:null;
-    enriched.sourceDiagnostic={status:error?.name==='AbortError'||/timed out|timeout/i.test(message)?'timeout':'error',httpStatus:response?.status??(Number.isFinite(Number(error?.status))?Number(error.status):null),durationMs:Date.now()-started,error:message,amfFailureCount:amfConsecutiveFailures,response:responseMeta,amfResponse:error?.amfResponse||null};
+    enriched.sourceDiagnostic={status:error?.name==='AbortError'||/timed out|timeout/i.test(message)?'timeout':'error',httpStatus:response?.status??(Number.isFinite(Number(error?.status))?Number(error.status):null),durationMs:Date.now()-started,error:message,amfFailureCount:amfConsecutiveFailures,request:{origin:AMF_ORIGIN,service:SERVICE,responseTarget:RESPONSE_TARGET,referer:'https://ninjazenshin.online/'},response:responseMeta,amfResponse:error?.amfResponse||null};
     if(AMF_ALERT_THRESHOLDS.has(amfConsecutiveFailures))console.warn('Ninja Zenshin AMF member source failure threshold reached',{clanId,consecutiveFailures:amfConsecutiveFailures,diagnostic:enriched.sourceDiagnostic});
     throw enriched;
   }
