@@ -64,11 +64,14 @@ test('Global Top distinguishes per-clan tracking state from a global history fla
   assert.match(overview,/rankingGap\(row,ranking\)/);
 });
 
-test('nav and admin logout spacing use the shared responsive layout rules',async()=>{
+test('nav removes only excess top spacing while preserving bottom spacing and logout spacing',async()=>{
   const source=await readFile(new URL('../app/rep-tracker.css',import.meta.url),'utf8');
   const dashboard=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
-  assert.match(source,/\.ops-nav\{[^\n]*padding:12px 10px/);
-  assert.match(source,/@media\(max-width:720px\)[\s\S]*?padding:12px 8px/);
+  assert.match(source,/\.ops-header\{[^\n]*margin-bottom:0/);
+  assert.match(source,/\.ops-nav\{[^\n]*margin-bottom:26px[^\n]*padding:0 10px 12px/);
+  assert.match(source,/@media\(max-width:720px\)[\s\S]*?\.ops-header\{[^}]*margin-bottom:0/);
+  assert.match(source,/@media\(max-width:720px\)[\s\S]*?\.ops-nav\{[^}]*margin-bottom:20px[^}]*padding:0 8px 12px/);
+  assert.match(source,/\.ops-nav button\.active::after\{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px/);
   assert.match(source,/.admin-logout-actions\{margin-top:20px\}/);
   assert.match(dashboard,/className="actions admin-logout-actions"/);
 });
