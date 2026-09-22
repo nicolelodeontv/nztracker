@@ -314,10 +314,16 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 .drawer-check-meta{display:flex;align-items:center;gap:7px;margin:-4px 0 12px;padding:7px 9px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--muted);font:500 9px var(--mono)}
 .drawer-check-meta b{color:var(--orange-soft)}
 .drawer-check-dot{width:7px;height:7px;border-radius:50%;background:var(--ember);box-shadow:var(--shadow-dot)}
-.mini-stats{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:12px}
+.mini-stats{grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:12px}
 .mini-stats>div{background:var(--panel);padding:10px}
 .mini-stats span{display:block;color:var(--text-dim);font:500 8px var(--mono)}
 .mini-stats b{font:700 18px var(--mono);color:var(--orange-soft)}
+.drawer-stamina-note{margin:-4px 0 12px;color:var(--text-dim);font:500 10px/1.4 var(--mono);letter-spacing:.04em}
+.stamina-low{color:var(--red-readable-strong)!important;font-weight:700}
+.stamina-card{grid-column:1/-1}
+.stamina-ok{color:var(--orange-soft)!important}
+.stamina-alert{color:var(--red-readable-strong)!important}
+.stamina-muted{color:var(--text-dim)!important;font-size:16px!important}
 .inset{margin-bottom:12px}
 .chart{width:100%;height:220px;background:#100D0C}
 .chart-axis{stroke:#492020;stroke-width:.7}
@@ -418,6 +424,7 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
   .member-controls{width:100%;display:grid;grid-template-columns:1fr 1fr}
   .member-controls input,.member-controls select{min-width:0;width:100%}
   .mini-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stamina-card{grid-column:auto}
   .drawer{padding:13px}
   .drawer-check-meta{flex-wrap:wrap}
   .source-diagnostic-grid{grid-template-columns:1fr}
@@ -608,8 +615,9 @@ body{font-size:15px;line-height:1.45}
   .responsive-data-table.performance-table tbody td:nth-child(3)::before{content:'LV'}
   .responsive-data-table.performance-table tbody td:nth-child(4)::before{content:'CURRENT REP'}
   .responsive-data-table.performance-table tbody td:nth-child(5)::before{content:'REP GAIN'}
-  .responsive-data-table.performance-table tbody td:nth-child(6)::before{content:'HOURS'}
-  .responsive-data-table.performance-table tbody td:nth-child(7)::before{content:'REP / HR'}
+  .responsive-data-table.performance-table tbody td:nth-child(6)::before{content:'STAMINA'}
+  .responsive-data-table.performance-table tbody td:nth-child(7)::before{content:'HOURS'}
+  .responsive-data-table.performance-table tbody td:nth-child(8)::before{content:'REP / HR'}
 
   .responsive-data-table.history-table tbody td:nth-child(1)::before{content:'SEASON'}
   .responsive-data-table.history-table tbody td:nth-child(2)::before{content:'VERSION'}
