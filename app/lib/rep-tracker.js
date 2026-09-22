@@ -13,6 +13,14 @@ const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETE
 const nowIso=()=>new Date().toISOString();
 const safeText=(value)=>String(value??'').trim();
 const asInt=(value,fallback=0)=>Number.isFinite(Number(value))?Math.trunc(Number(value)):fallback;
+const isStaminaSchemaError=(error)=>{
+  const code=String(error?.code||'');
+  const message=String(error?.message||error||'').toLowerCase();
+  return ['pgrst202','pgrst204','42703','42883'].includes(code)
+    || message.includes('advance_rep_tracker_stamina')
+    || message.includes('column')&&message.includes('stamina')
+    || message.includes('rep_tracker_stamina_state')&&message.includes('relation');
+};
 export function freshness(iso){if(!iso)return{status:'offline',ageSeconds:null};const ageMs=Math.max(0,Date.now()-new Date(iso).getTime());return{status:ageMs<=FRESH_MS?'live':ageMs<=AGING_MS?'aging':'stale',ageSeconds:Math.floor(ageMs/1000)};}
 export async function getConfig(){const db=supabaseAdmin();const{data,error}=await db.from('rep_tracker_config').select('*').eq('id','main').maybeSingle();if(error)throw error;return data||null;}
 async function ensureSeason(config,season,clanId,startedAt=nowIso()){const db=supabaseAdmin();const{data:existing}=await db.from('rep_tracker_seasons').select('*').eq('season',season).maybeSingle();if(existing)return existing;const{data,error}=await db.from('rep_tracker_seasons').insert({season,clan_id:clanId,started_at:startedAt,status:'active'}).select('*').single();if(error)throw error;return data;}
@@ -28,7 +36,12 @@ async function advanceCalculatedStamina(db,{clanId,season,members,capturedAt}){
       p_current_rep:asInt(member.reputation),
       p_captured_at:capturedAt
     });
-    if(error)throw error;
+    if(error){
+      if(isStaminaSchemaError(error)){
+        return{states:[],available:false,error:error instanceof Error?error.message:String(error)};
+      }
+      throw error;
+    }
     const state=Array.isArray(data)?data[0]:data;
     if(!state)throw new Error('Calculated stamina state was not returned for '+String(member.id)+'.');
     states.push({
@@ -42,7 +55,7 @@ async function advanceCalculatedStamina(db,{clanId,season,members,capturedAt}){
       calculatedAt:state.calculated_at||capturedAt
     });
   }
-  return states;
+  return{states,available:true,error:null};
 }
 
 async function upsertMembers({clanId,season,members,capturedAt,staminaById=new Map()}) {
@@ -57,9 +70,10 @@ async function upsertMembers({clanId,season,members,capturedAt,staminaById=new M
   }));
   if(!memberRows.length)return;
   const ids=memberRows.map((row)=>row.member_id);
+  const latestColumns=staminaById.size?'member_id,rep,last_point_at,rank,stamina,max_stamina':'member_id,rep,last_point_at,rank';
   const [{data:existingRows,error:existingError},{data:latestRows,error:latestError}]=await Promise.all([
     db.from('rep_tracker_members').select('*').eq('clan_id',clanId).in('member_id',ids),
-    db.from('rep_tracker_member_latest').select('member_id,rep,last_point_at,rank,stamina,max_stamina').eq('clan_id',clanId).eq('season',season).in('member_id',ids)
+    db.from('rep_tracker_member_latest').select(latestColumns).eq('clan_id',clanId).eq('season',season).in('member_id',ids)
   ]);
   if(existingError)throw existingError;
   if(latestError)throw latestError;
@@ -89,8 +103,10 @@ async function upsertMembers({clanId,season,members,capturedAt,staminaById=new M
       level:asInt(row.current_level),rep:asInt(member.reputation),
       rank:rankState?.rank??null,
       previous_rank:rankState?.previousRank??null,
-      stamina:staminaById.get(String(row.member_id))?.stamina??null,
-      max_stamina:staminaById.get(String(row.member_id))?.maxStamina??null,
+      ...(staminaById.size?{
+        stamina:staminaById.get(String(row.member_id))?.stamina??null,
+        max_stamina:staminaById.get(String(row.member_id))?.maxStamina??null
+      }:{}),
       last_point_at:previousLatest&&Number(previousLatest.rep)===asInt(member.reputation)?previousLatest.last_point_at:capturedAt,
       last_seen_at:capturedAt
     });
@@ -297,12 +313,13 @@ export async function syncTracker({force=false,admin='system'}={}) {
       if(expected>0&&returned<expected)throw new Error('Incomplete live roster: '+returned+' returned, '+expected+' expected.');
 
       const previous=await previousSnapshotMap(config.clan_id,season,memberIds,capturedAt);
-      const staminaStates=await advanceCalculatedStamina(db,{
+      const staminaResult=await advanceCalculatedStamina(db,{
         clanId:config.clan_id,
         season,
         members:live.members,
         capturedAt
       });
+      const staminaStates=staminaResult.states;
       const staminaById=new Map(staminaStates.map((state)=>[state.memberId,state]));
       const previousRun=await db.from('rep_tracker_sync_runs')
         .select('members_returned')
@@ -381,7 +398,8 @@ export async function syncTracker({force=false,admin='system'}={}) {
         rosterChange,
         suspiciousCount:snapshotRows.filter((row)=>row.suspicious).length,
         historyStoredPoints:Number(memberHistory?.storedPoints||0),
-        staminaTracking:'calculated',
+        staminaTracking:staminaResult.available?'calculated':'unavailable',
+        staminaTrackingError:staminaResult.error||null,
         staminaTrackedMembers:staminaStates.length,
         staminaDrainedEvents:staminaStates.reduce((sum,state)=>sum+(Number(state.drained||0)>0?1:0),0),
         staminaRecovered:Number(staminaStates.reduce((sum,state)=>sum+Number(state.recovered||0),0))
@@ -444,7 +462,8 @@ export async function syncTracker({force=false,admin='system'}={}) {
         discoveryStatus:discoveryError?'stale':'fresh',
         suspiciousCount:details.suspiciousCount,
         rosterChange,
-        staminaTracking:'calculated',
+        staminaTracking:staminaResult.available?'calculated':'unavailable',
+        staminaTrackingError:staminaResult.error||null,
         staminaTrackedMembers:staminaStates.length,
         sourceHealth:live.sourceHealth||'healthy',
         sourceDiagnostics:live.sourceDiagnostics||null,
@@ -504,12 +523,18 @@ async function firstTodayMemberPointMap(db,clanId,season,sinceIso,memberCount){
 
 async function latestMembers(clanId,season){
   const db=supabaseAdmin();
-  const {data,error}=await db.from('rep_tracker_member_latest')
+  const full=await db.from('rep_tracker_member_latest')
     .select('member_id,member_name,level,rep,rank,previous_rank,stamina,max_stamina,last_point_at,last_seen_at')
     .eq('clan_id',clanId).eq('season',season)
     .order('member_name',{ascending:true});
-  if(error)throw error;
-  return data||[];
+  if(!full.error)return full.data||[];
+  if(!isStaminaSchemaError(full.error))throw full.error;
+  const fallback=await db.from('rep_tracker_member_latest')
+    .select('member_id,member_name,level,rep,rank,previous_rank,last_point_at,last_seen_at')
+    .eq('clan_id',clanId).eq('season',season)
+    .order('member_name',{ascending:true});
+  if(fallback.error)throw fallback.error;
+  return (fallback.data||[]).map((row)=>({...row,stamina:null,max_stamina:null}));
 }
 export async function liveData(){
   const config=await getConfig();
@@ -739,8 +764,14 @@ export async function memberDetail(memberId,hours=168){
   const db=supabaseAdmin();
   const since=new Date(Date.now()-Math.min(720,Math.max(1,Number(hours)||168))*3600000).toISOString();
   const [memberResult,pointsResult]=await Promise.all([
-    db.from('rep_tracker_member_latest').select('member_id,member_name,level,rep,stamina,max_stamina,last_point_at,last_seen_at')
-      .eq('clan_id',config.clan_id).eq('season',config.current_season).eq('member_id',String(memberId)).maybeSingle(),
+    (async()=>{
+      const full=await db.from('rep_tracker_member_latest').select('member_id,member_name,level,rep,stamina,max_stamina,last_point_at,last_seen_at')
+        .eq('clan_id',config.clan_id).eq('season',config.current_season).eq('member_id',String(memberId)).maybeSingle();
+      if(!full.error||!isStaminaSchemaError(full.error))return full;
+      const fallback=await db.from('rep_tracker_member_latest').select('member_id,member_name,level,rep,last_point_at,last_seen_at')
+        .eq('clan_id',config.clan_id).eq('season',config.current_season).eq('member_id',String(memberId)).maybeSingle();
+      return fallback.error?fallback:{...fallback,data:fallback.data?{...fallback.data,stamina:null,max_stamina:null}:null};
+    })(),
     db.from('rep_tracker_snapshots').select('captured_at,reputation,level,ign,suspicious,suspicious_reason,source,stamina,max_stamina')
       .eq('clan_id',config.clan_id).eq('season',config.current_season).eq('member_id',String(memberId))
       .gte('captured_at',since).order('captured_at',{ascending:true})
