@@ -7,9 +7,9 @@ export const RANKING_SOURCE = `${process.env.GAME_SOURCE_ORIGIN || 'https://ninj
 export const SERVICE = process.env.GAME_MEMBER_SERVICE || 'ClanService.getMemberList';
 export const RESPONSE_TARGET = process.env.GAME_MEMBER_RESPONSE_TARGET || '/1';
 const DEFAULT_MAX_STAMINA = 200;
-export const UPSTREAM_TIMEOUT_MS = 7000;
+export const UPSTREAM_TIMEOUT_MS = 4500;
 export const UPSTREAM_MAX_ATTEMPTS = 2;
-export const UPSTREAM_RETRY_DELAYS_MS = [0, 500];
+export const UPSTREAM_RETRY_DELAYS_MS = [0, 250];
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const memberCache = new Map();
 const inflight = new Map();
@@ -21,22 +21,26 @@ export function isRetryableUpstreamStatus(status){return RETRYABLE_STATUS_CODES.
 export function isRetryableUpstreamError(error){return Boolean(error?.name==='AbortError'||error?.code==='ECONNRESET'||error?.code==='ETIMEDOUT'||error?.code==='EAI_AGAIN'||/timed out|timeout|fetch failed|socket hang up|network/i.test(String(error?.message||error)));}
 const sleep=(ms)=>new Promise((resolve)=>setTimeout(resolve,ms));
 async function fetchWithTimeout(url,options={}){
+  const timeoutMs=Number(options.timeoutMs||UPSTREAM_TIMEOUT_MS);
+  const maxAttempts=Math.max(1,Number(options.maxAttempts||UPSTREAM_MAX_ATTEMPTS));
+  const retryDelays=Array.isArray(options.retryDelays)?options.retryDelays:UPSTREAM_RETRY_DELAYS_MS;
+  const {timeoutMs:_,maxAttempts:__,retryDelays:___,...requestOptions}=options;
   let lastError=null;
-  for(let attempt=0;attempt<UPSTREAM_MAX_ATTEMPTS;attempt++){
+  for(let attempt=0;attempt<maxAttempts;attempt++){
     const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),UPSTREAM_TIMEOUT_MS);
+    const timer=setTimeout(()=>controller.abort(),timeoutMs);
     try{
-      const response=await fetch(url,{...options,signal:controller.signal});
-      if(attempt<UPSTREAM_MAX_ATTEMPTS-1&&isRetryableUpstreamStatus(response.status)){
+      const response=await fetch(url,{...requestOptions,signal:controller.signal});
+      if(attempt<maxAttempts-1&&isRetryableUpstreamStatus(response.status)){
         try{await response.body?.cancel();}catch{}
-        await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt+1]||0);
+        await sleep(retryDelays[attempt+1]||0);
         continue;
       }
       return response;
     }catch(error){
-      lastError=error?.name==='AbortError'?new Error('Upstream request timed out after '+(UPSTREAM_TIMEOUT_MS/1000)+'s.'):error;
-      if(attempt>=UPSTREAM_MAX_ATTEMPTS-1||!isRetryableUpstreamError(error))throw lastError;
-      await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt+1]||0);
+      lastError=error?.name==='AbortError'?new Error('Upstream request timed out after '+(timeoutMs/1000)+'s.'):error;
+      if(attempt>=maxAttempts-1||!isRetryableUpstreamError(error))throw lastError;
+      await sleep(retryDelays[attempt+1]||0);
     }finally{clearTimeout(timer);}
   }
   throw lastError||new Error('Upstream request failed.');
@@ -125,7 +129,7 @@ async function fromLegacy(clanId){
   const started=Date.now();
   const target=`${LEGACY_MEMBER_API}${encodeURIComponent(clanId)}?t=${Date.now()}`;
   try{
-    const response=await fetchWithTimeout(target,{cache:'no-store',headers:{Accept:'text/html,application/json,text/plain,*/*','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
+    const response=await fetchWithTimeout(target,{cache:'no-store',maxAttempts:1,headers:{Accept:'text/html,application/json,text/plain,*/*','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
     if(!response.ok)throw new Error(`Legacy member source returned HTTP ${response.status}.`);
     const text=await response.text();
     let members;
