@@ -41,7 +41,7 @@ jobs:
         run: npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN"
 
       - name: Production smoke test
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
