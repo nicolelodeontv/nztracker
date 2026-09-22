@@ -102,11 +102,11 @@ export function normalizeMembers(rawMembers){
     identityAmbiguous:nameCounts.get(member.identityKey)>1
   }));
 }
-async function fromAmf(clanId){
+async function fromAmf(clanId,extraHeaders={}){
   const started=Date.now();
   let response=null;
   try{
-    response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:GAME_SOURCE_ORIGIN,Pragma:'no-cache',Referer:`${GAME_SOURCE_ORIGIN}/`,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
+    response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:GAME_SOURCE_ORIGIN,Pragma:'no-cache',Referer:`${GAME_SOURCE_ORIGIN}/`,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0',...extraHeaders}});
     const contentType=response.headers.get('content-type')||null;
     const contentLength=response.headers.get('content-length')||null;
     const bytes=new Uint8Array(await response.arrayBuffer());
@@ -158,7 +158,7 @@ async function fromLegacy(clanId){
     throw enriched;
   }
 }
-export async function probeAmfMemberSource(clanId){return fromAmf(clanId);}
+export async function probeAmfMemberSource(clanId,extraHeaders={}){return fromAmf(clanId,extraHeaders);}
 
 export async function fetchLiveMembers(clanId){
   const key=String(clanId||'').trim();
