@@ -5,6 +5,7 @@ import { startOfTodayManila } from './dashboard-time.mjs';
 import { buildRecentActivityEvents } from './rep-tracker-utils.mjs';
 import { buildDailyClanRepTrend, globalRankSummary, readRankingHistory, readRankingSnapshot } from './ranking-cache.js';
 import { recordMemberSnapshot } from './member-history.js';
+import { applyRankChanges } from './rank-tracker.mjs';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 
 const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
@@ -501,7 +502,7 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult,firstTodaySyncResult]=await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult,firstTodaySyncResult,clanRepHistoryResult]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
@@ -569,6 +570,9 @@ export async function dashboardData(){
       hours,
       repPerHour:hours>0?gain/hours:0,
       source:'Ninja Zenshin live member monitor',
+      rank:Number(row.rank||0)||null,
+      previousRank:Number(row.previous_rank||0)||null,
+      rankDelta:row.previous_rank==null?null:Number(row.previous_rank)-Number(row.rank),
       capturedAt:row.last_seen_at,
       suspicious:false,
       status:syncFresh.status
