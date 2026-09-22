@@ -1,6 +1,10 @@
 -- Calculated Stamina / Bleeding tracker.
 -- This is tracker-derived state, not server-reported Ninja Zenshin Stamina.
 
+alter table public.rep_tracker_member_latest
+  add column if not exists stamina integer,
+  add column if not exists max_stamina integer;
+
 create table if not exists public.rep_tracker_stamina_state (
   clan_id text not null,
   season text not null,
