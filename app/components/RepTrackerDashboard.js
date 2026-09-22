@@ -109,8 +109,8 @@ function SyncHealthStrip({data}) {
     </div></div>
     <div className="sync-cluster"><div className="sync-cluster-title">MONITOR</div><div className="sync-cluster-grid">
       <div className="sync-field"><span>RANKING</span><b>{String(health.lastRankingStatus||data?.syncStatus?.rankingStatus||'—').toUpperCase()}</b></div>
-      <div className="sync-field"><span>SYNC RATE</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
-      <div className="sync-field"><span>MISSED</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
+      <div className="sync-field"><span>SYNC RATE · 60S</span><b>{stats.syncsCompleted||0}/{stats.syncsExpected||0} · {successRate}%</b></div>
+      <div className="sync-field"><span>MISSED · 60S</span><b className={Number(stats.syncsMissed||0)>0?'warn-text':'up'}>{Number(stats.syncsMissed||0)}</b></div>
       <div className="sync-field sync-field-wide"><span>LAST ERROR</span><b>{health.lastError||'NONE'}</b></div>
     </div></div>
   </section>;
@@ -128,8 +128,8 @@ function SyncHealthAlert({data}) {
   const reason=degraded
     ? (health.lastSourceWarning||'Member source fallback is active.')
     : 'Recorded successful syncs are below the configured schedule target.';
-  const lastFailure=health.lastErrorAt
-    ? new Date(health.lastErrorAt).toLocaleString()+' · '+(health.lastError||'Sync failed.')
+  const lastFailure=health.lastFailureAt
+    ? new Date(health.lastFailureAt).toLocaleString()+' · '+(health.lastFailure||'Failure detected.')
     : null;
   return <section className="sync-health-alert" role="status" aria-label="Sync health warning">
     <div className="sync-health-alert-icon">!</div>
