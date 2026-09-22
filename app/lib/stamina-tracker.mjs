@@ -27,7 +27,9 @@ export function calculateStaminaStep({
   capturedAt = null
 } = {}) {
   const before = clampStamina(previousStamina);
-  const previous = Number.isFinite(Number(previousRep)) ? Number(previousRep) : null;
+  const previous = previousRep === null || previousRep === undefined || previousRep === ''
+    ? null
+    : (Number.isFinite(Number(previousRep)) ? Number(previousRep) : null);
   const current = finite(currentRep);
   const intervals = recoveryIntervalsElapsed(previousCalculatedAt, capturedAt);
   const recovered = Math.min(
