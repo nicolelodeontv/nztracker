@@ -2,6 +2,18 @@ import { supabaseAdmin } from './supabase-admin.js';
 
 export const SYNC_HEALTH_KEY = 'sync-health:latest';
 
+export function getSyncHealthAlertState({health={},stats={}}={}){
+  const rate=Number(stats.syncSuccessRate);
+  const degraded=String(health.lastSourceHealth||'').toLowerCase()==='degraded';
+  const lowRate=Number.isFinite(rate)&&rate<0.7;
+  return{
+    visible:degraded||lowRate,
+    degraded,
+    lowRate,
+    rateText:Number.isFinite(rate)?Math.round(rate*100)+'%':'—'
+  };
+}
+
 export function buildSyncHealthSnapshot({
   previous=null,
   outcome='success',
