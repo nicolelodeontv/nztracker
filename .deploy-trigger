@@ -4,3 +4,4 @@ Force redeploy after sync-all roster-load fix.
 Force redeploy after exact PvP schema + leaderboard UI fixes.
 
 Force production redeploy after admin render race fix (2026-09-21).
+Force production redeploy after nav spacing and footer cleanup (2026-09-22).
