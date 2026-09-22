@@ -84,3 +84,42 @@ test('shared sync-health banner reads the fresh lastFailureAt field and labels a
     assert.ok(source.includes("view==='"+view+"'"), 'missing '+view+' view');
   }
 });
+
+test('AMF failure with healthy LEGACY stays non-urgent',()=>{
+  const state=getSyncHealthAlertState({
+    health:{
+      lastSourceHealth:'degraded',
+      lastMemberSource:'legacy',
+      lastMemberStatus:'success',
+      lastLegacySuccessAt:'2026-09-22T05:00:00.000Z',
+      consecutiveSourceWarnings:4077,
+      sourceDiagnostics:{
+        amf:{status:'error',httpStatus:401,error:'AMF authorization required.'},
+        legacy:{status:'success',httpStatus:200}
+      }
+    },
+    stats:{syncSuccessRate:0.98}
+  });
+  assert.equal(state.visible,true);
+  assert.equal(state.urgent,false);
+  assert.equal(state.quietFallback,true);
+});
+
+test('AMF and LEGACY failure escalates to urgent state',()=>{
+  const state=getSyncHealthAlertState({
+    health:{
+      lastSourceHealth:'down',
+      lastMemberSource:null,
+      lastMemberStatus:'error',
+      sourceDiagnostics:{
+        amf:{status:'error',httpStatus:401,error:'AMF authorization required.'},
+        legacy:{status:'error',httpStatus:503,error:'Legacy source unavailable.'}
+      }
+    },
+    stats:{syncSuccessRate:0.98}
+  });
+  assert.equal(state.visible,true);
+  assert.equal(state.urgent,true);
+  assert.equal(state.quietFallback,false);
+  assert.equal(state.legacyFailed,true);
+});

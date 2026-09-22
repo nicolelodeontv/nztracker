@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL_MS, PERIOD_HISTORY_REFRESH_INTERVAL_MS } from '../lib/dashboard-client.mjs';
 import { buildMemberRows } from '../lib/metrics.js';
 import { getSyncHealthAlertState } from '../lib/sync-health.mjs';
+import { formatRankChange } from '../lib/rank-tracker.mjs';
 import OperationsOverview from './OperationsOverview.js';
 import ThemedModal from './ThemedModal.js';
 
@@ -80,6 +81,36 @@ function LineChart({ points }) {
   }).join(' ');
   return <svg className="chart" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="REP progression"><path d="M 0 96 L 100 96" className="chart-axis"/><path d={path} className="chart-line" /></svg>;
 }
+function ClanRepTrendChart({points=[]}) {
+  const trend=Array.isArray(points)?points.filter((point)=>Number.isFinite(Number(point?.reputation))):[];
+  if(!trend.length)return <section className="panel trend-panel"><div className="section-title"><div><span className="eyebrow">SEASON TREND</span><h3>CLAN REP</h3></div><span>Daily snapshots</span></div><div className="chart-empty">NO DAILY REP SNAPSHOTS YET</div></section>;
+  const min=Math.min(...trend.map((point)=>Number(point.reputation)));
+  const max=Math.max(...trend.map((point)=>Number(point.reputation)));
+  const span=Math.max(1,max-min);
+  const chartPoints=trend.map((point,index)=>{
+    const x=(index/Math.max(1,trend.length-1))*100;
+    const y=92-((Number(point.reputation)-min)/span)*74;
+    return{...point,x,y};
+  });
+  const path=chartPoints.map((point,index)=>(index?'L':'M')+' '+point.x.toFixed(2)+' '+point.y.toFixed(2)).join(' ');
+  const labelIndexes=[0,Math.floor((trend.length-1)/2),trend.length-1].filter((value,index,array)=>array.indexOf(value)===index);
+  const labelDate=(value)=>new Date(value).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  return <section className="panel trend-panel" aria-label="Clan REP trend">
+    <div className="section-title"><div><span className="eyebrow">SEASON TREND</span><h3>CLAN REP</h3></div><span>{trend.length} day{trend.length===1?'':'s'} tracked</span></div>
+    <div className="trend-chart-wrap">
+      <div className="trend-y-axis"><span>{fmt(max)}</span><span>{fmt(min)}</span></div>
+      <svg className="trend-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Daily total clan REP trend">
+        <path d="M 0 18 L 100 18" className="trend-grid-line"/>
+        <path d="M 0 55 L 100 55" className="trend-grid-line"/>
+        <path d="M 0 92 L 100 92" className="trend-grid-line"/>
+        {chartPoints.length>1&&<path d={path} className="trend-chart-line"/>}
+        {chartPoints.map((point)=><circle key={point.date} cx={point.x} cy={point.y} r="1.6" className="trend-chart-point"/>).slice(-7)}
+      </svg>
+    </div>
+    <div className="trend-x-axis">{labelIndexes.map((index)=><span key={trend[index].date}>{labelDate(trend[index].date)} · {fmt(trend[index].reputation)}</span>)}</div>
+    {trend.length===1&&<div className="chart-empty trend-caption">ONE DAILY SNAPSHOT STORED · THE LINE WILL EXTEND WITH THE NEXT DAY</div>}
+  </section>;
+}
 
 function SyncHealthStrip({data}) {
   const [now,setNow]=useState(Date.now());
@@ -122,18 +153,31 @@ function SyncHealthAlert({data}) {
   const health=data?.syncHealth||{};
   const alertState=getSyncHealthAlertState({health,stats});
   if(!alertState.visible)return null;
-  const {degraded,rateText}=alertState;
-  const title=degraded?'SYNC HEALTH DEGRADED':'SYNC RATE BELOW 70%';
-  const reason=degraded
-    ? (health.lastSourceWarning||'Member source fallback is active.')
-    : 'Recorded successful syncs are below the configured schedule target.';
+  if(!alertState.urgent){
+    const fallback=alertState.quietFallback;
+    return <section className="sync-health-note" role="status" aria-label="Sync health notice">
+      <div className="sync-health-note-icon">i</div>
+      <div className="sync-health-note-body">
+        <div><strong>{fallback?'AMF FALLBACK ACTIVE':'SYNC RATE BELOW 70%'}</strong><span>{fallback?'LEGACY HEALTHY':'MONITOR'}</span></div>
+        <p>{fallback
+          ? 'AMF authorization is unavailable; LEGACY is serving live member data normally.'
+          : 'Recorded successful syncs are below the configured schedule target.'}</p>
+        {fallback&&<small>FALLBACK RUNS {Number(health.consecutiveSourceWarnings||0)} · AMF diagnostics remain available in Admin</small>}
+        {!fallback&&<small>SYNC RATE {alertState.rateText} · SOURCE DATA REMAINS AVAILABLE</small>}
+      </div>
+    </section>;
+  }
+  const reason=health.lastSourceWarning
+    || health.sourceDiagnostics?.legacy?.error
+    || health.lastFailure
+    || 'LEGACY member source is unavailable.';
   const lastFailure=health.lastFailureAt
     ? new Date(health.lastFailureAt).toLocaleString()+' · '+(health.lastFailure||'Failure detected.')
     : null;
-  return <section className="sync-health-alert" role="status" aria-label="Sync health warning">
+  return <section className="sync-health-alert" role="alert" aria-label="Sync health urgent warning">
     <div className="sync-health-alert-icon">!</div>
     <div className="sync-health-alert-body">
-      <div><strong>{title}</strong><span>SYNC RATE {rateText}</span></div>
+      <div><strong>LEGACY SOURCE FAILURE</strong><span>SYNC RATE {alertState.rateText}</span></div>
       <p>{reason}</p>
       {lastFailure&&<small>LAST FAILURE {lastFailure}</small>}
     </div>
@@ -383,7 +427,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
 
   const rows = data?.rows || [];
   const periodRows = useMemo(() => {
-    const currentMembers = rows.map((row)=>({id:row.id,name:row.member,reputation:row.rep,level:row.level}));
+    const currentMembers = rows.map((row)=>({...row,name:row.member,reputation:row.rep,level:row.level}));
     if (!periodHistory?.members) return rows;
     return buildMemberRows(currentMembers, periodHistory.members, periodHours, Date.now());
   }, [rows, periodHistory, periodHours]);
@@ -535,7 +579,8 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       <section className="season-band"><div><span className="eyebrow">SEASON</span><h1>{data.season}</h1><p>Clan {data.config.clan_name} · ID {data.config.clan_id} {data.config.current_round?`· Round ${data.config.current_round}`:''}</p></div><div className="season-box"><span>FINAL DAY IN</span><Countdown target={data.config.final_day_at}/></div><div className="season-box"><span>SERVER TIME</span><b>{new Date(data.serverTime).toLocaleString()}</b></div></section>
       <OperationsOverview data={data} rows={periodRows} periodHours={periodHours} setPeriodHours={setPeriodHours} />
       <section className="stats-grid"><div><span>TOTAL CLAN REP</span><b>{fmt(data.stats.totalRep)}</b></div><div><span title="Cumulative REP gained since the first recorded member snapshot today.">TODAY'S GAIN</span><b className="up">{data.stats.todayGainAvailable?'+'+fmt(data.stats.todayGain):'—'}</b></div><div><span>SEASON GAIN</span><b>+{fmt(data.stats.totalGain)}</b></div><div><span>ACTIVE MEMBERS</span><b>{data.stats.activeMembers}</b></div><div><span title="Manually recorded/tracked work hours for the current season.">TRACKED HOURS</span><b>{data.stats.totalHours>0?fmtHours(data.stats.totalHours):'—'}</b></div><div><span title="Season REP gain divided by manually recorded tracked hours. This is unavailable until tracked hours exist.">AVG REP / HOUR</span><b>{data.stats.totalHours>0?fmt(data.stats.avgRepPerHour):'—'}</b></div></section>
-      <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table className="responsive-data-table performance-table"><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th>{showHoursColumns&&<><th>HOURS</th><th>REP / HR</th></>}</tr></thead><tbody>{rows.map((r,i)=>{const zeroGain=Number(r.gain||0)===0;const tier=i===0?'tier-1':i===1?'tier-2':i===2?'tier-3':'';return <tr key={r.id} className={[tier,zeroGain?'dim-row':'',r.lastPointAt&&Date.now()-new Date(r.lastPointAt).getTime()<90000?'recent-change':''].filter(Boolean).join(' ')} tabIndex="0" role="button" aria-label={'Open details for '+r.member} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelected(r);}}} onClick={()=>setSelected(r)}><td>#{i+1}</td><td className="member-name">{r.member}{r.suspicious&&<span className="status suspicious-flag"> · SUSPICIOUS</span>}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':'gain-zero'}>{r.gain>0?'+'+fmt(r.gain):fmt(r.gain)}</td>{showHoursColumns&&<><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></>}</tr>;})}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
+      <ClanRepTrendChart points={data.clanRepTrend}/>
+      <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table className="responsive-data-table performance-table"><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th>{showHoursColumns&&<><th>HOURS</th><th>REP / HR</th></>}</tr></thead><tbody>{rows.map((r,i)=>{const zeroGain=Number(r.gain||0)===0;const tier=i===0?'tier-1':i===1?'tier-2':i===2?'tier-3':'';return <tr key={r.id} className={[tier,zeroGain?'dim-row':'',r.lastPointAt&&Date.now()-new Date(r.lastPointAt).getTime()<90000?'recent-change':''].filter(Boolean).join(' ')} tabIndex="0" role="button" aria-label={'Open details for '+r.member} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelected(r);}}} onClick={()=>setSelected(r)}><td>#{r.rank||i+1}{r.rankDelta!=null&&<span className={`rank-movement ${r.rankDelta>0?'up':r.rankDelta<0?'down':''}`} aria-label={r.rankDelta>0?'Moved up '+r.rankDelta+' place'+(r.rankDelta===1?'':'s'):r.rankDelta<0?'Moved down '+Math.abs(r.rankDelta)+' place'+(Math.abs(r.rankDelta)===1?'':'s'):'No rank change'}>{formatRankChange(r.rankDelta)}</span>}</td><td className="member-name">{r.member}{r.suspicious&&<span className="status suspicious-flag"> · SUSPICIOUS</span>}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':'gain-zero'}>{r.gain>0?'+'+fmt(r.gain):fmt(r.gain)}</td>{showHoursColumns&&<><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></>}</tr>;})}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
       <section className="two-col"><div className="panel"><div className="section-title"><div><span className="eyebrow">RECENT REP ACTIVITY</span><h3>LATEST GAINS</h3></div></div><div className="activity">{activity.map((e,i)=><div key={i}><b>{e.member}</b><span className="up">+{fmt(e.gain)}</span><time>{new Date(e.at).toLocaleTimeString()}</time></div>)}{!activity.length&&<div className="chart-empty">NO GAIN EVENTS STORED</div>}</div></div><div className="panel"><div className="section-title"><div><span className="eyebrow">TOP GAINERS TODAY</span><h3>PERFORMANCE</h3></div></div><div className="top-list">{top.map((r,i)=><div key={r.id}><b>{String(i+1).padStart(2,'0')}</b><span>{r.member}</span><strong>{data.stats.todayGainAvailable?'+'+fmt(r.todayGain):'—'}</strong><em>{fmt(r.repPerHour)}/h</em></div>)}</div></div></section>
       {data.stats.suspiciousCount>0&&<section className="notice bad">{data.stats.suspiciousCount} suspicious REP decrease snapshot(s) retained for audit. No value was discarded.</section>}
     </>}
@@ -558,7 +603,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       </div>
       <div className="member-grid">
         {filteredMembers.map((r,i)=><button className="member-card" key={r.id} onClick={()=>setSelected(r)}>
-          <span className="eyebrow">{r.status} · LV {r.level}</span>
+          <span className="eyebrow">{r.status} · LV {r.level} · RANK #{r.rank||'—'}{r.rankDelta!=null?<span className="rank-movement">{formatRankChange(r.rankDelta)}</span>:null}</span>
           <h3>{r.member||r.name}</h3>
           <b>{fmt(r.current||r.rep)} REP</b>
           <div><span>+{fmt(r.gain)} · {fmt(r.gainPerHour)}/h</span><span>{r.latestTs?age(Math.floor((Date.now()-r.latestTs)/1000)):'NO SNAPSHOT'}</span></div>
@@ -568,7 +613,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     </section>}
     {view==='history'&&<section><div className="page-head"><div><span className="eyebrow">SEASON HISTORY</span><h1>IMMUTABLE REPORTS</h1><p>Previous finalized versions remain available for audit.</p></div></div>{finalizations.length?<div className="panel table-panel"><div className="table-scroll"><table className="responsive-data-table history-table"><thead><tr><th>SEASON</th><th>VERSION</th><th>FINAL TIMESTAMP</th><th>MEMBERS</th><th>FINAL REP</th><th>GAIN</th>{showHistoryHoursColumns&&<><th>HOURS</th><th>REP/H</th></>}</tr></thead><tbody>{finalizations.map(f=><tr key={String(f.season)+'-'+String(f.version)}><td>{f.season}</td><td>v{f.version}</td><td>{new Date(f.final_timestamp).toLocaleString()}</td><td>{f.member_count}</td><td>{fmt(f.total_rep)}</td><td>+{fmt(f.season_gain)}</td>{showHistoryHoursColumns&&<><td>{fmtHours(f.total_hours)}</td><td>{fmt(f.avg_rep_per_hour)}</td></>}</tr>)}</tbody></table></div></div>:<div className="panel empty-state compact"><h3>NO FINALIZED SEASONS</h3><p>A final snapshot appears here only after a verified live sync is locked.</p></div>}</section>}
 
-    {view==='final'&&<section><div className="page-head"><div><span className="eyebrow">FINAL RESULTS</span><h1>{latestFinal?.season || data.season}</h1><p>{latestFinal?'FINAL DAY LOCKED':'Not finalized yet'}</p></div>{latestFinal&&<div className="actions"><a className="btn" href={`/api/export?type=final&format=csv&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT CSV</a><a className="btn" href={`/api/export?type=final&format=json&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT JSON</a><button className="btn primary" onClick={()=>window.print()}>PRINT REPORT</button></div>}</div>{latestFinal?<><div className="stats-grid final"><div><span>FINAL REP</span><b>{fmt(latestFinal.total_rep)}</b></div><div><span>TOTAL GAIN</span><b>+{fmt(latestFinal.season_gain)}</b></div><div><span>MEMBERS</span><b>{latestFinal.member_count}</b></div><div><span>TOTAL HOURS</span><b>{fmtHours(latestFinal.total_hours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(latestFinal.avg_rep_per_hour)}</b></div><div><span>LOCKED AT</span><b>{new Date(latestFinal.final_timestamp).toLocaleString()}</b></div></div><div className="panel table-panel"><div className="table-scroll"><table className="responsive-data-table final-results-table"><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>FINAL REP</th><th>GAIN</th>{showFinalHoursColumns&&<><th>HOURS</th><th>REP / HR</th></>}</tr></thead><tbody>{finalRows.map((r,i)=>{const zeroGain=Number(r.gain||0)===0;return <tr key={r.id||i} className={[zeroGain?'dim-row':'',i===0?'tier-1':i===1?'tier-2':i===2?'tier-3':''].filter(Boolean).join(' ')}><td>#{i+1}</td><td>{r.member}</td><td>{r.level}</td><td>{fmt(r.rep)}</td><td className={zeroGain?'gain-zero':'up'}>+{fmt(r.gain)}</td>{showFinalHoursColumns&&<><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></>}</tr>;})}</tbody></table></div></div></>:<div className="panel empty-state compact final-lock-state"><h3>FINAL DAY NOT LOCKED</h3><p>Locking requires a fresh successful upstream sync and a complete expected roster.</p><div className="lock-checklist" aria-label="Final day lock requirements"><div className={upstreamSyncHealthy?'lock-check met':'lock-check unmet'}><b aria-hidden="true">{upstreamSyncHealthy?'✓':'×'}</b><span><strong>Upstream sync healthy</strong><small>{upstreamSyncHealthy?'LIVE · SOURCE HEALTH HEALTHY':'Requires LIVE sync, successful member sync, and healthy source health.'}</small></span></div><div className={rosterComplete?'lock-check met':'lock-check unmet'}><b aria-hidden="true">{rosterComplete?'✓':'×'}</b><span><strong>Roster complete</strong><small>{expectedMemberCount>0?`${rows.length} / ${expectedMemberCount} members`:'Expected roster count unavailable'}</small></span></div></div></div>}</section>}
+    {view==='final'&&<section><div className="page-head"><div><span className="eyebrow">FINAL RESULTS</span><h1>{latestFinal?.season || data.season}</h1><p>{latestFinal?'FINAL DAY LOCKED':'Not finalized yet'}</p></div>{latestFinal&&<div className="actions"><a className="btn" href={`/api/export?type=final&format=csv&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT CSV</a><a className="btn" href={`/api/export?type=final&format=json&season=${encodeURIComponent(latestFinal.season)}`}>EXPORT JSON</a><button className="btn primary" onClick={()=>window.print()}>PRINT REPORT</button></div>}</div>{latestFinal?<><div className="stats-grid final"><div><span>FINAL REP</span><b>{fmt(latestFinal.total_rep)}</b></div><div><span>TOTAL GAIN</span><b>+{fmt(latestFinal.season_gain)}</b></div><div><span>MEMBERS</span><b>{latestFinal.member_count}</b></div><div><span>TOTAL HOURS</span><b>{fmtHours(latestFinal.total_hours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(latestFinal.avg_rep_per_hour)}</b></div><div><span>LOCKED AT</span><b>{new Date(latestFinal.final_timestamp).toLocaleString()}</b></div></div><div className="panel table-panel"><div className="table-scroll"><table className="responsive-data-table final-results-table"><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>FINAL REP</th><th>GAIN</th>{showFinalHoursColumns&&<><th>HOURS</th><th>REP / HR</th></>}</tr></thead><tbody>{finalRows.map((r,i)=>{const zeroGain=Number(r.gain||0)===0;return <tr key={r.id||i} className={[zeroGain?'dim-row':'',i===0?'tier-1':i===1?'tier-2':i===2?'tier-3':''].filter(Boolean).join(' ')}><td>#{r.rank||i+1}</td><td>{r.member}</td><td>{r.level}</td><td>{fmt(r.rep)}</td><td className={zeroGain?'gain-zero':'up'}>+{fmt(r.gain)}</td>{showFinalHoursColumns&&<><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></>}</tr>;})}</tbody></table></div></div></>:<div className="panel empty-state compact final-lock-state"><h3>FINAL DAY NOT LOCKED</h3><p>Locking requires a fresh successful upstream sync and a complete expected roster.</p><div className="lock-checklist" aria-label="Final day lock requirements"><div className={upstreamSyncHealthy?'lock-check met':'lock-check unmet'}><b aria-hidden="true">{upstreamSyncHealthy?'✓':'×'}</b><span><strong>Upstream sync healthy</strong><small>{upstreamSyncHealthy?'LIVE · SOURCE HEALTH HEALTHY':'Requires LIVE sync, successful member sync, and healthy source health.'}</small></span></div><div className={rosterComplete?'lock-check met':'lock-check unmet'}><b aria-hidden="true">{rosterComplete?'✓':'×'}</b><span><strong>Roster complete</strong><small>{expectedMemberCount>0?`${rows.length} / ${expectedMemberCount} members`:'Expected roster count unavailable'}</small></span></div></div></div>}</section>}
 
     {view==='admin'&&<section><div className="page-head"><div><span className="eyebrow">ADMINISTRATION</span><h1>CONTROL ROOM</h1><p>Protected actions. Historical snapshots are never silently replaced.</p></div></div>{adminContent}</section>}
     {selected&&<MemberDrawer member={selected} onClose={()=>setSelected(null)}/>}

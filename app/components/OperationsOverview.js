@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { formatGlobalMove, memberDisplayName, selectNeedsAttention, selectTopBurn } from '../lib/operations-overview.mjs';
 
 const fmt=(n)=>Number(n||0).toLocaleString();
 const periodLabels={1:'1H',3:'3H',6:'6H',12:'12H',24:'24H',168:'7D'};
@@ -9,11 +10,9 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
   const [opsTab,setOpsTab]=useState('overview');
   const global=data?.global||null;
   const ranking=Array.isArray(data?.globalRanking)?data.globalRanking:[];
-  const top=[...rows].sort((a,b)=>Number(b.gain||0)-Number(a.gain||0)).slice(0,5);
-  const attention=[...rows]
-    .filter((row)=>['NO GAIN','IDLE','MISSING','RESET'].includes(row.status))
-    .sort((a,b)=>Number(a.gain||0)-Number(b.gain||0))
-    .slice(0,6);
+  const top=selectTopBurn(rows,5);
+  const attention=selectNeedsAttention(rows,6);
+  const moveTrackingAvailable=Boolean(data?.global?.moveTrackingAvailable);
   const periodRows=rows.filter((row)=>(row.historyMember?.points?.length||0)>=2);
   const hourly=periodRows.length?periodRows.reduce((sum,row)=>sum+Number(row.gainPerHour||0),0)/periodRows.length:null;
   const projectedDaily=data?.stats?.todayGainAvailable?Number(global?.projectedDailyGain||0):null;
@@ -63,14 +62,14 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
         <div>
           <span className="eyebrow">TOP BURN · {periodLabels[periodHours]}</span>
           <div className="ops-list">
-            {top.map((row,i)=><div className="ops-list-row" key={row.id}><b>#{i+1}</b><span>{row.member}</span><strong>+{fmt(row.gain)}</strong><em>{fmt(row.gainPerHour)}/h</em></div>)}
+            {top.map((row,i)=><div className="ops-list-row" key={row.id}><b>#{i+1}</b><span>{memberDisplayName(row)}</span><strong>+{fmt(row.gain)}</strong><em>{fmt(row.gainPerHour)}/h</em></div>)}
             {!top.length&&<div className="chart-empty">NO PERIOD DATA</div>}
           </div>
         </div>
         <div>
           <span className="eyebrow">NEEDS ATTENTION · {periodLabels[periodHours]}</span>
           <div className="ops-list">
-            {attention.map((row)=><div className="ops-list-row attention" key={row.id}><b>!</b><span>{row.member}<small>{row.status}</small></span><strong>+{fmt(row.gain)}</strong><em>{fmt(row.gainPerHour)}/h</em></div>)}
+            {attention.map((row)=><div className="ops-list-row attention" key={row.id}><b>!</b><span className="attention-member"><strong>{memberDisplayName(row)}</strong><small>{String(row.status||'UNKNOWN').toUpperCase()}</small></span><strong>+{fmt(row.gain)}</strong><em>{fmt(row.gainPerHour)}/h</em></div>)}
             {!attention.length&&<div className="chart-empty">NO MEMBERS FLAGGED</div>}
           </div>
         </div>
@@ -85,7 +84,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
           <tbody>
             {ranking.map((row)=><tr key={row.clanId} className={String(row.clanId)===String(data?.config?.clan_id)?'is-chaos':''}>
               <td>#{row.rank}</td><td className="member-name">{row.clan}</td><td>{row.master||'—'}</td><td>{row.memberCurrent}/{row.memberMax}</td><td className="num">{fmt(row.reputation)}</td>
-              <td className={(row.change?.rankDelta||0)>0?'up':(row.change?.rankDelta||0)<0?'down':''}>{row.change?.rankDelta>0?'↑'+row.change.rankDelta:row.change?.rankDelta<0?'↓'+Math.abs(row.change.rankDelta):'—'}</td>
+              <td className={(row.change?.rankDelta||0)>0?'up':(row.change?.rankDelta||0)<0?'down':''}>{formatGlobalMove(row.change,moveTrackingAvailable)}</td>
               <td>{row.rank>1?rankingGap(row,ranking):'—'}</td>
             </tr>)}
           </tbody>

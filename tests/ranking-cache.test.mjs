@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeRankingChanges, globalRankSummary } from '../app/lib/ranking-cache.js';
+import { buildDailyClanRepTrend, computeRankingChanges, globalRankSummary } from '../app/lib/ranking-cache.js';
 
 test('ranking changes compare current and previous snapshots',()=>{
   const changes=computeRankingChanges([
@@ -31,4 +31,19 @@ test('global rank summary exposes target gap',()=>{
   assert.equal(summary.above.clan,'A');
   assert.equal(summary.above.gap,3000);
   assert.equal(summary.below.gap,2000);
+});
+
+test('daily clan REP trend keeps the latest snapshot for each Manila day',()=>{
+  const trend=buildDailyClanRepTrend([
+    {snapshot_at:'2026-09-20T08:00:00.000Z',reputation:1000},
+    {snapshot_at:'2026-09-20T12:00:00.000Z',reputation:1100},
+    {snapshot_at:'2026-09-21T12:00:00.000Z',reputation:1200},
+    {snapshot_at:'2026-09-22T04:00:00.000Z',reputation:1300},
+    {snapshot_at:'invalid',reputation:9999}
+  ]);
+  assert.deepEqual(trend.map((row)=>[row.date,row.reputation]),[
+    ['2026-09-20',1100],
+    ['2026-09-21',1200],
+    ['2026-09-22',1300]
+  ]);
 });

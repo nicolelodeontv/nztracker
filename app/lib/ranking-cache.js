@@ -4,6 +4,30 @@ const RANKING_KEY = 'ranking-cache:latest';
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
 export const RANKING_HISTORY_SAMPLE_MS = 5 * 60 * 1000;
 
+function manilaDate(iso,timeZone='Asia/Manila'){
+  const date=new Date(iso);
+  if(!Number.isFinite(date.getTime()))return null;
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+  const values=Object.fromEntries(parts.filter((part)=>part.type!=='literal').map((part)=>[part.type,part.value]));
+  return values.year+'-'+values.month+'-'+values.day;
+}
+
+export function buildDailyClanRepTrend(historyRows=[],timeZone='Asia/Manila'){
+  const latestByDay=new Map();
+  for(const row of Array.isArray(historyRows)?historyRows:[]){
+    const capturedAt=row?.snapshot_at||row?.snapshotAt||row?.captured_at;
+    const day=manilaDate(capturedAt,timeZone);
+    const reputation=Number(row?.reputation);
+    const timestamp=Date.parse(capturedAt||'');
+    if(!day||!Number.isFinite(reputation)||!Number.isFinite(timestamp))continue;
+    const current=latestByDay.get(day);
+    if(!current||timestamp>Date.parse(current.capturedAt)){
+      latestByDay.set(day,{date:day,reputation,capturedAt:new Date(timestamp).toISOString()});
+    }
+  }
+  return [...latestByDay.values()].sort((a,b)=>a.date.localeCompare(b.date));
+}
+
 export const rankingCachePath = () => RANKING_KEY;
 
 export function computeRankingChanges(currentRows = [], previousRows = []) {

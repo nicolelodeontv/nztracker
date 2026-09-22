@@ -2,13 +2,37 @@ import { supabaseAdmin } from './supabase-admin.js';
 
 export const SYNC_HEALTH_KEY = 'sync-health:latest';
 
+function sourceStatus(value){
+  return String(value??'').trim().toLowerCase();
+}
+
+function sourceFailed(value){
+  return ['error','timeout','failed','down'].includes(sourceStatus(value));
+}
+
 export function getSyncHealthAlertState({health={},stats={}}={}){
   const rate=Number(stats.syncSuccessRate);
-  const degraded=String(health.lastSourceHealth||'').toLowerCase()==='degraded';
+  const degraded=sourceStatus(health.lastSourceHealth)==='degraded';
+  const sourceDown=sourceStatus(health.lastSourceHealth)==='down';
+  const memberStatus=sourceStatus(health.lastMemberStatus);
+  const lastMemberSource=sourceStatus(health.lastMemberSource);
+  const amfStatus=sourceStatus(health.sourceDiagnostics?.amf?.status);
+  const legacyStatus=sourceStatus(health.sourceDiagnostics?.legacy?.status);
+  const amfFailed=sourceFailed(amfStatus) || (degraded && lastMemberSource==='legacy');
+  const legacyHealthy=legacyStatus==='success' || (lastMemberSource==='legacy' && Boolean(health.lastLegacySuccessAt));
+  const amfOnlyFallback=degraded && lastMemberSource==='legacy' && amfFailed && legacyHealthy;
+  const legacyFailed=sourceDown || sourceFailed(legacyStatus) || (memberStatus==='error' && !amfOnlyFallback);
   const lowRate=Number.isFinite(rate)&&rate<0.7;
+  const urgent=legacyFailed;
+  const quietFallback=amfOnlyFallback && !urgent;
+  const quietRate=lowRate && !urgent && !quietFallback;
   return{
-    visible:degraded||lowRate,
+    visible:urgent||quietFallback||quietRate,
+    urgent,
+    quietFallback,
+    quietRate,
     degraded,
+    legacyFailed,
     lowRate,
     rateText:Number.isFinite(rate)?Math.round(rate*100)+'%':'—'
   };

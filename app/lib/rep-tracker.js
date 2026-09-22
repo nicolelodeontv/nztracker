@@ -3,8 +3,9 @@ import { discoverChaos, fetchLiveMembers } from './ninja-source.mjs';
 import { DISCOVERY_CACHE_KEY, DISCOVERY_MAX_AGE_MS, DISCOVERY_RETRY_COOLDOWN_MS, readDiscoveryCache, writeDiscoveryCache, writeLastKnownMembers } from './sync-source-state.mjs';
 import { startOfTodayManila } from './dashboard-time.mjs';
 import { buildRecentActivityEvents } from './rep-tracker-utils.mjs';
-import { globalRankSummary, readRankingSnapshot } from './ranking-cache.js';
+import { buildDailyClanRepTrend, globalRankSummary, readRankingHistory, readRankingSnapshot, recordRankingSnapshot } from './ranking-cache.js';
 import { recordMemberSnapshot } from './member-history.js';
+import { applyRankChanges } from './rank-tracker.mjs';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 
 const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
@@ -30,16 +31,20 @@ async function upsertMembers({clanId,season,members,capturedAt}) {
   const ids=memberRows.map((row)=>row.member_id);
   const [{data:existingRows,error:existingError},{data:latestRows,error:latestError}]=await Promise.all([
     db.from('rep_tracker_members').select('*').eq('clan_id',clanId).in('member_id',ids),
-    db.from('rep_tracker_member_latest').select('member_id,rep,last_point_at').eq('clan_id',clanId).eq('season',season).in('member_id',ids)
+    db.from('rep_tracker_member_latest').select('member_id,rep,last_point_at,rank').eq('clan_id',clanId).eq('season',season).in('member_id',ids)
   ]);
   if(existingError)throw existingError;
   if(latestError)throw latestError;
   const existing=new Map((existingRows||[]).map((r)=>[String(r.member_id),r]));
   const latest=new Map((latestRows||[]).map((r)=>[String(r.member_id),r]));
+  const previousRanks=new Map((latestRows||[]).map((r)=>[String(r.member_id),r.rank]));
+  const rankedMembers=applyRankChanges(members,previousRanks);
+  const rankedById=new Map(rankedMembers.map((member)=>[String(member.id),member]));
   const eventRows=[];
   const latestUpserts=[];
-  for(const [index,row] of memberRows.entries()){
+  for(const [,row] of memberRows.entries()){
     const member=members.find((m)=>String(m.id)===String(row.member_id))||{};
+    const rankState=rankedById.get(String(row.member_id));
     const prev=existing.get(String(row.member_id));
     if(prev&&prev.current_ign!==row.current_ign)eventRows.push({
       clan_id:clanId,season,member_id:row.member_id,event_type:'renamed',
@@ -54,6 +59,8 @@ async function upsertMembers({clanId,season,members,capturedAt}) {
     latestUpserts.push({
       clan_id:clanId,season,member_id:row.member_id,member_name:row.current_ign,
       level:asInt(row.current_level),rep:asInt(member.reputation),
+      rank:rankState?.rank??null,
+      previous_rank:rankState?.previousRank??null,
       last_point_at:previousLatest&&Number(previousLatest.rep)===asInt(member.reputation)?previousLatest.last_point_at:capturedAt,
       last_seen_at:capturedAt
     });
@@ -170,6 +177,13 @@ export async function syncTracker({force=false,admin='system'}={}) {
           lastAttemptAt:fresh.capturedAt,
           lastError:null
         }).catch((error)=>console.warn('Discovery cache write failed',error));
+        if(fresh.ranking?.rows?.length){
+          await recordRankingSnapshot({
+            ...fresh.ranking,
+            season:fresh.currentSeason||fresh.ranking.season||null,
+            fetchedAt:fresh.capturedAt
+          }).catch((error)=>console.warn('Ranking history write failed',error));
+        }
         config=await updateConfig({
           clan_id:fresh.clanId,
           clan_name:fresh.clanName,
@@ -448,7 +462,7 @@ async function firstTodayMemberPointMap(db,clanId,season,sinceIso,memberCount){
 async function latestMembers(clanId,season){
   const db=supabaseAdmin();
   const {data,error}=await db.from('rep_tracker_member_latest')
-    .select('member_id,member_name,level,rep,last_point_at,last_seen_at')
+    .select('member_id,member_name,level,rep,rank,previous_rank,last_point_at,last_seen_at')
     .eq('clan_id',clanId).eq('season',season)
     .order('member_name',{ascending:true});
   if(error)throw error;
@@ -477,6 +491,9 @@ export async function liveData(){
       member:row.member_name,
       level:Number(row.level||0),
       rep:Number(row.rep||0),
+      rank:Number(row.rank||0)||null,
+      previousRank:Number(row.previous_rank||0)||null,
+      rankDelta:row.previous_rank==null?null:Number(row.previous_rank)-Number(row.rank),
       capturedAt:row.last_seen_at,
       lastPointAt:row.last_point_at
     })),
@@ -492,7 +509,7 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult,firstTodaySyncResult]=await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult,firstTodaySyncResult,clanRepHistoryResult]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
@@ -520,7 +537,11 @@ export async function dashboardData(){
       .gte('started_at',startOfTodayManila().toISOString())
       .order('started_at',{ascending:true})
       .limit(1)
-      .maybeSingle()
+      .maybeSingle(),
+    readRankingHistory({clanId:config.clan_id,season,hours:720,limit:5000}).catch((error)=>{
+      console.warn('Clan REP trend history read failed',error);
+      return [];
+    })
   ]);
   if(baselinesResult.error)throw baselinesResult.error;
   if(hoursResult.error)throw hoursResult.error;
@@ -556,6 +577,9 @@ export async function dashboardData(){
       hours,
       repPerHour:hours>0?gain/hours:0,
       source:'Ninja Zenshin live member monitor',
+      rank:Number(row.rank||0)||null,
+      previousRank:Number(row.previous_rank||0)||null,
+      rankDelta:row.previous_rank==null?null:Number(row.previous_rank)-Number(row.rank),
       capturedAt:row.last_seen_at,
       suspicious:false,
       status:syncFresh.status
@@ -574,6 +598,8 @@ export async function dashboardData(){
     .eq('suspicious',true);
 
   const globalRanking=rankingCache?.rows||[];
+  const moveTrackingAvailable=Array.isArray(rankingCache?.previousRows)&&rankingCache.previousRows.length>0;
+  const clanRepTrend=buildDailyClanRepTrend(clanRepHistoryResult||[]);
   const global=globalRankSummary(globalRanking,config.clan_id);
   const rankedRows=globalRanking.slice().sort((a,b)=>Number(a.rank||9999)-Number(b.rank||9999)).slice(0,10);
   const elapsedTodayHours=Math.max((Date.now()-since.getTime())/3600000,1/60);
@@ -632,7 +658,8 @@ export async function dashboardData(){
     syncHealth:syncHealth||null,
     syncStatus:syncStatus||null,
     httpHealth:httpHealth||null,
-    global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null},
+    clanRepTrend,
+    global:{...global,projectedDailyGain,targetGap,targetEtaHours,capturedAt:rankingCache?.fetchedAt||null,moveTrackingAvailable},
     globalRanking:rankedRows.map((row)=>({...row,change:rankingCache?.changes?.[String(row.clanId)]||null}))
   };
 }
