@@ -104,8 +104,9 @@ export function normalizeMembers(rawMembers){
 }
 async function fromAmf(clanId){
   const started=Date.now();
+  let response=null;
   try{
-    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:GAME_SOURCE_ORIGIN,Pragma:'no-cache',Referer:`${GAME_SOURCE_ORIGIN}/`,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
+    response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:GAME_SOURCE_ORIGIN,Pragma:'no-cache',Referer:`${GAME_SOURCE_ORIGIN}/`,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
     const contentType=response.headers.get('content-type')||null;
     const contentLength=response.headers.get('content-length')||null;
     const bytes=new Uint8Array(await response.arrayBuffer());
