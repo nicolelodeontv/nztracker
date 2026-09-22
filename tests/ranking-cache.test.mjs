@@ -35,10 +35,10 @@ test('global rank summary exposes target gap',()=>{
 
 test('daily clan REP trend keeps the latest snapshot for each Manila day',()=>{
   const trend=buildDailyClanRepTrend([
-    {snapshot_at:'2026-09-20T15:00:00.000Z',reputation:1000},
-    {snapshot_at:'2026-09-20T17:00:00.000Z',reputation:1100},
-    {snapshot_at:'2026-09-21T15:30:00.000Z',reputation:1200},
-    {snapshot_at:'2026-09-22T00:00:00.000Z',reputation:1300},
+    {snapshot_at:'2026-09-20T08:00:00.000Z',reputation:1000},
+    {snapshot_at:'2026-09-20T12:00:00.000Z',reputation:1100},
+    {snapshot_at:'2026-09-21T12:00:00.000Z',reputation:1200},
+    {snapshot_at:'2026-09-22T04:00:00.000Z',reputation:1300},
     {snapshot_at:'invalid',reputation:9999}
   ]);
   assert.deepEqual(trend.map((row)=>[row.date,row.reputation]),[
