@@ -3,6 +3,14 @@ import { supabaseAdmin } from './supabase-admin.js';
 const RANKING_KEY = 'ranking-cache:latest';
 const SOURCE = 'https://ninjazenshin.online/?panel=clan-ranking';
 export const RANKING_HISTORY_SAMPLE_MS = 5 * 60 * 1000;
+export const RANKING_REFRESH_MAX_AGE_MS = 60 * 1000;
+
+export function rankingSnapshotNeedsRefresh(snapshot, nowMs = Date.now(), maxAgeMs = RANKING_REFRESH_MAX_AGE_MS) {
+  if (!snapshot?.fetchedAt) return true;
+  const fetchedAtMs = Date.parse(snapshot.fetchedAt);
+  if (!Number.isFinite(fetchedAtMs)) return true;
+  return Math.max(0, Number(nowMs) - fetchedAtMs) >= Math.max(1000, Number(maxAgeMs) || RANKING_REFRESH_MAX_AGE_MS);
+}
 
 export const rankingCachePath = () => RANKING_KEY;
 

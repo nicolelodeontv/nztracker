@@ -1,10 +1,10 @@
 import { recordSyncStatus } from '../../lib/member-history.js';
-import { readRankingSnapshot, recordRankingSnapshot } from '../../lib/ranking-cache.js';
+import { readRankingSnapshot, recordRankingSnapshot, rankingSnapshotNeedsRefresh, RANKING_REFRESH_MAX_AGE_MS } from '../../lib/ranking-cache.js';
 import { getMonitorStatus } from '../../lib/monitor-status.mjs';
 import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
 import { MONITOR_WINDOW_MS, claimMonitorWindow, completeMonitorWindow, pruneMonitorWindows, releaseMonitorWindow } from '../../lib/monitor-idempotency.mjs';
 import { syncTracker } from '../../lib/rep-tracker.js';
-import { discoverChaos } from '../../lib/ninja-source.mjs';
+import { fetchRankingSnapshot } from '../../lib/ninja-source.mjs';
 import { recordSyncHealth } from '../../lib/sync-health.mjs';
 
 export const runtime = 'nodejs';
@@ -55,13 +55,13 @@ export async function GET(request) {
     try {
       const cachedRanking = await readRankingSnapshot();
       const cachedAt = Date.parse(cachedRanking?.fetchedAt || '');
-      const rankingDue = !cachedRanking || !Number.isFinite(cachedAt) || Date.now() - cachedAt >= 60000;
+      const rankingDue = rankingSnapshotNeedsRefresh(cachedRanking, Date.now(), RANKING_REFRESH_MAX_AGE_MS);
       if (rankingDue) {
-        const freshRanking = await discoverChaos();
-        if (Array.isArray(freshRanking?.ranking?.rows) && freshRanking.ranking.rows.length) {
-          rankingCache = await recordRankingSnapshot(freshRanking.ranking);
+        const freshRanking = await fetchRankingSnapshot();
+        if (Array.isArray(freshRanking?.rows) && freshRanking.rows.length) {
+          rankingCache = await recordRankingSnapshot(freshRanking);
           rankingCache.refreshed = true;
-          ranking = freshRanking.ranking;
+          ranking = freshRanking;
         }
       } else {
         ranking = cachedRanking;
@@ -78,9 +78,9 @@ export async function GET(request) {
     const rankingAgeMs = Number.isFinite(Date.parse(ranking?.fetchedAt || ''))
       ? Math.max(0, Date.now() - Date.parse(ranking.fetchedAt))
       : null;
-    const rankingStatus = result.reused
-      ? (result.lastDetails?.rankingStatus || 'cached')
-      : (rankingRows ? (rankingCache?.refreshed ? 'fresh' : 'cached') : 'unavailable');
+    const rankingStatus = rankingRows
+      ? (rankingSnapshotNeedsRefresh(ranking, Date.now(), RANKING_REFRESH_MAX_AGE_MS) ? 'cached-stale' : 'fresh')
+      : 'unavailable';
     const memberSource = result.live?.service === 'legacy-live' ? 'legacy' : result.live?.service ? 'amf' : null;
     const discoveryStatus = result.discoveryStatus || (result.discoveryError ? 'stale' : 'fresh');
     const memberStatus = result.memberStatus || (result.reused ? 'success' : 'unknown');
@@ -93,7 +93,7 @@ export async function GET(request) {
     const overallOutcome =
       status==='error'
         ? 'error'
-        : (rankingCacheError || result.discoveryError ? 'warning' : 'success');
+        : (rankingCacheError || rankingStatus==='unavailable' ? 'warning' : 'success');
     await recordSyncHealth({
       outcome:overallOutcome,
       at:finishedAt.toISOString(),
@@ -134,6 +134,7 @@ export async function GET(request) {
       memberSource,
       discoveryStatus,
       rankingStatus,
+      rankingAgeMs,
       syncDurationMs: result.durationMs || null,
       source: result.live?.source || ranking?.source || SOURCE
     });
@@ -154,6 +155,10 @@ export async function GET(request) {
       membersSeen,
       memberErrors: 0,
       memberSources,
+      memberStatus,
+      memberSource,
+      sourceHealth:result.live?.sourceHealth||result.sourceHealth||'healthy',
+      sourceWarning:result.live?.fallbackReason||result.fallbackReason||null,
       rankingCache,
       rankingCacheError,
       rankingCacheAgeMs: rankingAgeMs,
@@ -184,6 +189,8 @@ export async function GET(request) {
         lastRunAt: finishedAt.toISOString(),
         nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
         intervalMs: SYNC_INTERVAL_MS,
+        sourceHealth:'down',
+        sourceWarning:null,
         source: SOURCE,
         error: error instanceof Error ? error.message : String(error)
       });

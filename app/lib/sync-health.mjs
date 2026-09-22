@@ -30,7 +30,7 @@ export async function recordSyncHealth({
   const isHealthy=outcome==='success';
   const isSourceDegraded=sourceHealth==='degraded';
   const next={
-    version:3,
+    version:4,
     lastRunAt:at,
     lastHealthyAt:isHealthy?at:(previous?.lastHealthyAt||null),
     lastErrorAt:outcome==='error'?at:(previous?.lastErrorAt||null),
@@ -43,6 +43,7 @@ export async function recordSyncHealth({
     lastMemberStatus:memberStatus,
     lastSourceHealth:sourceHealth||previous?.lastSourceHealth||'healthy',
     lastSourceWarning:isSourceDegraded?(String(sourceWarning||'Member source fallback is active.')):null,
+    lastSourceDegradedAt:isSourceDegraded?at:(previous?.lastSourceDegradedAt||null),
     sourceDiagnostics:sourceDiagnostics||previous?.sourceDiagnostics||null,
     lastDiscoveryStatus:discoveryStatus,
     lastRankingStatus:rankingStatus,

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   UPSTREAM_MAX_ATTEMPTS,
   UPSTREAM_TIMEOUT_MS,
+  AMF_MAX_ATTEMPTS,
+  AMF_TIMEOUT_MS,
   isRetryableUpstreamError,
   isRetryableUpstreamStatus,
   normalizeMembers
@@ -11,6 +13,8 @@ import {
 test('upstream retry policy retries transient HTTP failures', () => {
   assert.equal(UPSTREAM_MAX_ATTEMPTS, 2);
   assert.equal(UPSTREAM_TIMEOUT_MS, 7000);
+  assert.equal(AMF_MAX_ATTEMPTS, 1);
+  assert.equal(AMF_TIMEOUT_MS, 3000);
   assert.equal(isRetryableUpstreamStatus(502), true);
   assert.equal(isRetryableUpstreamStatus(503), true);
   assert.equal(isRetryableUpstreamStatus(504), true);

@@ -5,7 +5,7 @@ const root = new URL('../', import.meta.url);
 const f = (p) => new URL(p, root).href;
 const secret = 'x'.repeat(32);
 const members = Array.from({length:30},(_,i)=>({id:String(i+1),name:'M'+(i+1),level:90,reputation:1000+i}));
-const ranking = { rows:[{clanId:'3',clan:'Chaos',memberCurrent:30}], season:'Season 3', capturedAt:new Date(Date.now()-60000).toISOString(), source:'test' };
+const ranking = { rows:[{clanId:'3',clan:'Chaos',memberCurrent:30}], season:'Season 3', fetchedAt:new Date(Date.now()-120000).toISOString(), capturedAt:new Date(Date.now()-120000).toISOString(), source:'test' };
 const config={clan_id:'3',clan_name:'Chaos',current_season:'Season 3',expected_member_count:30};
 let monitorMode='success';
 let heartbeatPayloads=[];
@@ -20,7 +20,7 @@ mock.module(f('app/lib/rep-tracker.js'),{exports:{
     if(monitorMode==='error')throw new Error('test monitor failure');
     return {
       reused:false,
-      live:{members,source:'test'},
+      live:{members,source:'test',service:'legacy-live',sourceHealth:'degraded',fallbackReason:'AMF probe timed out',sourceDiagnostics:{amf:{status:'timeout',durationMs:3000},legacy:{status:'success',durationMs:120}}},
       config,
       season:'Season 3',
       discovery:{ranking},
@@ -38,9 +38,11 @@ mock.module(f('app/lib/member-history.js'),{exports:{
 mock.module(f('app/lib/ranking-cache.js'),{exports:{
   recordRankingSnapshot:async()=>({stored:true,rowCount:1}),
   readRankingSnapshot:async()=>ranking,
+  rankingSnapshotNeedsRefresh:(value)=>!value||Date.now()-Date.parse(value.fetchedAt)>=60000,
+  RANKING_REFRESH_MAX_AGE_MS:60000
 }});
 mock.module(f('app/lib/ninja-source.mjs'),{exports:{
-  discoverChaos:async()=>({ranking}),
+  fetchRankingSnapshot:async()=>ranking,
 }});
 
 mock.module(f('app/lib/monitor-status.mjs'),{exports:{getMonitorStatus:()=> 'success'}});
@@ -103,7 +105,10 @@ test('monitor executes with correct secret',async()=>{
   assert.equal(b.membersSeen,30);
   assert.equal(b.rankingRows,1);
   assert.equal(b.rankingCache.stored,true);
+  assert.equal(b.sourceHealth,'degraded');
   assert.equal(heartbeatPayloads.at(-1)?.intervalMs,60000);
+  assert.equal(heartbeatPayloads.at(-1)?.overall,'success');
+  assert.equal(heartbeatPayloads.at(-1)?.sourceHealth,'degraded');
   delete process.env.CRON_SECRET;
 });
 

@@ -10,6 +10,8 @@ const DEFAULT_MAX_STAMINA = 200;
 export const UPSTREAM_TIMEOUT_MS = 7000;
 export const UPSTREAM_MAX_ATTEMPTS = 2;
 export const UPSTREAM_RETRY_DELAYS_MS = [0, 500];
+export const AMF_TIMEOUT_MS = 3000;
+export const AMF_MAX_ATTEMPTS = 1;
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const memberCache = new Map();
 const inflight = new Map();
@@ -20,23 +22,26 @@ const toNumber = (value) => { if(value===null||value===undefined||value==='')ret
 export function isRetryableUpstreamStatus(status){return RETRYABLE_STATUS_CODES.has(Number(status));}
 export function isRetryableUpstreamError(error){return Boolean(error?.name==='AbortError'||error?.code==='ECONNRESET'||error?.code==='ETIMEDOUT'||error?.code==='EAI_AGAIN'||/timed out|timeout|fetch failed|socket hang up|network/i.test(String(error?.message||error)));}
 const sleep=(ms)=>new Promise((resolve)=>setTimeout(resolve,ms));
-async function fetchWithTimeout(url,options={}){
+async function fetchWithTimeout(url,options={},policy={}){
+  const timeoutMs=Number(policy.timeoutMs??UPSTREAM_TIMEOUT_MS);
+  const maxAttempts=Math.max(1,Number(policy.maxAttempts??UPSTREAM_MAX_ATTEMPTS));
+  const retryDelays=Array.isArray(policy.retryDelays)?policy.retryDelays:UPSTREAM_RETRY_DELAYS_MS;
   let lastError=null;
-  for(let attempt=0;attempt<UPSTREAM_MAX_ATTEMPTS;attempt++){
+  for(let attempt=0;attempt<maxAttempts;attempt++){
     const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),UPSTREAM_TIMEOUT_MS);
+    const timer=setTimeout(()=>controller.abort(),timeoutMs);
     try{
       const response=await fetch(url,{...options,signal:controller.signal});
-      if(attempt<UPSTREAM_MAX_ATTEMPTS-1&&isRetryableUpstreamStatus(response.status)){
+      if(attempt<maxAttempts-1&&isRetryableUpstreamStatus(response.status)){
         try{await response.body?.cancel();}catch{}
-        await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt+1]||0);
+        await sleep(retryDelays[attempt+1]||0);
         continue;
       }
       return response;
     }catch(error){
-      lastError=error?.name==='AbortError'?new Error('Upstream request timed out after '+(UPSTREAM_TIMEOUT_MS/1000)+'s.'):error;
-      if(attempt>=UPSTREAM_MAX_ATTEMPTS-1||!isRetryableUpstreamError(error))throw lastError;
-      await sleep(UPSTREAM_RETRY_DELAYS_MS[attempt+1]||0);
+      lastError=error?.name==='AbortError'?new Error('Upstream request timed out after '+(timeoutMs/1000)+'s.'):error;
+      if(attempt>=maxAttempts-1||!isRetryableUpstreamError(error))throw lastError;
+      await sleep(retryDelays[attempt+1]||0);
     }finally{clearTimeout(timer);}
   }
   throw lastError||new Error('Upstream request failed.');
@@ -102,7 +107,7 @@ export function normalizeMembers(rawMembers){
 async function fromAmf(clanId){
   const started=Date.now();
   try{
-    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:RANKING_SOURCE,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}});
+    const response=await fetchWithTimeout(AMF_ORIGIN,{method:'POST',cache:'no-store',body:buildMemberRequest(clanId),headers:{Accept:'*/*','Cache-Control':'no-cache','Content-Type':'application/x-amf',Origin:process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online',Pragma:'no-cache',Referer:RANKING_SOURCE,'User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/4.0'}},{timeoutMs:AMF_TIMEOUT_MS,maxAttempts:AMF_MAX_ATTEMPTS,retryDelays:[]});
     const bytes=new Uint8Array(await response.arrayBuffer());
     if(!response.ok)throw new Error(`AMF service returned HTTP ${response.status}.`);
     if(!bytes.length)throw new Error('AMF service returned an empty response.');
@@ -209,4 +214,18 @@ export async function fetchCachedMembers(clanId){
     throw error;
   }
 }
-export async function discoverChaos(){const response=await fetchWithTimeout(`${RANKING_SOURCE}&_nz=${Date.now()}`,{cache:'no-store',headers:{Accept:'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8','Cache-Control':'no-cache',Pragma:'no-cache','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}});if(!response.ok)throw new Error(`Clan ranking source returned HTTP ${response.status}.`);const capturedAt=new Date().toISOString(),parsed=parseRankingHtml(await response.text()),row=parsed.rows?.find((item)=>String(item.clan||'').trim().toLocaleLowerCase()==='chaos');if(!row?.clanId)throw new Error('Clan Chaos was found, but its clan ID could not be discovered from the public ranking source.');const countdownSeconds=Number(parsed.countdown?.remainingSeconds);const finalDayAt=Number.isFinite(countdownSeconds)&&countdownSeconds>=0?new Date(new Date(capturedAt).getTime()+countdownSeconds*1000).toISOString():null;return{clanId:String(row.clanId),clanName:row.clan,expectedMemberCount:row.memberCurrent||null,currentSeason:parsed.season||null,finalDayAt,countdown:parsed.countdown||null,capturedAt,source:RANKING_SOURCE,row,ranking:{...parsed,fetchedAt:capturedAt,source:RANKING_SOURCE}};}
+export async function fetchRankingSnapshot(){
+  const capturedAt=new Date().toISOString();
+  const response=await fetchWithTimeout(`${RANKING_SOURCE}&_nz=${Date.now()}`,{cache:'no-store',headers:{Accept:'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8','Cache-Control':'no-cache',Pragma:'no-cache','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/3.0'}});
+  if(!response.ok)throw new Error(`Clan ranking source returned HTTP ${response.status}.`);
+  const parsed=parseRankingHtml(await response.text());
+  return{...parsed,fetchedAt:capturedAt,source:RANKING_SOURCE};
+}
+export async function discoverChaos(){
+  const parsed=await fetchRankingSnapshot();
+  const row=parsed.rows?.find((item)=>String(item.clan||'').trim().toLocaleLowerCase()==='chaos');
+  if(!row?.clanId)throw new Error('Clan Chaos was found, but its clan ID could not be discovered from the public ranking source.');
+  const countdownSeconds=Number(parsed.countdown?.remainingSeconds);
+  const finalDayAt=Number.isFinite(countdownSeconds)&&countdownSeconds>=0?new Date(new Date(parsed.fetchedAt).getTime()+countdownSeconds*1000).toISOString():null;
+  return{clanId:String(row.clanId),clanName:row.clan,expectedMemberCount:row.memberCurrent||null,currentSeason:parsed.season||null,finalDayAt,countdown:parsed.countdown||null,capturedAt:parsed.fetchedAt,source:RANKING_SOURCE,row,ranking:parsed};
+}

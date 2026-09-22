@@ -31,6 +31,7 @@ export async function GET(){
     historyClansStored:Number(sync?.historyClansStored||0),historyClansChanged:Number(sync?.historyClansChanged||sync?.history?.changedClans||0),
     rankingCacheStored:Boolean(sync?.rankingCacheStored),rankingRows:Number(sync?.rankingRows||sync?.clansSeen||0),
     memberSources:sync?.memberSources||{},source:sync?.source||'https://ninjazenshin.online/?panel=clan-ranking',
+    sourceHealth:sync?.sourceHealth||'unknown',sourceWarning:sync?.sourceWarning||null,
     error:readErrors.database||sync?.error||null,warning:overall==='warning'||Boolean(readErrors.database),
     readErrors,durable:storage.durable,storageProvider:storage.provider,storage,database:{configured:storage.configured,provider:storage.provider}
   },{status:readErrors.database?503:200,headers:{'Cache-Control':'no-store, max-age=0'}});
