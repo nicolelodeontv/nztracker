@@ -17,6 +17,8 @@ test('dashboard exposes calculated stamina and only declares bleeding when the f
   assert.match(source,/calculateBleedingState\(trackedStaminaRows\)/);
   assert.match(source,/staminaSummary,/);
   assert.match(source,/mode:'CALCULATED'/);
+  assert.match(source,/staminaTrackingReady/);
+  assert.match(source,/staminaTrackingError/);
 });
 
 test('member UI labels stamina as calculated and keeps mobile table labels aligned',async()=>{
@@ -25,6 +27,7 @@ test('member UI labels stamina as calculated and keeps mobile table labels align
   const css=await readFile(new URL('../app/rep-tracker.css',import.meta.url),'utf8');
   assert.match(dashboard,/STAMINA/);
   assert.match(dashboard,/CALCULATED FROM REP ACTIVITY · NOT SERVER-REPORTED STAMINA/);
+  assert.match(dashboard,/summary\.stamina==null/);
   assert.match(overview,/CALCULATED STATUS/);
   assert.match(overview,/BLEEDING/);
   assert.match(css,/performance-table tbody td:nth-child\(6\)::before\{content:'STAMINA'\}/);
@@ -39,4 +42,6 @@ test('stamina migration provides atomic, season-scoped state and the RPC',async(
   assert.match(sql,/for update/);
   assert.match(sql,/last_recovery_at/);
   assert.match(sql,/p_current_rep bigint/);
+  assert.match(sql,/revoke all on function public\\.advance_rep_tracker_stamina/);
+  assert.match(sql,/grant execute on function public\\.advance_rep_tracker_stamina.*service_role/);
 });
