@@ -43,12 +43,16 @@ test('sync path persists member ranks and records fresh ranking history',async()
   assert.match(source,/recordRankingSnapshot\(/);
   assert.match(source,/readRankingHistory\(\{clanId:config\.clan_id,season/);
 });
-test('rank order is the shared render order on Dashboard and Members',async()=>{
+test('rank order is the shared render order on Dashboard, SSR data, and Members',async()=>{
   const source=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
+  const tracker=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
   assert.match(source,/compareMemberRank, formatRankChange, sortMembersByRank/);
   assert.match(source,/const rows = useMemo\(\(\) => sortMembersByRank\(data\?\.rows \|\| \[\]\), \[data\?\.rows\]\)/);
   assert.match(source,/if\(memberSort==='gain'\)/);
   assert.match(source,/return compareMemberRank\(a,b\);/);
+  assert.match(tracker,/import \{ applyRankChanges, sortMembersByRank \} from '\.\/rank-tracker\.mjs';/);
+  assert.match(tracker,/const orderedRows=sortMembersByRank\(rows\);/);
+  assert.match(tracker,/configured:true,config,season,rows:orderedRows/);
 });
 
 test('Global Top distinguishes per-clan tracking state from a global history flag',async()=>{
