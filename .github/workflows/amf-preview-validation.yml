@@ -1,8 +1,8 @@
 name: AMF Preview Validation
 
 on:
-  push:
-    branches: [fix/amf-admin-safety]
+  pull_request:
+    types: [opened, synchronize]
 
 permissions:
   contents: read
