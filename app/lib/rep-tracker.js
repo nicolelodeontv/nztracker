@@ -383,7 +383,7 @@ export async function syncTracker({force=false,admin='system'}={}) {
         historyStoredPoints:Number(memberHistory?.storedPoints||0),
         staminaTracking:'calculated',
         staminaTrackedMembers:staminaStates.length,
-        staminaDrainedEvents:staminaStates.reduce((sum,state)=>sum+Number(state.drained||0)>0?sum+1:sum,0),
+        staminaDrainedEvents:staminaStates.reduce((sum,state)=>sum+(Number(state.drained||0)>0?1:0),0),
         staminaRecovered:Number(staminaStates.reduce((sum,state)=>sum+Number(state.recovered||0),0))
       };
 
