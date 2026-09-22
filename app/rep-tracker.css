@@ -156,7 +156,7 @@ button{color:inherit}
 .ops-list-row.attention>span small{display:block;margin-top:2px;color:var(--text-dim);font:500 8px var(--mono);letter-spacing:.05em}
 .ops-list-row.attention>strong{color:var(--text)}
 .period-switch{display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:flex-end;padding-top:0}
-.period-switch button{min-width:44px;min-height:32px;padding:7px 10px;line-height:1}
+.period-switch button{min-width:44px;min-height:44px;padding:7px 10px;line-height:1}
 
 
 .stats-grid,.mini-stats,.skeleton-stats{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden}
@@ -475,7 +475,7 @@ body{font-size:15px;line-height:1.45}
 .nz-card-head span,.nz-list-row span{font-size:12px;line-height:1.4}
 .nz-empty{font-size:12px;line-height:1.45}
 .empty-state p{font-size:13px;line-height:1.6}
-footer{font-size:12px;line-height:1.4;color:var(--text-dim)}
+.site-footer{font-size:12px;line-height:1.4;color:var(--text-dim)}
 @media(max-width:720px){
   .member-controls input,.member-controls select{font-size:13px}
   .table-scroll td,.table-scroll table{font-size:13px}
