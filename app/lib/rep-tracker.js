@@ -492,7 +492,7 @@ export async function dashboardData(){
   const config=await getConfig();
   if(!config?.clan_id||!config?.current_season)return{configured:false,config};
   const db=supabaseAdmin(),season=config.current_season;
-  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult]=await Promise.all([
+  const [members,rankingCache,syncStatus,syncHealth,httpHealth,baselinesResult,hoursResult,syncRunsResult,syncSuccessCountResult,firstTodaySyncResult]=await Promise.all([
     latestMembers(config.clan_id,season),
     readRankingSnapshot().catch(()=>null),
     db.from('rep_tracker_kv').select('value').eq('key','sync-status:latest').maybeSingle().then(({data})=>data?.value||null),
@@ -512,12 +512,21 @@ export async function dashboardData(){
       .eq('clan_id',config.clan_id)
       .eq('season',season)
       .eq('status','success')
+      .gte('started_at',startOfTodayManila().toISOString()),
+    db.from('rep_tracker_sync_runs')
+      .select('started_at')
+      .eq('clan_id',config.clan_id)
+      .eq('season',season)
       .gte('started_at',startOfTodayManila().toISOString())
+      .order('started_at',{ascending:true})
+      .limit(1)
+      .maybeSingle()
   ]);
   if(baselinesResult.error)throw baselinesResult.error;
   if(hoursResult.error)throw hoursResult.error;
   if(syncRunsResult.error)throw syncRunsResult.error;
   if(syncSuccessCountResult.error)throw syncSuccessCountResult.error;
+  if(firstTodaySyncResult.error)throw firstTodaySyncResult.error;
 
   const ids=members.map((r)=>String(r.member_id));
   const since=startOfTodayManila();
@@ -534,7 +543,7 @@ export async function dashboardData(){
   const rows=members.map((row)=>{
     const baseline=baselineMap.get(String(row.member_id));
     const gain=baseline?Number(row.rep)-Number(baseline.baseline_rep):0;
-    const today=dayMap.has(String(row.member_id))?Number(row.rep)-dayMap.get(String(row.member_id)):0;
+    const today=dayMap.has(String(row.member_id))?Number(row.rep)-dayMap.get(String(row.member_id)):null;
     const hours=hoursMap.get(String(row.member_id))||0;
     return{
       id:String(row.member_id),
@@ -555,7 +564,8 @@ export async function dashboardData(){
 
   const totalRep=rows.reduce((s,r)=>s+r.rep,0);
   const totalGain=rows.reduce((s,r)=>s+r.gain,0);
-  const todayGain=rows.reduce((s,r)=>s+r.todayGain,0);
+  const todayGain=rows.reduce((s,r)=>s+(Number.isFinite(Number(r.todayGain))?Number(r.todayGain):0),0);
+  const todayGainAvailable=dayMap.size>0;
   const totalHours=rows.reduce((s,r)=>s+r.hours,0);
   const {count:suspiciousCount}=await db.from('rep_tracker_snapshots')
     .select('*',{count:'exact',head:true})
@@ -576,7 +586,9 @@ export async function dashboardData(){
   const successRuns=syncRuns.filter((run)=>run.status==='success');
   const errorRuns=syncRuns.filter((run)=>run.status!=='success');
   const expectedIntervalMs=Math.max(10,Number(config.sync_interval_seconds||10))*1000;
-  const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-since.getTime())/expectedIntervalMs)+1);
+  const firstTodaySyncAt=firstTodaySyncResult.data?.started_at||null;
+  const scheduleStartMs=firstTodaySyncAt?Date.parse(firstTodaySyncAt):since.getTime();
+  const expectedSyncsToday=Math.max(1,Math.floor((Date.now()-scheduleStartMs)/expectedIntervalMs)+1);
   const completedSyncsToday=Number(syncSuccessCountResult.count||0);
   const missedSyncsToday=Math.max(0,expectedSyncsToday-completedSyncsToday);
   const syncSuccessRate=expectedSyncsToday>0?completedSyncsToday/expectedSyncsToday:0;
@@ -601,7 +613,10 @@ export async function dashboardData(){
       todayGain,
       activeMembers:rows.length,
       totalHours,
-      avgRepPerHour:totalHours?totalGain/totalHours:0,
+      avgRepPerHour:totalHours?totalGain/totalHours:null,
+      todayGainAvailable,
+      expectedSyncIntervalMs:expectedIntervalMs,
+      syncScheduleStartedAt:firstTodaySyncAt||since.toISOString(),
       suspiciousCount:suspiciousCount||0,
       syncsExpected:expectedSyncsToday,
       syncsCompleted:completedSyncsToday,
