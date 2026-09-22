@@ -116,6 +116,31 @@ function SyncHealthStrip({data}) {
   </section>;
 }
 
+function SyncHealthAlert({data}) {
+  const stats=data?.stats||{};
+  const health=data?.syncHealth||{};
+  const rate=Number(stats.syncSuccessRate);
+  const degraded=String(health.lastSourceHealth||'').toLowerCase()==='degraded';
+  const lowRate=Number.isFinite(rate)&&rate<0.7;
+  if(!degraded&&!lowRate)return null;
+  const rateText=Number.isFinite(rate)?Math.round(rate*100)+'%':'—';
+  const title=degraded?'SYNC HEALTH DEGRADED':'SYNC RATE BELOW 70%';
+  const reason=degraded
+    ? (health.lastSourceWarning||'Member source fallback is active.')
+    : 'Recorded successful syncs are below the configured schedule target.';
+  const lastFailure=health.lastErrorAt
+    ? new Date(health.lastErrorAt).toLocaleString()+' · '+(health.lastError||'Sync failed.')
+    : null;
+  return <section className="sync-health-alert" role="status" aria-label="Sync health warning">
+    <div className="sync-health-alert-icon">!</div>
+    <div className="sync-health-alert-body">
+      <div><strong>{title}</strong><span>SYNC RATE {rateText}</span></div>
+      <p>{reason}</p>
+      {lastFailure&&<small>LAST FAILURE {lastFailure}</small>}
+    </div>
+  </section>;
+}
+
 function SyncCountdown({target}) {
   const [now,setNow]=useState(Date.now());
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
@@ -445,7 +470,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
       <div className="header-right"><div className="connection"><span className="header-live" title={data.freshness?.status==='live'?'Live sync is current':`Sync status: ${data.freshness?.status||'unknown'}`}><i className={`dot ${data.freshness?.status==='live'?'good':data.freshness?.status==='aging'?'warn':'bad'}`}></i><b>{data.freshness?.status==='live'?'LIVE':data.freshness?.status==='aging'?'AGING':'STALE'}</b></span><span>LAST SYNC {age(data.freshness?.ageSeconds)}</span><SyncCountdown target={data.syncStatus?.nextExpectedAt}/></div><time>{new Date(data.serverTime).toLocaleTimeString()}</time><button className="btn" onClick={syncNow} disabled={busy}>↻ SYNC</button><button className="btn" onClick={()=>setLoginOpen(true)}>{admin?'ADMIN':'ADMIN'}</button></div>
     </header>
     <nav className="ops-nav">{nav.map(([key,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}>{label}</button>)}</nav>
-    {data&&<SyncHealthStrip data={data}/>} 
+    {data&&<><SyncHealthAlert data={data}/><SyncHealthStrip data={data}/></>} 
     {dashboardRefreshing&&data&&<div className="notice good">UPDATING DASHBOARD…</div>}
     {syncing&&data&&!dashboardRefreshing&&<div className="notice good">UPDATING LIVE DATA…</div>}
     {dashboardError&&data&&<div className="notice bad">UPDATE FAILED · {dashboardError}<button onClick={()=>refresh()}>RETRY</button></div>}
@@ -454,7 +479,7 @@ export default function RepTrackerDashboard({ initialView = 'dashboard', initial
     {view==='dashboard'&&<>
       <section className="season-band"><div><span className="eyebrow">SEASON</span><h1>{data.season}</h1><p>Clan {data.config.clan_name} · ID {data.config.clan_id} {data.config.current_round?`· Round ${data.config.current_round}`:''}</p></div><div className="season-box"><span>FINAL DAY IN</span><Countdown target={data.config.final_day_at}/></div><div className="season-box"><span>SERVER TIME</span><b>{new Date(data.serverTime).toLocaleString()}</b></div></section>
       <OperationsOverview data={data} rows={periodRows} periodHours={periodHours} setPeriodHours={setPeriodHours} />
-      <section className="stats-grid"><div><span>TOTAL CLAN REP</span><b>{fmt(data.stats.totalRep)}</b></div><div><span>TODAY'S GAIN</span><b className="up">+{fmt(data.stats.todayGain)}</b></div><div><span>SEASON GAIN</span><b>+{fmt(data.stats.totalGain)}</b></div><div><span>ACTIVE MEMBERS</span><b>{data.stats.activeMembers}</b></div><div><span>TRACKED HOURS</span><b>{fmtHours(data.stats.totalHours)}</b></div><div><span>AVG REP / HOUR</span><b>{fmt(data.stats.avgRepPerHour)}</b></div></section>
+      <section className="stats-grid"><div><span>TOTAL CLAN REP</span><b>{fmt(data.stats.totalRep)}</b></div><div><span title="Cumulative REP gained since the first recorded member snapshot today.">TODAY'S GAIN</span><b className="up">{data.stats.todayGainAvailable?'+'+fmt(data.stats.todayGain):'—'}</b></div><div><span>SEASON GAIN</span><b>+{fmt(data.stats.totalGain)}</b></div><div><span>ACTIVE MEMBERS</span><b>{data.stats.activeMembers}</b></div><div><span title="Manually recorded/tracked work hours for the current season.">TRACKED HOURS</span><b>{data.stats.totalHours>0?fmtHours(data.stats.totalHours):'—'}</b></div><div><span title="Season REP gain divided by manually recorded tracked hours. This is unavailable until tracked hours exist.">AVG REP / HOUR</span><b>{data.stats.totalHours>0?fmt(data.stats.avgRepPerHour):'—'}</b></div></section>
       <section className="panel table-panel"><div className="section-title"><div><span className="eyebrow">LIVE MEMBER RANKING</span><h2>REP PERFORMANCE</h2></div><span>{rows.length} members · source {rows[0]?.source || '—'}</span></div><div className="table-scroll"><table className="responsive-data-table performance-table"><thead><tr><th>RANK</th><th>MEMBER</th><th>LV</th><th>CURRENT REP</th><th>REP GAIN</th>{showHoursColumns&&<><th>HOURS</th><th>REP / HR</th></>}</tr></thead><tbody>{rows.map((r,i)=>{const zeroGain=Number(r.gain||0)===0;const tier=i===0?'tier-1':i===1?'tier-2':i===2?'tier-3':'';return <tr key={r.id} className={[tier,zeroGain?'dim-row':'',r.lastPointAt&&Date.now()-new Date(r.lastPointAt).getTime()<90000?'recent-change':''].filter(Boolean).join(' ')} tabIndex="0" role="button" aria-label={'Open details for '+r.member} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();setSelected(r);}}} onClick={()=>setSelected(r)}><td>#{i+1}</td><td className="member-name">{r.member}{r.suspicious&&<span className="status suspicious-flag"> · SUSPICIOUS</span>}</td><td>{r.level}</td><td className="num">{fmt(r.rep)}</td><td className={r.gain>0?'up':'gain-zero'}>{r.gain>0?'+'+fmt(r.gain):fmt(r.gain)}</td>{showHoursColumns&&<><td>{fmtHours(r.hours)}</td><td>{fmt(r.repPerHour)}</td></>}</tr>;})}</tbody></table>{!rows.length&&<div className="chart-empty">NO LIVE DATA</div>}</div></section>
       <section className="two-col"><div className="panel"><div className="section-title"><div><span className="eyebrow">RECENT REP ACTIVITY</span><h3>LATEST GAINS</h3></div></div><div className="activity">{activity.map((e,i)=><div key={i}><b>{e.member}</b><span className="up">+{fmt(e.gain)}</span><time>{new Date(e.at).toLocaleTimeString()}</time></div>)}{!activity.length&&<div className="chart-empty">NO GAIN EVENTS STORED</div>}</div></div><div className="panel"><div className="section-title"><div><span className="eyebrow">TOP GAINERS TODAY</span><h3>PERFORMANCE</h3></div></div><div className="top-list">{top.map((r,i)=><div key={r.id}><b>{String(i+1).padStart(2,'0')}</b><span>{r.member}</span><strong>+{fmt(r.todayGain)}</strong><em>{fmt(r.repPerHour)}/h</em></div>)}</div></div></section>
       {data.stats.suspiciousCount>0&&<section className="notice bad">{data.stats.suspiciousCount} suspicious REP decrease snapshot(s) retained for audit. No value was discarded.</section>}
