@@ -186,9 +186,10 @@ button{color:inherit}
 .page-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:8px 0 14px}
 .actions{display:flex;gap:8px;flex-wrap:wrap}
 .member-controls{display:flex;gap:8px;align-items:center}
-.member-controls input,.member-controls select,.admin-grid input,.admin-grid select,.modal input{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel);color:var(--text);padding:9px 10px;outline:none}
+.ops-app input:not([type="checkbox"]):not([type="radio"]),.ops-app select{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--panel-2);color:var(--text);padding:9px 10px;outline:none;color-scheme:dark}
+.ops-app input::placeholder{color:var(--muted);opacity:1}
+.ops-app input:focus,.ops-app select:focus{border-color:var(--orange);box-shadow:0 0 0 2px rgba(249,115,22,.1)}
 .member-controls input,.member-controls select{min-width:150px}
-.member-controls input:focus,.member-controls select:focus,.admin-grid input:focus,.admin-grid select:focus,.modal input:focus{border-color:var(--orange);box-shadow:0 0 0 2px rgba(249,115,22,.1)}
 .admin-grid input[type="date"],.admin-grid input[type="time"],.admin-grid input[type="datetime-local"]{color-scheme:dark;accent-color:var(--orange);color:var(--text);background:var(--panel-2)}
 .admin-grid input[type="date"]::-webkit-calendar-picker-indicator,.admin-grid input[type="time"]::-webkit-calendar-picker-indicator,.admin-grid input[type="datetime-local"]::-webkit-calendar-picker-indicator{opacity:.95;cursor:pointer;filter:invert(58%) sepia(92%) saturate(1854%) hue-rotate(347deg) brightness(103%) contrast(101%)}
 .admin-grid input[type="date"]::-webkit-datetime-edit,.admin-grid input[type="time"]::-webkit-datetime-edit,.admin-grid input[type="datetime-local"]::-webkit-datetime-edit{color:var(--text)}
