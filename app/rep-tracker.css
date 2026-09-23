@@ -321,6 +321,10 @@ input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-ou
 .drawer-stamina-note{margin:-4px 0 12px;color:var(--text-dim);font:500 10px/1.4 var(--mono);letter-spacing:.04em}
 .stamina-low{color:var(--red-readable-strong)!important;font-weight:700}
 .stamina-card{grid-column:1/-1}
+.stamina-disclaimer{display:block!important;margin-top:10px!important;padding-top:9px;border-top:1px solid var(--line);color:var(--text)!important;font:600 10px/1.5 var(--mono)!important;letter-spacing:.03em}
+.estimated-stamina-value{display:inline-flex;align-items:center;gap:2px}
+.estimated-stamina-value>[aria-hidden="true"]{color:var(--text-dim);font-weight:700}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 .stamina-ok{color:var(--orange-soft)!important}
 .stamina-alert{color:var(--red-readable-strong)!important}
 .stamina-muted{color:var(--text-dim)!important;font-size:16px!important}
@@ -615,7 +619,7 @@ body{font-size:15px;line-height:1.45}
   .responsive-data-table.performance-table tbody td:nth-child(3)::before{content:'LV'}
   .responsive-data-table.performance-table tbody td:nth-child(4)::before{content:'CURRENT REP'}
   .responsive-data-table.performance-table tbody td:nth-child(5)::before{content:'REP GAIN'}
-  .responsive-data-table.performance-table tbody td:nth-child(6)::before{content:'STAMINA'}
+  .responsive-data-table.performance-table tbody td:nth-child(6)::before{content:'EST. STAMINA'}
   .responsive-data-table.performance-table tbody td:nth-child(7)::before{content:'HOURS'}
   .responsive-data-table.performance-table tbody td:nth-child(8)::before{content:'REP / HR'}
 
