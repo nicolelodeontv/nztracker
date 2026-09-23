@@ -13,3 +13,6 @@ All production Supabase schema changes must be represented by a committed migrat
 7. Keep the local migration timestamps aligned with `supabase_migrations.schema_migrations.version`.
 
 This keeps Supabase Preview, local resets, and production deployments reproducible.
+
+
+<!-- Migration history reconciliation verified against the production Supabase history on 2026-09-23. -->
