@@ -36,10 +36,4 @@ alter table public.rep_tracker_kv enable row level security;
 
 grant all on table public.rep_tracker_member_points to service_role;
 grant all on table public.rep_tracker_member_latest to service_role;
-revoke all privileges on table public.rep_tracker_member_points from public, anon, authenticated;
-revoke all privileges on table public.rep_tracker_member_latest from public, anon, authenticated;
-revoke all privileges on table public.rep_tracker_kv from public, anon, authenticated;
-
-grant all on table public.rep_tracker_member_points to service_role;
-grant all on table public.rep_tracker_member_latest to service_role;
 grant all on table public.rep_tracker_kv to service_role;

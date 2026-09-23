@@ -1,7 +1,3 @@
--- Explicitly document the tracker database access model:
--- RLS remains enabled on tracker tables; only the server-side service_role is granted a policy.
--- anon/authenticated/public therefore remain denied by RLS and table privileges.
-
 drop policy if exists "rep_tracker_audit_log_service_role_only" on public.rep_tracker_audit_log;
 create policy "rep_tracker_audit_log_service_role_only"
   on public.rep_tracker_audit_log
