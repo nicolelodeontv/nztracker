@@ -5,13 +5,14 @@ import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL
 import { buildMemberRows } from '../lib/metrics.js';
 import { getSyncHealthAlertState } from '../lib/sync-health.mjs';
 import { formatError } from '../lib/error-format.mjs';
+import { formatAge } from '../lib/dashboard-time.mjs';
 import { compareMemberRank, formatRankChange, sortMembersByRank } from '../lib/rank-tracker.mjs';
 import OperationsOverview from './OperationsOverview.js';
 import ThemedModal from './ThemedModal.js';
 
 const fmt = (n) => Number(n || 0).toLocaleString();
 const fmtHours = (n) => Number(n || 0).toFixed(2);
-const age = (s) => s == null ? '—' : s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s/60)}m ago` : `${Math.floor(s/3600)}h ago`;
+const age = formatAge;
 const DASHBOARD_CACHE_KEY = 'nztracker:last-dashboard';
 const SYNC_LOCK_KEY = 'nztracker:sync-lock';
 const SYNC_LOCK_MS = 20000;
