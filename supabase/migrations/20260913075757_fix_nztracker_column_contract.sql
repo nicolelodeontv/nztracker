@@ -1,0 +1,17 @@
+alter table public.clan_rankings alter column season type text using season::text;
+alter table public.clan_rankings add column if not exists clan text;
+alter table public.clan_rankings add column if not exists member_current integer not null default 0;
+alter table public.clan_rankings add column if not exists member_max integer not null default 0;
+alter table public.clan_rankings add column if not exists source text;
+alter table public.clan_rankings add column if not exists captured_at timestamptz;
+alter table public.sync_runs add column if not exists season text;
+alter table public.sync_runs add column if not exists clans_seen integer not null default 0;
+alter table public.sync_runs add column if not exists finished_at timestamptz;
+update public.clan_rankings set clan = clan_name where clan is null and clan_name is not null;
+update public.clan_rankings set captured_at = fetched_at where captured_at is null and fetched_at is not null;
+update public.sync_runs set finished_at = completed_at where finished_at is null and completed_at is not null;
+alter table public.clan_rankings alter column clan set not null;
+alter table public.clan_rankings alter column season set not null;
+alter table public.clan_rankings alter column source set not null;
+alter table public.clan_rankings alter column captured_at set not null;
+alter table public.sync_runs alter column finished_at set not null; 
