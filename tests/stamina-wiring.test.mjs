@@ -9,6 +9,14 @@ test('sync path uses only server-reported Stamina and never infers it from REP',
   assert.match(source,/const staminaKnownMembers=/);
   assert.match(source,/const staminaSource=/);
   assert.match(source,/staminaTracking:staminaSource/);
+  assert.match(
+    source,
+    /stamina:staminaById\.get\(String\(row\.member_id\)\)\?\.stamina\?\?null,/
+  );
+  assert.match(
+    source,
+    /max_stamina:staminaById\.get\(String\(row\.member_id\)\)\?\.maxStamina\?\?null,/
+  );
 });
 
 test('dashboard exposes verified server-reported Stamina only when the full roster is known',async()=>{
