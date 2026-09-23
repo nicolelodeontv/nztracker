@@ -51,17 +51,17 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
         <div className="op-target-big">{global?.above ? fmt(global.above.reputation) : fmt(global?.reputation)}</div>
         <small>{global?.above ? fmt(global.above.gap)+' REP needed to reach the next rank.' : 'CHAOS is currently the highest ranked tracked clan.'}</small>
       </article>
-      <article className="op-card stamina-card">
-        <span className="eyebrow">CALCULATED STATUS</span>
+      <article className="op-card stamina-card" title="Estimated stamina only. Derived from observed REP changes and timed recovery; not server-reported game data." aria-label="Estimated stamina status">
+        <span className="eyebrow">ESTIMATED STAMINA STATUS</span>
         <strong className={"op-number "+(!staminaReady?'stamina-muted':bleeding?'stamina-alert':'stamina-ok')}>
           {!staminaReady?'TRACKING INIT':bleeding?'BLEEDING':'STABLE'}
         </strong>
-        <span className="op-meta">STAMINA · REP-DERIVED MODEL</span>
-        <div className="op-stat-row"><span>LOW ≤ {stamina.threshold ?? 70}</span><b>{stamina.lowStaminaCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
+        <span className="op-meta">ESTIMATED STAMINA · REP-DERIVED MODEL</span>
+        <div className="op-stat-row"><span>EST. LOW ≤ {stamina.threshold ?? 70}</span><b>{stamina.lowStaminaCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
         <div className="op-stat-row"><span>TRACKED</span><b>{stamina.trackedMemberCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
-        <small>{staminaReady
-          ? 'Calculated from observed REP changes and timed recovery. Not server-reported Stamina.'
-          : 'Waiting for the calculated stamina state to initialize for the current roster.'}</small>
+        <small className="stamina-disclaimer">{staminaReady
+          ? 'ESTIMATE ONLY · Derived from observed REP changes and timed recovery. Not server-reported Stamina.'
+          : 'ESTIMATE ONLY · Waiting for the calculated stamina state to initialize for the current roster.'}</small>
       </article>
     </div>}
 
