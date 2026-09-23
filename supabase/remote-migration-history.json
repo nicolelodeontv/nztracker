@@ -1,0 +1,90 @@
+[
+  {
+    "version": "20260913075554",
+    "name": "align_nztracker_sync_schema"
+  },
+  {
+    "version": "20260913075630",
+    "name": "fix_nztracker_schema_columns"
+  },
+  {
+    "version": "20260913075647",
+    "name": "match_nztracker_season_type"
+  },
+  {
+    "version": "20260913075757",
+    "name": "fix_nztracker_column_contract"
+  },
+  {
+    "version": "20260913075822",
+    "name": "remove_legacy_clan_name_constraint"
+  },
+  {
+    "version": "20260913082102",
+    "name": "add_multisource_tracker_tables"
+  },
+  {
+    "version": "20260913082156",
+    "name": "add_member_snapshot_marker"
+  },
+  {
+    "version": "20260913082859",
+    "name": "verify_multisource_storage"
+  },
+  {
+    "version": "20260913095218",
+    "name": "fix_leaderboard_rls_reads"
+  },
+  {
+    "version": "20260913111604",
+    "name": "enable_sync_scheduler_extensions"
+  },
+  {
+    "version": "20260913111615",
+    "name": "schedule_nztracker_full_sync"
+  },
+  {
+    "version": "20260913111726",
+    "name": "point_sync_cron_to_canonical_url"
+  },
+  {
+    "version": "20260915080106",
+    "name": "create_rep_tracker_core"
+  },
+  {
+    "version": "20260921033913",
+    "name": "supabase_primary_storage_20260921112500"
+  },
+  {
+    "version": "20260921150223",
+    "name": "canonical_ranking_history"
+  },
+  {
+    "version": "20260921150732",
+    "name": "remove_legacy_storage"
+  },
+  {
+    "version": "20260921152250",
+    "name": "explicit_service_role_rls"
+  },
+  {
+    "version": "20260921222905",
+    "name": "sync_reliability_3_0"
+  },
+  {
+    "version": "20260921225407",
+    "name": "near_realtime_auto_sync"
+  },
+  {
+    "version": "20260922120000",
+    "name": "member_rank_history"
+  },
+  {
+    "version": "20260923010000",
+    "name": "calculated_stamina_bleeding"
+  },
+  {
+    "version": "20260923020000",
+    "name": "fix_calculated_stamina_ambiguity"
+  }
+]

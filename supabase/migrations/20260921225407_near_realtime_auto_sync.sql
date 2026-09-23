@@ -5,7 +5,7 @@ alter table public.rep_tracker_config
   add constraint rep_tracker_config_sync_interval_seconds_check
   check (sync_interval_seconds >= 10 and sync_interval_seconds <= 300);
 
-do $
+do $$
 declare
   existing_job_id bigint;
 begin

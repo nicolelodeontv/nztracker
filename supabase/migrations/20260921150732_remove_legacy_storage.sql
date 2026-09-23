@@ -1,7 +1,3 @@
--- Run after the canonical tracker code is deployed and verified.
--- These tables belong to the retired multi-source / 5-minute pipeline.
--- The preceding migration copies clan ranking history into the canonical table.
-
 drop table if exists public.leaderboard_history;
 drop table if exists public.leaderboard_entries;
 drop table if exists public.clan_ranking_history;
