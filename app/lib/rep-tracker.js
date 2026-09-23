@@ -516,37 +516,68 @@ export async function liveData(){
     db.from('rep_tracker_kv').select('key,value').in('key',['sync-status:latest','sync-health:latest','monitor:http-latest'])
   ]);
   if(kvResult.error)throw kvResult.error;
+
   const kv=new Map((kvResult.data||[]).map((row)=>[String(row.key),row.value&&typeof row.value==='object'?row.value:null]));
   const syncStatus=kv.get('sync-status:latest')||null;
   const syncHealth=kv.get('sync-health:latest')||null;
   const httpHealth=kv.get('monitor:http-latest')||null;
+
+  let sourceMembers=null;
+  let sourceError=null;
+  try{
+    sourceMembers=await fetchLiveMembers(config.clan_id);
+  }catch(error){
+    sourceError=error instanceof Error?error.message:String(error);
+  }
+
+  const sourceById=new Map(
+    (sourceMembers?.members||[]).map((member)=>[String(member.id),member])
+  );
   const staminaSourceReady=String(syncHealth?.lastStaminaSource||'')==='server-reported'
     && Number(syncHealth?.lastStaminaKnownMembers||0)>=members.length
     && members.length>0;
-  const freshnessState=freshness(syncHealth?.lastMemberSuccessAt||syncStatus?.lastRunAt||null);
+
+  const rows=members.map((row)=>{
+    const live=sourceById.get(String(row.member_id));
+    const liveRep=live?.reputation;
+    const liveLevel=live?.level;
+    const liveStamina=live?.stamina;
+    const liveMaxStamina=live?.maxStamina;
+    return{
+      id:String(row.member_id),
+      member:live?.name||row.member_name,
+      level:Number(liveLevel??row.level??0),
+      rep:Number(liveRep??row.rep??0),
+      rank:Number(row.rank||0)||null,
+      previousRank:Number(row.previous_rank||0)||null,
+      rankDelta:row.previous_rank==null?null:Number(row.previous_rank)-Number(row.rank),
+      stamina:staminaSourceReady&&liveStamina!=null?Number(liveStamina):(staminaSourceReady&&row.stamina!=null?Number(row.stamina):null),
+      maxStamina:staminaSourceReady&&liveMaxStamina!=null?Number(liveMaxStamina):(staminaSourceReady&&row.max_stamina!=null?Number(row.max_stamina):null),
+      staminaMode:staminaSourceReady&&(liveStamina!=null||row.stamina!=null)?'SERVER_REPORTED':null,
+      capturedAt:sourceMembers?.fetchedAt||row.last_seen_at,
+      lastPointAt:row.last_point_at,
+      liveSource:sourceMembers?.service||null
+    };
+  });
+
+  const liveFetchedAt=sourceMembers?.fetchedAt||null;
+  const liveFreshness=liveFetchedAt
+    ? {status:'live',ageSeconds:Math.max(0,Math.floor((Date.now()-Date.parse(liveFetchedAt))/1000))}
+    : freshness(syncHealth?.lastMemberSuccessAt||syncStatus?.lastRunAt||null);
+
   return{
     configured:true,
     season,
     config:{clan_id:config.clan_id,clan_name:config.clan_name,current_season:config.current_season,final_day_at:config.final_day_at,expected_member_count:config.expected_member_count},
-    rows:members.map((row)=>({
-      id:String(row.member_id),
-      member:row.member_name,
-      level:Number(row.level||0),
-      rep:Number(row.rep||0),
-      rank:Number(row.rank||0)||null,
-      previousRank:Number(row.previous_rank||0)||null,
-      rankDelta:row.previous_rank==null?null:Number(row.previous_rank)-Number(row.rank),
-      stamina:staminaSourceReady&&row.stamina!=null?Number(row.stamina):null,
-      maxStamina:staminaSourceReady&&row.max_stamina!=null?Number(row.max_stamina):null,
-      staminaMode:staminaSourceReady&&row.stamina!=null?'SERVER_REPORTED':null,
-      capturedAt:row.last_seen_at,
-      lastPointAt:row.last_point_at
-    })),
-    freshness:freshnessState,
-    lastSuccessfulSyncAt:syncHealth?.lastMemberSuccessAt||null,
+    rows,
+    freshness:liveFreshness,
+    lastSuccessfulSyncAt:liveFetchedAt||syncHealth?.lastMemberSuccessAt||null,
     syncHealth:syncHealth||null,
     syncStatus:syncStatus||null,
     httpHealth:httpHealth||null,
+    liveSource:sourceMembers?.service||null,
+    liveFetchedAt,
+    liveSourceError:sourceError,
     serverTime:new Date().toISOString()
   };
 }
