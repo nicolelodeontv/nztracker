@@ -8,8 +8,7 @@ import {
   getDrainFloor,
   getStaminaPercent,
   getStaminaState,
-  normalizeMemberStamina,
-  applyAttackCost
+  normalizeMemberStamina
 } from '../app/lib/stamina.mjs';
 
 test('shared stamina constants stay consistent', () => {
