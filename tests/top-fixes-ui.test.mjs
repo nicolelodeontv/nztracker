@@ -77,18 +77,15 @@ test('nav removes only excess top spacing while preserving bottom spacing and lo
 });
 
 
-test('estimated Stamina labeling is explicit across dashboard status, table values, and member detail',async()=>{
+test('unverified Stamina is withheld from prominent dashboard data',async()=>{
   const dashboard=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
   const overview=await readFile(new URL('../app/components/OperationsOverview.js',import.meta.url),'utf8');
-  const css=await readFile(new URL('../app/rep-tracker.css',import.meta.url),'utf8');
-  assert.match(dashboard,/EST\. STAMINA/);
-  assert.match(dashboard,/estimated-stamina-value/);
-  assert.match(dashboard,/title="Estimated only\./);
-  assert.match(dashboard,/ESTIMATE ONLY · DERIVED FROM OBSERVED REP ACTIVITY \+ TIMED RECOVERY/);
-  assert.match(overview,/ESTIMATED STAMINA STATUS/);
-  assert.match(overview,/ESTIMATED STAMINA · REP-DERIVED MODEL/);
-  assert.match(overview,/ESTIMATE ONLY · Derived from observed REP changes and timed recovery/);
-  assert.match(overview,/aria-label="Estimated stamina status"/);
-  assert.match(css,/\.stamina-disclaimer/);
-  assert.match(css,/content:'EST\. STAMINA'/);
+  const tracker=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
+  assert.match(dashboard,/showStaminaColumn/);
+  assert.match(dashboard,/STAMINA DATA UNAVAILABLE/);
+  assert.match(dashboard,/DO NOT USE STAMINA DATA FOR REWARD OR BLEEDING DECISIONS/);
+  assert.match(overview,/STAMINA DATA UNAVAILABLE/);
+  assert.match(overview,/REP-derived estimation is disabled/);
+  assert.match(tracker,/staminaMode:staminaSourceReady&&row\.stamina!=null\?'SERVER_REPORTED':null/);
+  assert.match(tracker,/mode:'SERVER_REPORTED_UNAVAILABLE'/);
 });
