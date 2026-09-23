@@ -98,6 +98,6 @@ test('unverified Stamina is withheld from prominent dashboard data',async()=>{
   assert.match(dashboard,/DO NOT USE STAMINA DATA FOR REWARD OR BLEEDING DECISIONS/);
   assert.match(overview,/STAMINA DATA UNAVAILABLE/);
   assert.match(overview,/REP-derived estimation is disabled/);
-  assert.match(tracker,/staminaMode:staminaSourceReady&&\(liveStamina!=null\|\|row\.stamina!=null\)?'SERVER_REPORTED':null/);
+  assert.match(tracker,/staminaMode:staminaSourceReady&&\(liveStamina!=null\|\|row\.stamina!=null\)\?'SERVER_REPORTED':null/);
   assert.match(tracker,/mode:'SERVER_REPORTED_UNAVAILABLE'/);
 });
