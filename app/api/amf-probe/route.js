@@ -1,4 +1,4 @@
-import { probeAmfMemberSource } from '../../lib/ninja-source.mjs';
+import { getCsrfToken, probeAmfMemberSource } from '../../lib/ninja-source.mjs';
 import { buildAmfProbeSuccess, classifyAmfProbeError } from '../../lib/amf-probe.mjs';
 
 export const runtime='nodejs';
@@ -12,18 +12,19 @@ export async function GET(request){
   const clanId=String(new URL(request.url).searchParams.get('clanId')||'').trim();
   if(!/^[a-zA-Z0-9_-]+$/.test(clanId))return Response.json({ok:false,error:'A valid clanId is required.'},{status:400});
   try{
-    const sourceOrigin=process.env.GAME_SOURCE_ORIGIN||'https://ninjazenshin.online';
-    const page=await fetch(sourceOrigin+'/?panel=clan-ranking',{cache:'no-store',headers:{Accept:'text/html','User-Agent':'Mozilla/5.0 NinjaZenshinLiveTracker/diagnostic'}});
-    const html=await page.text();
-    const match=html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/i);
-    const csrfToken=match?.[1]||'';
-    if(!csrfToken){
-      return Response.json({
-        ok:false,
-        source:'amf',
-        status:'failure',
-        error:'No public CSRF token was exposed by the game page.',
-      },{status:502,headers:noStoreHeaders});
+    let csrfToken;
+    try {
+      csrfToken=await getCsrfToken();
+    }catch(error){
+      if(error?.code==='CSRF_TOKEN_MISSING'){
+        return Response.json({
+          ok:false,
+          source:'amf',
+          status:'failure',
+          error:'No public CSRF token was exposed by the game page.',
+        },{status:502,headers:noStoreHeaders});
+      }
+      throw error;
     }
     const result=await probeAmfMemberSource(clanId,{'X-CSRF-TOKEN':csrfToken,'X-Requested-With':'XMLHttpRequest'});
     return Response.json(buildAmfProbeSuccess(result),{headers:noStoreHeaders});
