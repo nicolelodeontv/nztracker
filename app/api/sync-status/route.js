@@ -1,4 +1,5 @@
 import { readSyncStatus, storageHealth } from '../../lib/member-history.js';
+import { formatError } from '../../lib/error-format.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,7 @@ const DELAYED_MAX_AGE_MS = 6 * 60 * 1000;
 export async function GET(){
   const readErrors={database:null,syncStatus:null};
   let sync=null;
-  try{sync=await readSyncStatus();}catch(error){readErrors.syncStatus=error instanceof Error?error.message:String(error);readErrors.database=readErrors.syncStatus;}
+  try{sync=await readSyncStatus();}catch(error){readErrors.syncStatus=formatError(error);readErrors.database=readErrors.syncStatus;}
   const storage=storageHealth();
   const lastRunAt=sync?.lastRunAt||null;
   const lastRunAtMs=lastRunAt?new Date(lastRunAt).getTime():NaN;
@@ -31,7 +32,7 @@ export async function GET(){
     historyClansStored:Number(sync?.historyClansStored||0),historyClansChanged:Number(sync?.historyClansChanged||sync?.history?.changedClans||0),
     rankingCacheStored:Boolean(sync?.rankingCacheStored),rankingRows:Number(sync?.rankingRows||sync?.clansSeen||0),
     memberSources:sync?.memberSources||{},source:sync?.source||'https://ninjazenshin.online/?panel=clan-ranking',
-    error:readErrors.database||sync?.error||null,warning:overall==='warning'||Boolean(readErrors.database),
+    error:readErrors.database||formatError(sync?.error,null),warning:overall==='warning'||Boolean(readErrors.database),
     readErrors,durable:storage.durable,storageProvider:storage.provider,storage,database:{configured:storage.configured,provider:storage.provider}
   },{status:readErrors.database?503:200,headers:{'Cache-Control':'no-store, max-age=0'}});
 }
