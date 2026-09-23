@@ -619,9 +619,11 @@ body{font-size:15px;line-height:1.45}
   .responsive-data-table.performance-table tbody td:nth-child(3)::before{content:'LV'}
   .responsive-data-table.performance-table tbody td:nth-child(4)::before{content:'CURRENT REP'}
   .responsive-data-table.performance-table tbody td:nth-child(5)::before{content:'REP GAIN'}
-  .responsive-data-table.performance-table tbody td:nth-child(6)::before{content:'EST. STAMINA'}
-  .responsive-data-table.performance-table tbody td:nth-child(7)::before{content:'HOURS'}
-  .responsive-data-table.performance-table tbody td:nth-child(8)::before{content:'REP / HR'}
+  .responsive-data-table.performance-table.with-stamina tbody td:nth-child(6)::before{content:'STAMINA'}
+  .responsive-data-table.performance-table.with-stamina tbody td:nth-child(7)::before{content:'HOURS'}
+  .responsive-data-table.performance-table.with-stamina tbody td:nth-child(8)::before{content:'REP / HR'}
+  .responsive-data-table.performance-table:not(.with-stamina) tbody td:nth-child(6)::before{content:'HOURS'}
+  .responsive-data-table.performance-table:not(.with-stamina) tbody td:nth-child(7)::before{content:'REP / HR'}
 
   .responsive-data-table.history-table tbody td:nth-child(1)::before{content:'SEASON'}
   .responsive-data-table.history-table tbody td:nth-child(2)::before{content:'VERSION'}
@@ -655,3 +657,9 @@ body{font-size:15px;line-height:1.45}
   .responsive-data-table tbody{padding-left:6px;padding-right:6px}
   .responsive-data-table tbody tr{padding-left:10px;padding-right:10px}
 }
+
+
+.stamina-hold-banner{grid-column:1/-1;display:grid;gap:7px;margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);background:var(--panel);font:600 11px/1.5 var(--mono);letter-spacing:.03em}
+.stamina-hold-banner strong{font:800 13px/1.2 var(--title);letter-spacing:.08em}
+.stamina-hold-banner b{font-size:10px;letter-spacing:.08em}
+.stamina-hold-note{margin:-4px 0 12px;color:var(--text)!important;font:700 10px/1.5 var(--mono)!important;letter-spacing:.03em}
