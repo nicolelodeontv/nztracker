@@ -195,7 +195,7 @@ export async function GET(request) {
     await recordSyncHealth({
       outcome:'error',
       at:finishedAt.toISOString(),
-      error:error instanceof Error ? error.message : String(error),
+      error:formatError(error),
       memberStatus:'error',
       memberSource:null,
       discoveryStatus:'error',
