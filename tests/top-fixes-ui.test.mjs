@@ -77,6 +77,18 @@ test('nav removes only excess top spacing while preserving bottom spacing and lo
 });
 
 
+test('header brand lockup is spaced, fully clickable, and routes to Dashboard',async()=>{
+  const source=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
+  const css=await readFile(new URL('../app/rep-tracker.css',import.meta.url),'utf8');
+  assert.match(source,/import Link from 'next\/link';/);
+  const brandLinkMatches = source.match(/<Link className="brand" href="\/" aria-label="Go to Dashboard">/g) ?? [];
+  assert.equal(brandLinkMatches.length,4);
+  assert.match(source,/<b>CHAOS<\/b>\{\' \'\}<span>REP TRACKER<\/span><small>Ninja Zenshin Clan Operations<\/small>/);
+  assert.match(source,/brand-logo.*Ninja Zenshin Clan Operations/);
+  assert.match(css,/.brand\{[^}]*text-decoration:none;color:inherit;cursor:pointer/);
+  assert.match(css,/.brand:focus-visible\{/);
+});
+
 test('unverified Stamina is withheld from prominent dashboard data',async()=>{
   const dashboard=await readFile(new URL('../app/components/RepTrackerDashboard.js',import.meta.url),'utf8');
   const overview=await readFile(new URL('../app/components/OperationsOverview.js',import.meta.url),'utf8');
