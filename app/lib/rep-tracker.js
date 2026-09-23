@@ -759,6 +759,17 @@ export async function memberDetail(memberId,hours=168){
   if(pointsResult.error)throw pointsResult.error;
   if(!memberResult.data)return null;
   const row=memberResult.data;
+  const latestPoint=(pointsResult.data||[]).at(-1);
+  const verified=latestPoint?.raw_data?.staminaKnown===true
+    && latestPoint?.raw_data?.maxStaminaKnown===true
+    && latestPoint?.stamina!=null
+    && latestPoint?.max_stamina!=null;
+  const staminaData=verified?serverReportedStamina({
+    stamina:latestPoint.stamina,
+    maxStamina:latestPoint.max_stamina,
+    staminaKnown:true,
+    maxStaminaKnown:true
+  }):null;
   return{
     summary:{
       id:String(row.member_id),
