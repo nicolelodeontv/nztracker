@@ -51,7 +51,9 @@ export function buildSyncHealthSnapshot({
   sourceDiagnostics=null,
   discoveryStatus='unknown',
   rankingStatus='unknown',
-  durationMs=null
+  durationMs=null,
+  staminaSource='unavailable',
+  staminaKnownMembers=0
 }={}){
   const prev=previous||{};
   const isHealthy=outcome==='success';
@@ -80,6 +82,8 @@ export function buildSyncHealthSnapshot({
     lastDiscoveryStatus:discoveryStatus,
     lastRankingStatus:rankingStatus,
     lastDurationMs:Number.isFinite(Number(durationMs))?Number(durationMs):(prev.lastDurationMs||null),
+    lastStaminaSource:staminaSource||prev.lastStaminaSource||'unavailable',
+    lastStaminaKnownMembers:Number.isFinite(Number(staminaKnownMembers))?Number(staminaKnownMembers):Number(prev.lastStaminaKnownMembers||0),
     consecutiveSuccesses:isHealthy?Number(prev.consecutiveSuccesses||0)+1:0,
     consecutiveFailures:outcome==='error'?Number(prev.consecutiveFailures||0)+1:0,
     consecutiveWarnings:outcome==='warning'?Number(prev.consecutiveWarnings||0)+1:0,
@@ -111,7 +115,9 @@ export async function recordSyncHealth({
   sourceDiagnostics=null,
   discoveryStatus='unknown',
   rankingStatus='unknown',
-  durationMs=null
+  durationMs=null,
+  staminaSource='unavailable',
+  staminaKnownMembers=0
 }={}){
   const db=supabaseAdmin();
   const previous=await readSyncHealth();
@@ -127,7 +133,9 @@ export async function recordSyncHealth({
     sourceDiagnostics,
     discoveryStatus,
     rankingStatus,
-    durationMs
+    durationMs,
+    staminaSource,
+    staminaKnownMembers
   });
   const {error:writeError}=await db.from('rep_tracker_kv').upsert({
     key:SYNC_HEALTH_KEY,

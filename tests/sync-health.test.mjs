@@ -19,6 +19,34 @@ test('last failure timestamp follows the most recent consecutive degraded source
   assert.equal(first.lastFailure, 'AMF application status 0. message=401');
   assert.equal(first.consecutiveSourceWarnings, 1);
 
+test('sync health records whether the current source exposes verified Stamina',()=>{
+  const snapshot=buildSyncHealthSnapshot({
+    at:'2026-09-23T05:00:00.000Z',
+    outcome:'success',
+    memberStatus:'success',
+    memberSource:'amf',
+    sourceHealth:'healthy',
+    staminaSource:'unavailable',
+    staminaKnownMembers:0
+  });
+  assert.equal(snapshot.lastStaminaSource,'unavailable');
+  assert.equal(snapshot.lastStaminaKnownMembers,0);
+
+  const verified=buildSyncHealthSnapshot({
+    previous:snapshot,
+    at:'2026-09-23T05:01:00.000Z',
+    outcome:'success',
+    memberStatus:'success',
+    memberSource:'amf',
+    sourceHealth:'healthy',
+    staminaSource:'server-reported',
+    staminaKnownMembers:30
+  });
+  assert.equal(verified.lastStaminaSource,'server-reported');
+  assert.equal(verified.lastStaminaKnownMembers,30);
+});
+
+
   const second=buildSyncHealthSnapshot({
     previous:first,
     at:secondAt,

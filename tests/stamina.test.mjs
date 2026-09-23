@@ -16,14 +16,23 @@ test('shared stamina constants stay consistent', () => {
   assert.equal(ATTACK_STAMINA_COST, 10);
 });
 
-test('missing stamina defaults to 200/200 without losing source metadata', () => {
+test('missing stamina stays unavailable without losing source metadata', () => {
   const member = normalizeMemberStamina({ name: 'Test' });
-  assert.equal(member.stamina, 200);
+  assert.equal(member.stamina, null);
   assert.equal(member.maxStamina, 200);
-  assert.equal(member.staminaPercent, 100);
+  assert.equal(member.staminaPercent, null);
   assert.equal(member.staminaKnown, false);
   assert.equal(member.maxStaminaKnown, false);
-  assert.equal(member.staminaState, 'full');
+  assert.equal(member.bleeding, null);
+  assert.equal(member.drainFloor, null);
+  assert.equal(member.staminaState, 'unknown');
+});
+
+test('legacy bleeding and attack-cost helpers fail closed when Stamina is unknown', () => {
+  const member = normalizeMemberStamina({ name: 'Unknown' });
+  assert.equal(member.bleeding, null);
+  assert.equal(member.staminaState, 'unknown');
+  assert.equal(applyAttackCost(null), null);
 });
 
 test('live stamina overrides the fallback cap', () => {

@@ -17,7 +17,7 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
   const projectedDaily=data?.stats?.todayGainAvailable?Number(global?.projectedDailyGain||0):null;
   const eta=Number.isFinite(Number(global?.targetEtaHours))?Number(global.targetEtaHours):null;
   const stamina=data?.staminaSummary||{};
-  const staminaReady=Boolean(stamina.trackingReady);
+  const staminaReady=Boolean(stamina.trackingReady && stamina.mode==='SERVER_REPORTED');
   const bleeding=stamina.bleeding===true;
 
   return <section className="ops-overview" aria-label="Operations overview">
@@ -51,18 +51,19 @@ export default function OperationsOverview({data,rows,periodHours,setPeriodHours
         <div className="op-target-big">{global?.above ? fmt(global.above.reputation) : fmt(global?.reputation)}</div>
         <small>{global?.above ? fmt(global.above.gap)+' REP needed to reach the next rank.' : 'CHAOS is currently the highest ranked tracked clan.'}</small>
       </article>
-      <article className="op-card stamina-card">
-        <span className="eyebrow">CALCULATED STATUS</span>
-        <strong className={"op-number "+(!staminaReady?'stamina-muted':bleeding?'stamina-alert':'stamina-ok')}>
-          {!staminaReady?'TRACKING INIT':bleeding?'BLEEDING':'STABLE'}
-        </strong>
-        <span className="op-meta">STAMINA · REP-DERIVED MODEL</span>
-        <div className="op-stat-row"><span>LOW ≤ {stamina.threshold ?? 70}</span><b>{stamina.lowStaminaCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
-        <div className="op-stat-row"><span>TRACKED</span><b>{stamina.trackedMemberCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
-        <small>{staminaReady
-          ? 'Calculated from observed REP changes and timed recovery. Not server-reported Stamina.'
-          : 'Waiting for the calculated stamina state to initialize for the current roster.'}</small>
-      </article>
+      {staminaReady
+        ? <article className="op-card stamina-card" title="Server-reported Stamina from the game source." aria-label="Server-reported stamina status">
+            <span className="eyebrow">SERVER STAMINA STATUS</span>
+            <strong className={"op-number "+(bleeding?'stamina-alert':'stamina-ok')}>{bleeding?'BLEEDING':'STABLE'}</strong>
+            <span className="op-meta">SERVER-REPORTED STAMINA</span>
+            <div className="op-stat-row"><span>LOW ≤ {stamina.threshold ?? 70}</span><b>{stamina.lowStaminaCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
+            <div className="op-stat-row"><span>TRACKED</span><b>{stamina.trackedMemberCount ?? 0}/{stamina.memberCount ?? rows.length}</b></div>
+          </article>
+        : <div className="stamina-hold-banner" role="status">
+            <strong>STAMINA DATA UNAVAILABLE</strong>
+            <span>Server-reported Stamina is not currently exposed by the member source. REP-derived estimation is disabled.</span>
+            <b>DO NOT USE STAMINA DATA FOR REWARD OR BLEEDING DECISIONS.</b>
+          </div>}
     </div>}
 
     {opsTab==='pace'&&<div className="panel ops-period-panel">

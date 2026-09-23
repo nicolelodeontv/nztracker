@@ -1,117 +1,73 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  STAMINA_MAX,
-  STAMINA_RECOVERY_AMOUNT,
-  STAMINA_RECOVERY_INTERVAL_MS,
-  STAMINA_DRAIN_PER_REP_GAIN,
   BLEEDING_STAMINA_THRESHOLD,
   calculateBleedingState,
-  calculateStaminaStep,
-  recoveryIntervalsElapsed
+  isBleedingMember,
+  serverReportedStamina
 } from '../app/lib/stamina-tracker.mjs';
 
-test('first observed member starts at full calculated stamina without a synthetic drain',()=>{
-  const result=calculateStaminaStep({
-    previousStamina:STAMINA_MAX,
-    previousRep:null,
-    currentRep:1000,
-    capturedAt:'2026-09-23T00:00:00.000Z'
-  });
-  assert.equal(result.stamina,STAMINA_MAX);
-  assert.equal(result.drained,0);
-  assert.equal(result.repGain,0);
-  assert.equal(result.mode,'CALCULATED');
+test('missing server Stamina stays unavailable instead of being inferred from REP',()=>{
+  assert.equal(serverReportedStamina({
+    stamina:null,
+    maxStamina:null,
+    staminaKnown:false,
+    maxStaminaKnown:false
+  }),null);
+
+  assert.equal(serverReportedStamina({
+    stamina:170,
+    maxStamina:200,
+    staminaKnown:false,
+    maxStaminaKnown:true
+  }),null);
 });
 
-test('a real positive REP change drains exactly one tracked event',()=>{
-  const result=calculateStaminaStep({
-    previousStamina:200,
-    previousRep:1000,
-    currentRep:2500,
-    previousCalculatedAt:'2026-09-23T00:00:00.000Z',
-    capturedAt:'2026-09-23T00:05:00.000Z'
+test('server-reported Stamina is surfaced only when both current and max values are known',()=>{
+  assert.deepEqual(serverReportedStamina({
+    stamina:0,
+    maxStamina:200,
+    staminaKnown:true,
+    maxStaminaKnown:true
+  }),{
+    stamina:0,
+    maxStamina:200,
+    mode:'SERVER_REPORTED'
   });
-  assert.equal(result.repGain,1500);
-  assert.equal(result.drained,STAMINA_DRAIN_PER_REP_GAIN);
-  assert.equal(result.stamina,190);
 });
 
-test('unchanged or decreased REP does not drain stamina',()=>{
-  const unchanged=calculateStaminaStep({
-    previousStamina:120,
-    previousRep:2500,
-    currentRep:2500,
-    previousCalculatedAt:'2026-09-23T00:00:00.000Z',
-    capturedAt:'2026-09-23T00:05:00.000Z'
-  });
-  const reset=calculateStaminaStep({
-    previousStamina:120,
-    previousRep:2500,
-    currentRep:1500,
-    previousCalculatedAt:'2026-09-23T00:00:00.000Z',
-    capturedAt:'2026-09-23T00:05:00.000Z'
-  });
-  assert.equal(unchanged.stamina,120);
-  assert.equal(reset.stamina,120);
-});
-
-test('recovery uses elapsed 30-minute intervals and caps at 200',()=>{
-  const previousCalculatedAt='2026-09-23T00:00:00.000Z';
-  const capturedAt=new Date(Date.parse(previousCalculatedAt)+3*STAMINA_RECOVERY_INTERVAL_MS+5*60*1000).toISOString();
-  assert.equal(recoveryIntervalsElapsed(previousCalculatedAt,capturedAt),3);
-  const result=calculateStaminaStep({
-    previousStamina:20,
-    previousRep:1000,
-    currentRep:1000,
-    previousCalculatedAt,
-    capturedAt
-  });
-  assert.equal(result.recovered,180);
-  assert.equal(result.stamina,200);
-});
-
-test('bleeding starts when at least half of the live roster is at or below 70',()=>{
+test('bleeding is unavailable until the full roster has server-reported Stamina',()=>{
   const state=calculateBleedingState([
-    {memberId:'a',stamina:70},
-    {memberId:'b',stamina:40},
-    {memberId:'c',stamina:80},
-    {memberId:'d',stamina:90}
+    {memberId:'a',stamina:null,serverReported:false},
+    {memberId:'b',stamina:0,serverReported:true},
+    {memberId:'c',stamina:40,serverReported:true},
+    {memberId:'d',stamina:80,serverReported:true}
   ]);
+
+  assert.equal(state.bleeding,null);
+  assert.equal(state.trackingReady,false);
+  assert.equal(state.mode,'SERVER_REPORTED_UNAVAILABLE');
+  assert.equal(state.trackedMemberCount,3);
+});
+
+test('bleeding uses server-reported values once the full roster is verified',()=>{
+  const state=calculateBleedingState([
+    {memberId:'a',stamina:70,serverReported:true},
+    {memberId:'b',stamina:40,serverReported:true},
+    {memberId:'c',stamina:80,serverReported:true},
+    {memberId:'d',stamina:90,serverReported:true}
+  ]);
+
   assert.equal(state.lowStaminaCount,2);
   assert.equal(state.ratio,0.5);
   assert.equal(state.bleeding,true);
   assert.equal(state.threshold,BLEEDING_STAMINA_THRESHOLD);
+  assert.equal(state.mode,'SERVER_REPORTED');
 });
 
-test('bleeding stays clear below the 50 percent roster threshold',()=>{
-  const state=calculateBleedingState([
-    {memberId:'a',stamina:70},
-    {memberId:'b',stamina:71},
-    {memberId:'c',stamina:80},
-    {memberId:'d',stamina:90}
-  ]);
-  assert.equal(state.lowStaminaCount,1);
-  assert.equal(state.bleeding,false);
-});
-
-test('calculated stamina never drops below zero',()=>{
-  const result=calculateStaminaStep({
-    previousStamina:5,
-    previousRep:1000,
-    currentRep:2000,
-    previousCalculatedAt:'2026-09-23T00:00:00.000Z',
-    capturedAt:'2026-09-23T00:00:10.000Z'
-  });
-  assert.equal(result.stamina,0);
-});
-
-
-test('unknown stamina does not count as a low-stamina member',()=>{
-  const state=calculateBleedingState([
-    {memberId:'a',stamina:null},
-    {memberId:'b',stamina:80}
-  ]);
-  assert.equal(state.lowStaminaCount,0);
-  assert.equal(state.bleeding,false);
+test('invalid and above-zero values do not create false bleeding state',()=>{
+  assert.equal(isBleedingMember(null),false);
+  assert.equal(isBleedingMember('not-a-number'),false);
+  assert.equal(isBleedingMember(71),false);
+  assert.equal(isBleedingMember(70),true);
 });

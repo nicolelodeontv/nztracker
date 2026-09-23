@@ -41,3 +41,10 @@ test('shared rules expose one source of truth', () => {
   assert.equal(CLAN_WAR_RULES.attackerLeaderCost, 10);
   assert.equal(CLAN_WAR_RULES.recoveryIntervalMinutes, 30);
 });
+
+test('unavailable defender stamina cannot produce a victory reward', () => {
+  const result = getVictoryResult(267419, 253552, null);
+  assert.equal(result.won, false);
+  assert.equal(result.reputation, 0);
+  assert.equal(result.difference, 13867);
+});
