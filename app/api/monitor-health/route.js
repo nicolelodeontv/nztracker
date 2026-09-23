@@ -1,6 +1,7 @@
 import { readSyncStatus } from '../../lib/member-history.js';
 import { readSyncHealth, readMonitorHttpHealth, updateSyncHealthAlert } from '../../lib/sync-health.mjs';
 import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
+import { formatError } from '../../lib/error-format.mjs';
 
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
@@ -46,9 +47,9 @@ function alertDescription({sync,health,http,problems}){
     'Ranking status: '+String(sync?.rankingStatus||health?.lastRankingStatus||'unknown'),
     'HTTP status: '+(http?.statusCode??'unknown'),
     'HTTP age: '+(httpAgeMs===null?'unknown':Math.floor(httpAgeMs/1000)+'s'),
-    http?.errorMsg?'HTTP error: '+http.errorMsg:null,
-    sync?.error?'Sync error: '+sync.error:null,
-    health?.lastError?'Last sync error: '+health.lastError:null
+    http?.errorMsg?'HTTP error: '+formatError(http.errorMsg):null,
+    sync?.error?'Sync error: '+formatError(sync.error):null,
+    health?.lastError?'Last sync error: '+formatError(health.lastError):null
   ].filter(Boolean).join('\n');
 }
 

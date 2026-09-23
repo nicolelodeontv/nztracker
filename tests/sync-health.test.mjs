@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSyncHealthSnapshot, getSyncHealthAlertState } from '../app/lib/sync-health.mjs';
+import { formatError } from '../app/lib/error-format.mjs';
 
 test('last failure timestamp follows the most recent consecutive degraded source failure', () => {
   const firstAt='2026-09-22T04:50:20.000Z';
@@ -73,7 +74,9 @@ test('shared sync-health banner reads the fresh lastFailureAt field and labels a
     'utf8'
   );
   assert.match(source,/new Date\(health\.lastFailureAt\)\.toLocaleString\(\)/);
-  assert.match(source,/health\.lastFailure\|\|'Failure detected\.'/);
+  assert.match(source,/formatError\(health\.lastFailure,'Failure detected\.'\)/);
+  assert.match(source,/health\.lastError \? formatError\(health\.lastError\)/);
+  assert.match(source,/formatError\(data\.syncHealth\?\.sourceDiagnostics\?\.amf\?\.error, '—'\)/);
   assert.match(source,/SYNC RATE · 60S/);
   assert.match(source,/MISSED · 60S/);
 
@@ -122,4 +125,32 @@ test('AMF and LEGACY failure escalates to urgent state',()=>{
   assert.equal(state.urgent,true);
   assert.equal(state.quietFallback,false);
   assert.equal(state.legacyFailed,true);
+});
+
+
+test('sync health storage never persists [object Object] for error-shaped values', () => {
+  const snapshot = buildSyncHealthSnapshot({
+    outcome: 'error',
+    error: new Error('Database request failed'),
+    sourceWarning: { reason: 'Fallback unavailable' },
+    at: '2026-09-23T00:00:00.000Z'
+  });
+  assert.equal(snapshot.lastError, 'Database request failed');
+  assert.equal(snapshot.lastFailure, 'Database request failed');
+  assert.notEqual(snapshot.lastError, '[object Object]');
+  assert.notEqual(snapshot.lastFailure, '[object Object]');
+});
+
+test('affected status-display inputs remain readable when supplied real Error objects', () => {
+  const error = new Error('LEGACY request failed with HTTP 502');
+  assert.equal(formatError(error), 'LEGACY request failed with HTTP 502');
+  assert.equal(formatError({ error }), 'LEGACY request failed with HTTP 502');
+
+  const objectError = {
+    message: 'Member service returned application status 0. message=401',
+    status: 'error',
+    response: { httpStatus: 200 }
+  };
+  assert.equal(formatError(objectError), 'Member service returned application status 0. message=401');
+  assert.notEqual(formatError(objectError), '[object Object]');
 });

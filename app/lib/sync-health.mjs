@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './supabase-admin.js';
+import { formatError } from './error-format.mjs';
 
 export const SYNC_HEALTH_KEY = 'sync-health:latest';
 
@@ -57,8 +58,8 @@ export function buildSyncHealthSnapshot({
   const isSourceDegraded=sourceHealth==='degraded';
   const isFailure=outcome==='error'||outcome==='warning'||isSourceDegraded;
   const failureMessage=isFailure
-    ? String((outcome==='error'||outcome==='warning' ? error : null)||sourceWarning||error||'Sync failure detected.')
-    : (prev.lastFailure||null);
+    ? formatError((outcome==='error'||outcome==='warning' ? error : null)||sourceWarning||error,'Sync failure detected.')
+    : formatError(prev.lastFailure,'');
   return{
     version:4,
     lastRunAt:at,
@@ -66,7 +67,7 @@ export function buildSyncHealthSnapshot({
     lastFailureAt:isFailure?at:(prev.lastFailureAt||null),
     lastFailure:failureMessage,
     lastErrorAt:outcome==='error'?at:(prev.lastErrorAt||null),
-    lastError:outcome==='error'?String(error||'Sync failed.'):null,
+    lastError:outcome==='error'?formatError(error,'Sync failed.'):null,
     lastMemberSuccessAt:memberStatus==='success'?at:(prev.lastMemberSuccessAt||null),
     lastRankingFreshAt:rankingStatus==='fresh'?at:(prev.lastRankingFreshAt||null),
     lastMemberSource:memberSource||prev.lastMemberSource||null,
@@ -74,7 +75,7 @@ export function buildSyncHealthSnapshot({
     lastLegacySuccessAt:memberSource==='legacy'?at:(prev.lastLegacySuccessAt||null),
     lastMemberStatus:memberStatus,
     lastSourceHealth:sourceHealth||prev.lastSourceHealth||'healthy',
-    lastSourceWarning:isSourceDegraded?(String(sourceWarning||'Member source fallback is active.')):null,
+    lastSourceWarning:isSourceDegraded?formatError(sourceWarning,'Member source fallback is active.'):null,
     sourceDiagnostics:sourceDiagnostics||prev.sourceDiagnostics||null,
     lastDiscoveryStatus:discoveryStatus,
     lastRankingStatus:rankingStatus,

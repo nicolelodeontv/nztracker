@@ -1,5 +1,6 @@
 import { requireAdmin } from '../../lib/admin-auth';
 import { syncTracker } from '../../lib/rep-tracker';
+import { formatError } from '../../lib/error-format.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export async function POST(request) {
     const result = await syncTracker({ force: true, admin: process.env.ADMIN_NAME || 'admin' });
     return Response.json({ ok: true, ...result });
   } catch (error) {
-    return Response.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+    return Response.json({ ok: false, error: formatError(error) }, { status: 502 });
   }
 }
 
