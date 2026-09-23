@@ -1,4 +1,5 @@
 const isObjectLike = (value) => value !== null && typeof value === 'object';
+const OBJECT_STRING = '[object Object]';
 
 export function formatError(value, fallback = 'Unknown error') {
   if (value instanceof Error) {
@@ -9,7 +10,8 @@ export function formatError(value, fallback = 'Unknown error') {
 
   if (typeof value === 'string') {
     const text = value.trim();
-    return text || fallback;
+    if (!text || text === OBJECT_STRING) return fallback;
+    return text;
   }
 
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
@@ -44,7 +46,7 @@ export function formatError(value, fallback = 'Unknown error') {
 
   try {
     const text = String(value).trim();
-    return text === '[object Object]' ? fallback : (text || fallback);
+    return text === OBJECT_STRING ? fallback : (text || fallback);
   } catch {
     return fallback;
   }

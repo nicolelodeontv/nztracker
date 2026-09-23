@@ -6,6 +6,7 @@ import { MONITOR_WINDOW_MS, claimMonitorWindow, completeMonitorWindow, pruneMoni
 import { syncTracker } from '../../lib/rep-tracker.js';
 import { discoverChaos } from '../../lib/ninja-source.mjs';
 import { recordSyncHealth } from '../../lib/sync-health.mjs';
+import { formatError } from '../../lib/error-format.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -68,7 +69,7 @@ export async function GET(request) {
         rankingCache = { stored: false, refreshed: false, cached: true, ageMs: Math.max(0, Date.now() - cachedAt) };
       }
     } catch (error) {
-      rankingCacheError = error instanceof Error ? error.message : String(error);
+      rankingCacheError = formatError(error, 'Ranking refresh failed.');
       rankingCache = { stored: false, refreshed: false, error: rankingCacheError };
       ranking = ranking || null;
       console.error('Ranking refresh failed; continuing tracker sync', error);
@@ -185,7 +186,7 @@ export async function GET(request) {
         nextExpectedAt: new Date(finishedAt.getTime() + SYNC_INTERVAL_MS).toISOString(),
         intervalMs: SYNC_INTERVAL_MS,
         source: SOURCE,
-        error: error instanceof Error ? error.message : String(error)
+        error: formatError(error)
       });
     } catch (heartbeatError) {
       console.error('Unable to persist monitor error heartbeat', heartbeatError);
@@ -194,7 +195,7 @@ export async function GET(request) {
     await recordSyncHealth({
       outcome:'error',
       at:finishedAt.toISOString(),
-      error:error instanceof Error ? error.message : String(error),
+      error:formatError(error),
       memberStatus:'error',
       memberSource:null,
       discoveryStatus:'error',
@@ -206,7 +207,7 @@ export async function GET(request) {
     return Response.json({
       ok: false,
       status: 'error',
-      error: error instanceof Error ? error.message : String(error),
+      error: formatError(error),
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
       windowKey

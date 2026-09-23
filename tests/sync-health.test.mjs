@@ -154,3 +154,26 @@ test('affected status-display inputs remain readable when supplied real Error ob
   assert.equal(formatError(objectError), 'Member service returned application status 0. message=401');
   assert.notEqual(formatError(objectError), '[object Object]');
 });
+
+test('shared error formatter rejects persisted object-stringification artifacts', () => {
+  assert.equal(formatError('[object Object]'), 'Unknown error');
+  assert.equal(formatError('[object Object]', 'Monitor failure unavailable.'), 'Monitor failure unavailable.');
+  assert.equal(
+    formatError({ code: '42702', message: 'column reference "clan_id" is ambiguous' }),
+    'column reference "clan_id" is ambiguous'
+  );
+});
+
+test('monitor catch path uses the shared formatter for plain Supabase-style errors', async () => {
+  const source=await (await import('node:fs/promises')).readFile(
+    new URL('../app/api/monitor/route.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(source,/import \{ formatError \} from ['"]\.\.\/\.\.\/lib\/error-format\.mjs['"]/);
+  assert.match(source,/error:\s*formatError\(error\)/);
+  assert.doesNotMatch(source,/error:\s*error instanceof Error \? error\.message : String\(error\)/);
+
+  const supabaseError={code:'42702',message:'column reference "clan_id" is ambiguous',details:'It could refer to either a PL/pgSQL variable or a table column.'};
+  assert.equal(formatError(supabaseError), 'column reference "clan_id" is ambiguous');
+  assert.notEqual(formatError(supabaseError), '[object Object]');
+});
