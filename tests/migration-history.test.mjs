@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
-const MIGRATION_FILENAME = /^(\\d{14})_(.+)\\.sql$/;
+const MIGRATION_FILENAME = /^(\d{14})_(.+)\.sql$/;
 
 test('local migration filenames match checked-in production history', async () => {
   const manifest = JSON.parse(
