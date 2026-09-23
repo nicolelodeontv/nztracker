@@ -36,6 +36,59 @@ async function loadSourceRows() {
   return parseRankingHtml(await response.text());
 }
 
+export function evaluateClanStatus({ clan, clanId, members = [] }) {
+  const evaluated = members.map((member) => {
+    const max = getMaxStamina(member);
+    const current = getCurrentStamina({ ...member, maxStamina: max });
+    const rawStamina = member?.stamina ?? member?.currentStamina ?? member?.staminaCurrent ?? member?.sta;
+    const serverReported = rawStamina !== null && rawStamina !== undefined && rawStamina !== '' && Number.isFinite(Number(rawStamina));
+
+    return {
+      name: clean(member?.name),
+      current,
+      max,
+      drainFloor: getDrainFloor(max),
+      bleedingThreshold: getBleedingThreshold(max),
+      bleeding: isBleeding({ ...member, stamina: current, maxStamina: max }),
+      serverReported
+    };
+  }).filter((member) => member.name);
+
+  const knownStaminaMembers = evaluated.filter((member) => member.serverReported && member.current !== null).length;
+  const fullyVerified = evaluated.length > 0 && knownStaminaMembers === evaluated.length;
+  const bleedingMembers = fullyVerified ? evaluated.filter((member) => member.bleeding === true).length : 0;
+  const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
+  const bleeding = fullyVerified && bleedingMembers >= memberThreshold;
+  const fullyRecovered = fullyVerified && evaluated.every((member) => member.current >= member.max);
+  const staminaSource = fullyVerified
+    ? 'server-reported'
+    : knownStaminaMembers > 0
+      ? 'partial-server-reported'
+      : 'unavailable';
+
+  return {
+    clan,
+    clanId,
+    state: fullyVerified ? (bleeding ? 'bleeding' : 'healthy') : 'insufficient-data',
+    memberCount: evaluated.length,
+    bleedingMembers,
+    memberThreshold,
+    fullyRecovered,
+    staminaAvailable: knownStaminaMembers > 0,
+    knownStaminaMembers,
+    knownStaminaRatio: evaluated.length ? knownStaminaMembers / evaluated.length : 0,
+    maxStamina: CLAN_WAR_RULES.maxStamina,
+    staminaSource,
+    rules: {
+      bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio,
+      thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio,
+      drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio,
+      drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember
+    },
+    members: evaluated
+  };
+}
+
 export async function GET(request) {
   const url = new URL(request.url);
   const clans = [...new Set((url.searchParams.get('clans') || '').split(',').map(clean).filter(Boolean))].slice(0, 25);
@@ -57,46 +110,7 @@ export async function GET(request) {
         const members = Array.isArray(payload?.members) ? payload.members : [];
         if (!members.length) return [clan, { clan, state: 'unknown', reason: 'No member data returned by source', memberCount: 0, staminaAvailable: false }];
 
-        const evaluated = members.map((member) => {
-          const max = getMaxStamina(member);
-          const current = getCurrentStamina({ ...member, maxStamina: max });
-          return {
-            name: clean(member?.name),
-            current,
-            max,
-            drainFloor: getDrainFloor(max),
-            bleedingThreshold: getBleedingThreshold(max),
-            bleeding: isBleeding({ ...member, stamina: current, maxStamina: max })
-          };
-        }).filter((member) => member.name);
-
-        const bleedingMembers = evaluated.filter((member) => member.bleeding).length;
-        const memberThreshold = Math.ceil(evaluated.length * CLAN_WAR_RULES.bleedingMemberRatio);
-        const bleeding = evaluated.length > 0 && bleedingMembers >= memberThreshold;
-        const fullyRecovered = evaluated.length > 0 && evaluated.every((member) => member.current >= member.max);
-        const knownStaminaMembers = evaluated.filter((member) => Number.isFinite(Number(members.find((sourceMember) => clean(sourceMember?.name) === member.name)?.stamina))).length;
-
-        return [clan, {
-          clan,
-          clanId,
-          state: bleeding ? 'bleeding' : 'healthy',
-          memberCount: evaluated.length,
-          bleedingMembers,
-          memberThreshold,
-          fullyRecovered,
-          staminaAvailable: evaluated.length > 0,
-          knownStaminaMembers,
-          knownStaminaRatio: evaluated.length ? knownStaminaMembers / evaluated.length : 0,
-          maxStamina: CLAN_WAR_RULES.maxStamina,
-          staminaSource: knownStaminaMembers > 0 ? 'live-or-default-200' : 'default-200',
-          rules: {
-            bleedingMemberRatio: CLAN_WAR_RULES.bleedingMemberRatio,
-            thresholdRatio: CLAN_WAR_RULES.staminaThresholdRatio,
-            drainFloorRatio: CLAN_WAR_RULES.staminaDrainFloorRatio,
-            drainPerAffectedMember: CLAN_WAR_RULES.staminaDrainPerAffectedMember
-          },
-          members: evaluated
-        }];
+        return [clan, evaluateClanStatus({ clan, clanId, members })];
       } catch (error) {
         return [clan, { clan, clanId, state: 'unknown', reason: error instanceof Error ? error.message : 'Member status unavailable' }];
       }
