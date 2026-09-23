@@ -3,7 +3,7 @@ export const AMF_PROBE_SUCCESS = 'success';
 export const AMF_PROBE_FAILURE = 'failure';
 
 export function isKnownAmfAuthorizationDenial(error) {
-  const response = error?.amfResponse;
+  const response = error?.amfResponse ?? error?.sourceDiagnostic?.amfResponse;
   return String(response?.status ?? '') === '0'
     && String(response?.message ?? '') === '401';
 }
