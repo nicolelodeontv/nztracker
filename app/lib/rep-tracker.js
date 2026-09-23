@@ -71,10 +71,8 @@ async function upsertMembers({clanId,season,members,capturedAt,staminaById=new M
       level:asInt(row.current_level),rep:asInt(member.reputation),
       rank:rankState?.rank??null,
       previous_rank:rankState?.previousRank??null,
-      ...(staminaById.size?{
-        stamina:staminaById.get(String(row.member_id))?.stamina??null,
-        max_stamina:staminaById.get(String(row.member_id))?.maxStamina??null
-      }:{}),
+      stamina:staminaById.get(String(row.member_id))?.stamina??null,
+      max_stamina:staminaById.get(String(row.member_id))?.maxStamina??null,
       last_point_at:previousLatest&&Number(previousLatest.rep)===asInt(member.reputation)?previousLatest.last_point_at:capturedAt,
       last_seen_at:capturedAt
     });
