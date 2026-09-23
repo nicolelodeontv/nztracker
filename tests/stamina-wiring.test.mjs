@@ -26,7 +26,7 @@ test('member UI labels stamina as estimated and keeps mobile table labels aligne
   const overview=await readFile(new URL('../app/components/OperationsOverview.js',import.meta.url),'utf8');
   const css=await readFile(new URL('../app/rep-tracker.css',import.meta.url),'utf8');
   assert.match(dashboard,/EST\. STAMINA/);
-  assert.match(dashboard,/ESTIMATE ONLY · Derived from observed REP changes and timed recovery\. Not server-reported game data\./);
+  assert.match(overview,/ESTIMATE ONLY · Derived from observed REP changes and timed recovery\. Not server-reported Stamina\./);
   assert.match(dashboard,/summary\.stamina==null/);
   assert.match(overview,/ESTIMATED STAMINA STATUS/);
   assert.match(overview,/BLEEDING/);
