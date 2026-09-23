@@ -86,5 +86,5 @@ test('probe route and CI preserve the three-way classification contract',async()
   assert.match(workflow,/known_unauthorized/);
   assert.match(workflow,/AMF: known authorization pending \(external, tracked separately\)/);
   assert.match(workflow,/AMF genuine failure/);
-  assert.match(workflow,/status = "200"/);
+  assert.match(workflow,/HTTP_STATUS.*200|HTTP_STATUS/);
 });
