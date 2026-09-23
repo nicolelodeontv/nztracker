@@ -1,79 +1,60 @@
 export const STAMINA_MAX = 200;
 export const STAMINA_MIN = 0;
-export const STAMINA_DRAIN_PER_REP_GAIN = 10;
-export const STAMINA_RECOVERY_AMOUNT = 60;
-export const STAMINA_RECOVERY_INTERVAL_MS = 30 * 60 * 1000;
 export const BLEEDING_STAMINA_THRESHOLD = 70;
 export const BLEEDING_MIN_MEMBER_RATIO = 0.5;
 
-const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+const finite = (value, fallback = null) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
 
-export function clampStamina(value) {
-  return Math.max(STAMINA_MIN, Math.min(STAMINA_MAX, Math.trunc(finite(value))));
-}
-
-export function recoveryIntervalsElapsed(previousCalculatedAt, capturedAt) {
-  const previousMs = Date.parse(previousCalculatedAt || '');
-  const capturedMs = Date.parse(capturedAt || '');
-  if (!Number.isFinite(previousMs) || !Number.isFinite(capturedMs) || capturedMs <= previousMs) return 0;
-  return Math.floor((capturedMs - previousMs) / STAMINA_RECOVERY_INTERVAL_MS);
-}
-
-export function calculateStaminaStep({
-  previousStamina = STAMINA_MAX,
-  previousRep = null,
-  currentRep = 0,
-  previousCalculatedAt = null,
-  capturedAt = null
+export function serverReportedStamina({
+  stamina = null,
+  maxStamina = null,
+  staminaKnown = false,
+  maxStaminaKnown = false
 } = {}) {
-  const before = clampStamina(previousStamina);
-  const previous = previousRep === null || previousRep === undefined || previousRep === ''
-    ? null
-    : (Number.isFinite(Number(previousRep)) ? Number(previousRep) : null);
-  const current = finite(currentRep);
-  const intervals = recoveryIntervalsElapsed(previousCalculatedAt, capturedAt);
-  const recovered = Math.min(
-    STAMINA_MAX - before,
-    intervals * STAMINA_RECOVERY_AMOUNT
-  );
-  const afterRecovery = clampStamina(before + recovered);
-  const repGain = previous === null ? 0 : Math.max(0, current - previous);
-  const drainEvents = repGain > 0 ? 1 : 0;
-  const drained = Math.min(afterRecovery, drainEvents * STAMINA_DRAIN_PER_REP_GAIN);
-  const stamina = clampStamina(afterRecovery - drained);
+  const current = finite(stamina);
+  const maximum = finite(maxStamina);
+
+  if (!staminaKnown || !maxStaminaKnown || current === null || maximum === null || maximum <= 0) {
+    return null;
+  }
+
+  const boundedCurrent = Math.max(STAMINA_MIN, Math.min(maximum, Math.trunc(current)));
+  const boundedMaximum = Math.max(1, Math.trunc(maximum));
 
   return {
-    stamina,
-    maxStamina: STAMINA_MAX,
-    recovered,
-    drained,
-    repGain,
-    drainEvents,
-    recoveryIntervals: intervals,
-    mode: 'CALCULATED'
+    stamina: boundedCurrent,
+    maxStamina: boundedMaximum,
+    mode: 'SERVER_REPORTED'
   };
 }
 
-export function isBleedingMember(stamina) {
-  if (stamina == null || !Number.isFinite(Number(stamina))) return false;
-  return Number(stamina) <= BLEEDING_STAMINA_THRESHOLD;
+export function isBleedingMember(stamina, threshold = BLEEDING_STAMINA_THRESHOLD) {
+  const value = finite(stamina);
+  return value !== null && value <= Number(threshold);
 }
 
 export function calculateBleedingState(rows = []) {
   const members = Array.isArray(rows) ? rows.filter((row) => row && row.memberId) : [];
-  if (!members.length) {
+  const verified = members.filter((row) => row.serverReported === true && row.stamina != null);
+
+  if (!members.length || verified.length !== members.length) {
     return {
-      bleeding: false,
+      bleeding: null,
       lowStaminaCount: 0,
-      memberCount: 0,
+      memberCount: members.length,
       ratio: 0,
       threshold: BLEEDING_STAMINA_THRESHOLD,
       minimumRatio: BLEEDING_MIN_MEMBER_RATIO,
-      mode: 'CALCULATED'
+      mode: 'SERVER_REPORTED_UNAVAILABLE',
+      trackingReady: false,
+      trackedMemberCount: verified.length
     };
   }
 
-  const lowStaminaCount = members.filter((row) => isBleedingMember(row.stamina)).length;
+  const lowStaminaCount = verified.filter((row) => isBleedingMember(row.stamina)).length;
   const ratio = lowStaminaCount / members.length;
 
   return {
@@ -83,6 +64,8 @@ export function calculateBleedingState(rows = []) {
     ratio,
     threshold: BLEEDING_STAMINA_THRESHOLD,
     minimumRatio: BLEEDING_MIN_MEMBER_RATIO,
-    mode: 'CALCULATED'
+    mode: 'SERVER_REPORTED',
+    trackingReady: true,
+    trackedMemberCount: verified.length
   };
 }
