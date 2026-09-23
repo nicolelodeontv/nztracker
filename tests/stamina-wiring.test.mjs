@@ -22,7 +22,7 @@ test('sync path uses only server-reported Stamina and never infers it from REP',
 test('dashboard exposes verified server-reported Stamina only when the full roster is known',async()=>{
   const source=await readFile(new URL('../app/lib/rep-tracker.js',import.meta.url),'utf8');
   assert.match(source,/staminaSourceReady=String\(syncHealth\?\.lastStaminaSource\|\|''\)==='server-reported'/);
-  assert.match(source,/staminaMode:staminaSourceReady&&\(liveStamina!=null\|\|row\.stamina!=null\)?'SERVER_REPORTED':null/);
+  assert.match(source,/staminaMode:staminaSourceReady&&\(liveStamina!=null\|\|row\.stamina!=null\)\?'SERVER_REPORTED':null/);
   assert.match(source,/mode:'SERVER_REPORTED_UNAVAILABLE'/);
   assert.match(source,/trackingReady:false/);
 });
