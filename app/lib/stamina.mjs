@@ -4,6 +4,7 @@ export const BLEEDING_RATIO = 0.7;
 export const DRAIN_FLOOR_RATIO = 0.5;
 
 function finiteNumber(value) {
+  if (value == null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -15,13 +16,14 @@ export function getMaxStamina(member) {
 
 export function getCurrentStamina(member) {
   const value = finiteNumber(member?.stamina ?? member?.currentStamina ?? member?.staminaCurrent ?? member?.sta);
-  if (value === null) return getMaxStamina(member);
+  if (value === null) return null;
   return Math.max(0, Math.min(value, getMaxStamina(member)));
 }
 
 export function getStaminaPercent(member) {
   const max = getMaxStamina(member);
   const current = getCurrentStamina(member);
+  if (current === null || !Number.isFinite(max) || max <= 0) return null;
   return Math.max(0, Math.min(100, current / max * 100));
 }
 
@@ -34,11 +36,14 @@ export function getDrainFloor(maxStamina = MAX_STAMINA) {
 }
 
 export function isBleeding(member) {
-  return getCurrentStamina(member) <= getBleedingThreshold(getMaxStamina(member));
+  const current = getCurrentStamina(member);
+  if (current === null) return null;
+  return current <= getBleedingThreshold(getMaxStamina(member));
 }
 
 export function getStaminaState(member) {
   const percent = getStaminaPercent(member);
+  if (percent === null) return 'unknown';
   if (percent <= 50) return 'drain-floor';
   if (percent <= 70) return 'bleeding';
   if (percent >= 100) return 'full';
@@ -59,16 +64,19 @@ export function getRecoveryAmount(ramenLevel = 0, baseRecovery = 30, perRamenLev
 export function normalizeMemberStamina(member) {
   const maxStamina = getMaxStamina(member);
   const rawCurrent = finiteNumber(member?.stamina ?? member?.currentStamina ?? member?.staminaCurrent ?? member?.sta);
-  const stamina = getCurrentStamina({ ...member, maxStamina });
+  const stamina = rawCurrent === null ? null : Math.max(0, Math.min(rawCurrent, maxStamina));
+  const percent = stamina === null ? null : stamina / maxStamina * 100;
+  const bleeding = stamina === null ? null : stamina <= getBleedingThreshold(maxStamina);
+  const drainFloor = stamina === null ? null : stamina <= getDrainFloor(maxStamina);
   return {
     ...member,
     stamina,
     maxStamina,
     staminaKnown: rawCurrent !== null,
     maxStaminaKnown: finiteNumber(member?.maxStamina ?? member?.staminaMax ?? member?.max_stamina) !== null,
-    staminaPercent: stamina / maxStamina * 100,
-    bleeding: stamina <= getBleedingThreshold(maxStamina),
-    drainFloor: stamina <= getDrainFloor(maxStamina),
-    staminaState: getStaminaState({ ...member, stamina, maxStamina })
+    staminaPercent: percent,
+    bleeding,
+    drainFloor,
+    staminaState: stamina === null ? 'unknown' : getStaminaState({ ...member, stamina, maxStamina })
   };
 }
