@@ -4,6 +4,7 @@ export const BLEEDING_STAMINA_THRESHOLD = 70;
 export const BLEEDING_MIN_MEMBER_RATIO = 0.5;
 
 const finite = (value, fallback = null) => {
+  if (value == null || value === '') return fallback;
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 };
