@@ -1,4 +1,5 @@
 import { parseRankingHtml } from './source-parser.mjs';
+import { isKnownAmfAuthorizationDenial } from './amf-probe.mjs';
 import { readLastKnownMembers, writeLastKnownMembers, MEMBER_CACHE_MAX_AGE_MS } from './sync-source-state.mjs';
 
 export const GAME_SOURCE_ORIGIN = process.env.GAME_SOURCE_ORIGIN || 'https://ninjazenshin.online';
@@ -16,6 +17,11 @@ const memberCache = new Map();
 const inflight = new Map();
 let amfConsecutiveFailures = 0;
 const AMF_ALERT_THRESHOLDS = new Set([1,5,25,100,500,1000,2000]);
+const CSRF_TOKEN_TTL_MS = 4 * 60 * 1000;
+const CSRF_PAGE_HEADERS = { Accept: 'text/html', 'User-Agent': 'Mozilla/5.0 NinjaZenshinLiveTracker/4.0' };
+let csrfTokenCache = { token: '', fetchedAt: 0 };
+let csrfTokenPromise = null;
+let csrfTokenPromiseForced = false;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -47,6 +53,48 @@ async function fetchWithTimeout(url,options={}){
     }finally{clearTimeout(timer);}
   }
   throw lastError||new Error('Upstream request failed.');
+}
+async function fetchCsrfTokenFromGamePage() {
+  const response = await fetchWithTimeout(
+    GAME_SOURCE_ORIGIN + '/?panel=clan-ranking',
+    { cache: 'no-store', headers: CSRF_PAGE_HEADERS }
+  );
+  if (!response.ok) {
+    const error = new Error(`Ninja Zenshin page returned HTTP ${response.status}.`);
+    error.code = 'CSRF_PAGE_FETCH_FAILED';
+    throw error;
+  }
+  const html = await response.text();
+  const match = html.match(/<meta[^>]+name=["']csrf-token["'][^>]+content=["']([^"']+)["']/i);
+  const token = match?.[1]?.trim() || '';
+  if (!token) {
+    const error = new Error('Ninja Zenshin page did not expose a public CSRF token.');
+    error.code = 'CSRF_TOKEN_MISSING';
+    throw error;
+  }
+  csrfTokenCache = { token, fetchedAt: Date.now() };
+  return token;
+}
+
+export function clearCachedCsrfToken(token = '') {
+  if (!token || csrfTokenCache.token === token) csrfTokenCache = { token: '', fetchedAt: 0 };
+}
+
+export async function getCsrfToken(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && csrfTokenCache.token && now - csrfTokenCache.fetchedAt < CSRF_TOKEN_TTL_MS) return csrfTokenCache.token;
+  if (csrfTokenPromise) {
+    if (!forceRefresh || csrfTokenPromiseForced) return csrfTokenPromise;
+    return csrfTokenPromise.then(() => getCsrfToken(true), () => getCsrfToken(true));
+  }
+  csrfTokenPromiseForced = forceRefresh;
+  csrfTokenPromise = fetchCsrfTokenFromGamePage();
+  try {
+    return await csrfTokenPromise;
+  } finally {
+    csrfTokenPromise = null;
+    csrfTokenPromiseForced = false;
+  }
 }
 function pushU16(target,value){target.push((value>>>8)&255,value&255);}function pushU32(target,value){target.push((value>>>24)&255,(value>>>16)&255,(value>>>8)&255,value&255);}function pushUtf(target,value){const bytes=textEncoder.encode(String(value??''));if(bytes.length>65535)throw new Error('AMF string is too long.');pushU16(target,bytes.length);target.push(...bytes);}
 export function buildMemberRequest(clanId){const output=[];output.push(0,0);pushU16(output,0);pushU16(output,1);pushUtf(output,SERVICE);pushUtf(output,RESPONSE_TARGET);pushU32(output,0xffffffff);output.push(0x0a);pushU32(output,1);output.push(2);pushUtf(output,clanId);return new Uint8Array(output);}
@@ -105,6 +153,17 @@ export function normalizeMembers(rawMembers){
     ...member,
     identityAmbiguous:nameCounts.get(member.identityKey)>1
   }));
+}
+async function fromAmfWithCsrf(clanId) {
+  let csrfToken = await getCsrfToken();
+  try {
+    return await fromAmf(clanId, { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' });
+  } catch (error) {
+    if (!isKnownAmfAuthorizationDenial(error)) throw error;
+    clearCachedCsrfToken(csrfToken);
+    csrfToken = await getCsrfToken(true);
+    return fromAmf(clanId, { 'X-CSRF-TOKEN': csrfToken, 'X-Requested-With': 'XMLHttpRequest' });
+  }
 }
 async function fromAmf(clanId,extraHeaders={}){
   const started=Date.now();
@@ -171,7 +230,7 @@ export async function fetchLiveMembers(clanId){
   if(active)return active;
   const request=(async()=>{
     let amfDiagnostic=null;
-    try{return await fromAmf(key);}
+    try{return await fromAmfWithCsrf(key);}
     catch(amfError){
       amfDiagnostic=amfError?.sourceDiagnostic||{status:'error',durationMs:null,error:amfError instanceof Error?amfError.message:String(amfError)};
       try{
