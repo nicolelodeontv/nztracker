@@ -5,7 +5,7 @@ import { createRefreshGate, DASHBOARD_REFRESH_INTERVAL_MS, LIVE_REFRESH_INTERVAL
 
 test('refresh gate uses the full-dashboard interval', async () => {
   assert.equal(DASHBOARD_REFRESH_INTERVAL_MS, 60000);
-  assert.equal(LIVE_REFRESH_INTERVAL_MS, 5000);
+  assert.equal(LIVE_REFRESH_INTERVAL_MS, 1000);
   assert.equal(PERIOD_HISTORY_REFRESH_INTERVAL_MS, 60000);
 
   let now = 1_000;
