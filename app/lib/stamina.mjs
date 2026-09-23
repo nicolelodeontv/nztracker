@@ -51,7 +51,8 @@ export function getStaminaState(member) {
 }
 
 export function applyAttackCost(currentStamina, cost = ATTACK_STAMINA_COST) {
-  const value = finiteNumber(currentStamina) ?? MAX_STAMINA;
+  const value = finiteNumber(currentStamina);
+  if (value === null) return null;
   const staminaCost = Math.max(0, finiteNumber(cost) ?? ATTACK_STAMINA_COST);
   return Math.max(0, Math.min(MAX_STAMINA, value - staminaCost));
 }
