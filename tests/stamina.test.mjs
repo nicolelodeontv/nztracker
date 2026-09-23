@@ -8,7 +8,8 @@ import {
   getDrainFloor,
   getStaminaPercent,
   getStaminaState,
-  normalizeMemberStamina
+  normalizeMemberStamina,
+  applyAttackCost
 } from '../app/lib/stamina.mjs';
 
 test('shared stamina constants stay consistent', () => {
@@ -26,6 +27,13 @@ test('missing stamina stays unavailable without losing source metadata', () => {
   assert.equal(member.bleeding, null);
   assert.equal(member.drainFloor, null);
   assert.equal(member.staminaState, 'unknown');
+});
+
+test('legacy bleeding and attack-cost helpers fail closed when Stamina is unknown', () => {
+  const member = normalizeMemberStamina({ name: 'Unknown' });
+  assert.equal(member.bleeding, null);
+  assert.equal(member.staminaState, 'unknown');
+  assert.equal(applyAttackCost(null), null);
 });
 
 test('live stamina overrides the fallback cap', () => {
