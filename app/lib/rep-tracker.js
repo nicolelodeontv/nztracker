@@ -522,6 +522,9 @@ export async function liveData(){
   const syncStatus=kv.get('sync-status:latest')||null;
   const syncHealth=kv.get('sync-health:latest')||null;
   const httpHealth=kv.get('monitor:http-latest')||null;
+  const staminaSourceReady=String(syncHealth?.lastStaminaSource||'')==='server-reported'
+    && Number(syncHealth?.lastStaminaKnownMembers||0)>=members.length
+    && members.length>0;
   const freshnessState=freshness(syncHealth?.lastMemberSuccessAt||syncStatus?.lastRunAt||null);
   return{
     configured:true,
