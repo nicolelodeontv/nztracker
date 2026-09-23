@@ -44,7 +44,7 @@ export function getRewardForDifference(difference) {
 
 export function getVictoryResult(attackerRep, defenderRep, defenderBleeding) {
   const difference = Number(attackerRep) - Number(defenderRep);
-  if (!defenderBleeding) return { won: false, reputation: 0, difference };
+  if (defenderBleeding !== true) return { won: false, reputation: 0, difference };
   return { won: true, reputation: getRewardForDifference(difference), difference };
 }
 
