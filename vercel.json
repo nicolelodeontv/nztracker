@@ -1,11 +1,21 @@
 {
   "framework": "nextjs",
   "outputDirectory": ".next",
-  "regions": ["sin1"],
+  "regions": [
+    "sin1"
+  ],
   "git": {
     "deploymentEnabled": false
   },
   "github": {
     "autoAlias": false
+  },
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/member-history/route.js": {
+      "regions": [
+        "sin1"
+      ]
+    }
   }
 }
