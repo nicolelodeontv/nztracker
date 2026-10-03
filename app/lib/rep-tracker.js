@@ -8,6 +8,7 @@ import { recordMemberSnapshot } from './member-history.js';
 import { applyRankChanges, sortMembersByRank } from './rank-tracker.mjs';
 import { readSyncHealth, recordSyncHealth } from './sync-health.mjs';
 import { calculateBleedingState, serverReportedStamina } from './stamina-tracker.mjs';
+import { upsertMemberTableRows } from './member-upsert.mjs';
 
 const FRESH_MS=90000,AGING_MS=180000,SYNC_RUN_REUSE_GUARD_MS=10000,SYNC_RUN_RETENTION_KEY='retention:sync-runs:last-run',SYNC_RUN_RETENTION_INTERVAL_MS=60*60*1000,syncLocks=new Map();
 const nowIso=()=>new Date().toISOString();
@@ -81,11 +82,7 @@ async function upsertMembers({clanId,season,members,capturedAt,staminaById=new M
     const {error}=await db.from('rep_tracker_member_events').insert(eventRows);
     if(error)throw error;
   }
-  const {error}=await db.from('rep_tracker_members').upsert(
-    memberRows.map((row)=>({...row,...(existing.has(String(row.member_id))?{}:{first_seen_at:capturedAt,created_at:capturedAt})})),
-    {onConflict:'clan_id,member_id'}
-  );
-  if(error)throw error;
+  await upsertMemberTableRows({db,memberRows,existing,capturedAt});
   const {error:latestUpsertError}=await db.from('rep_tracker_member_latest').upsert(latestUpserts,{onConflict:'clan_id,season,member_id'});
   if(latestUpsertError)throw latestUpsertError;
 }
