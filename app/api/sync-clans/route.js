@@ -1,33 +1,26 @@
-import { GET as monitorGET } from '../monitor/route.js';
 import { syncClans } from '../../lib/clan-source.mjs';
+import { requireRequiredCronSecret } from '../../lib/cron-auth.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 30;
 
 /**
- * Keep the legacy monitor behavior, then append the public clan ranking / war
- * sync. The canonical ten-second production scheduler continues to call
- * /api/monitor directly, so it does not run this additional sync by default.
+ * Dedicated finished-season war-results sync. The ten-second monitor continues
+ * to run separately through /api/monitor and owns canonical ranking history.
  */
 export async function GET(request) {
-  const monitorResponse = await monitorGET(request);
-  if (!monitorResponse.ok) return monitorResponse;
+  const denied = requireRequiredCronSecret(request, '/api/sync-clans');
+  if (denied) return denied;
 
-  const monitorData = await monitorResponse.json();
   try {
-    const clanWarSync = await syncClans();
     return Response.json(
-      { ...monitorData, clanWarSync: { ok: true, ...clanWarSync } },
+      { ok: true, ...(await syncClans()) },
       { headers: { 'Cache-Control': 'no-store, max-age=0' } }
     );
   } catch (error) {
     return Response.json(
-      {
-        ...monitorData,
-        ok: false,
-        clanWarSync: { ok: false, error: String(error?.message ?? error) }
-      },
+      { ok: false, error: String(error?.message ?? error) },
       {
         status: 502,
         headers: { 'Cache-Control': 'no-store, max-age=0' }
