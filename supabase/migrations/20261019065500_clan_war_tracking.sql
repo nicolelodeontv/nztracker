@@ -1,8 +1,10 @@
--- Finished-season clan war results. Global ranking snapshots already use
--- public.rep_tracker_ranking_history (see 20260921150223_canonical_ranking_history.sql).
+-- Finished-season clan war results only.
+-- Global ranking snapshots already use public.rep_tracker_ranking_history
+-- (see 20260921150223_canonical_ranking_history.sql). Keep season as text to
+-- match that table's canonical values, e.g. "Season 3".
 
 create table if not exists public.clan_war_results (
-  season     integer not null,
+  season     text    not null,
   rank       integer not null,
   clan_name  text    not null,
   members    integer,
