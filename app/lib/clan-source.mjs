@@ -1,18 +1,14 @@
-// Reads the public Clan Ranking + Clan War Result tables from ninjazenshin.online.
-// Ranking history is stored through nztracker's existing canonical ranking-history writer.
-import { parseRankingHtml } from "./source-parser.mjs";
-import { recordRankingSnapshot } from "./ranking-cache.js";
-
+// Parse and persist finished Clan War Result tables only.
+// Current ranking snapshots and reputation history are handled by ranking-cache.js.
 const PAGE_URL = process.env.NZ_PUBLIC_URL || "https://ninjazenshin.online/?panel=clan-ranking";
-const USER_AGENT = "nztracker (clan stats reader, 1 request per run)";
-const MIN_RANKING_ROWS = 5; // guard: fewer rows means the page changed or is client-rendered
+const USER_AGENT = "nztracker (finished clan war reader)";
 
 /* ---------- small HTML helpers for finished war tables ---------- */
 
 const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
 export function decodeEntities(s) {
-  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+  return s.replace(/&(#x[0-9a-f]+|#\\d+|[a-z]+);/gi, (m, e) => {
     if (e[0] === "#") {
       const cp = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
       try { return String.fromCodePoint(cp); } catch { return m; }
@@ -24,22 +20,28 @@ export function decodeEntities(s) {
 const textOf = (html) =>
   decodeEntities(
     html
-      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, "")
       .replace(/<[^>]*>/g, " ")
-  ).replace(/\s+/g, " ").trim();
+  ).replace(/\\s+/g, " ").trim();
 
 const toInt = (s) => {
-  const n = parseInt(String(s).replace(/[^\d]/g, ""), 10);
+  const n = parseInt(String(s).replace(/[^\\d]/g, ""), 10);
   return Number.isFinite(n) ? n : null;
 };
 
 function tableRows(tableHtml) {
   const rows = [];
-  for (const tr of tableHtml.match(/<tr[\s\S]*?<\/tr>/gi) || []) {
-    const cells = [...tr.matchAll(/<t([dh])[^>]*>([\s\S]*?)<\/t\1>/gi)].map((c) => textOf(c[2]));
+  for (const tr of tableHtml.match(/<tr[\\s\\S]*?<\\/tr>/gi) || []) {
+    const cells = [...tr.matchAll(/<t([dh])[^>]*>([\\s\\S]*?)<\\/t\\1>/gi)].map((c) => textOf(c[2]));
     if (cells.length) rows.push(cells);
   }
   return rows;
+}
+
+function memberCount(value) {
+  const raw = String(value ?? "");
+  const fraction = raw.match(/(\\d+)\\s*\\/\\s*\\d+/);
+  return fraction ? Number(fraction[1]) : toInt(raw);
 }
 
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
@@ -50,65 +52,68 @@ function isoDate(d, mon, y) {
 }
 
 /**
- * Uses the app's existing source parser for ranking rows so stable clan IDs
- * and the canonical row shape are preserved. Only finished war results use
- * the additional table parser below.
+ * Parse finished-season result tables only. The season value is kept in the
+ * same text format as rep_tracker_ranking_history (for example, "Season 3").
+ * This parser deliberately does not parse or write the current ranking table.
  */
 export function parseClanPage(html) {
-  const parsedRanking = parseRankingHtml(html);
-  const result = {
-    ranking: {
-      ...parsedRanking,
-      closed: /season closed/i.test(textOf(html.slice(0, Math.max(0, html.search(/<table/i))).slice(-300)))
-    },
-    war: []
-  };
-  let prevEnd = 0;
+  const result = { war: [] };
+  let previousTableEnd = 0;
 
-  for (const m of html.matchAll(/<table[\s\S]*?<\/table>/gi)) {
-    const start = m.index;
-    const before = textOf(html.slice(prevEnd, start));
-    prevEnd = start + m[0].length;
+  for (const match of String(html ?? "").matchAll(/<table[\\s\\S]*?<\\/table>/gi)) {
+    const start = match.index;
+    const before = textOf(String(html).slice(previousTableEnd, start));
+    previousTableEnd = start + match[0].length;
 
-    const rows = tableRows(m[0]);
+    const rows = tableRows(match[0]);
     if (rows.length < 2) continue;
-    const head = rows[0].map((h) => h.toLowerCase());
-    const col = (name) => head.findIndex((h) => h.includes(name));
-    const iClan = col("clan"), iMaster = col("master"), iMembers = col("member"), iRep = col("reputation");
-    if (iClan < 0 || iRep < 0 || iMembers < 0 || iMaster >= 0) continue;
 
-    const season = [...before.matchAll(/Season\s+(\d+)/gi)].pop();
-    const ended = [...before.matchAll(/Ended\s+(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})/gi)].pop();
-    if (!season) continue;
+    const headers = rows[0].map((header) => header.toLowerCase());
+    const column = (name) => headers.findIndex((header) => header.includes(name));
+    const clanIndex = column("clan");
+    const masterIndex = column("master");
+    const membersIndex = column("member");
+    const reputationIndex = column("reputation");
+
+    // Exclude current ranking tables; those have a Master column and are
+    // persisted by the existing canonical ranking-cache path.
+    if (clanIndex < 0 || masterIndex >= 0 || membersIndex < 0 || reputationIndex < 0) continue;
+
+    const seasonMatch = [...before.matchAll(/Season\\s+(\\d+)/gi)].pop();
+    if (!seasonMatch) continue;
+    const endedMatch = [...before.matchAll(/Ended\\s+(\\d{1,2})\\s+([A-Za-z]{3,9})\\s+(\\d{4})/gi)].pop();
+    const season = `Season ${seasonMatch[1]}`;
 
     const parsed = rows.slice(1)
-      .map((r, i) => ({
-        season: +season[1],
-        rank: toInt(r[0]) ?? i + 1,
-        clan_name: r[iClan],
-        members: toInt(r[iMembers]),
-        reputation: toInt(r[iRep]),
-        ended_on: ended ? isoDate(ended[1], ended[2], ended[3]) : null
+      .map((row, index) => ({
+        season,
+        rank: toInt(row[0]) ?? index + 1,
+        clan_name: row[clanIndex],
+        members: memberCount(row[membersIndex]),
+        reputation: toInt(row[reputationIndex]),
+        ended_on: endedMatch ? isoDate(endedMatch[1], endedMatch[2], endedMatch[3]) : null
       }))
-      .filter((r) => r.clan_name && r.reputation !== null);
+      .filter((row) => row.clan_name && row.reputation !== null && row.rank !== null);
+
     if (parsed.length) result.war.push(...parsed);
   }
+
   return result;
 }
 
 /* ---------- fetch ---------- */
 
 export async function fetchClanPage(fetchImpl = fetch) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15_000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetchImpl(PAGE_URL, {
+    const response = await fetchImpl(PAGE_URL, {
       headers: { "user-agent": USER_AGENT, accept: "text/html" },
-      signal: ctrl.signal,
+      signal: controller.signal,
       cache: "no-store"
     });
-    if (!res.ok) throw new Error(`ninjazenshin.online responded ${res.status}`);
-    return await res.text();
+    if (!response.ok) throw new Error(`ninjazenshin.online responded ${response.status}`);
+    return await response.text();
   } finally {
     clearTimeout(timer);
   }
@@ -133,34 +138,19 @@ function sb(path, init = {}) {
   });
 }
 
-async function mustOk(res, label) {
-  if (!res.ok) throw new Error(`${label} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
-  return res;
+async function mustOk(response, label) {
+  if (!response.ok) throw new Error(`${label} failed: ${response.status} ${(await response.text()).slice(0, 300)}`);
+  return response;
 }
 
 /* ---------- sync ---------- */
 
 export async function syncClans() {
   const parsed = parseClanPage(await fetchClanPage());
-
-  if (!parsed.ranking || parsed.ranking.rows.length < MIN_RANKING_ROWS) {
-    throw new Error(
-      `Clan ranking table not found or too small (${parsed.ranking?.rows.length ?? 0} rows). ` +
-      "The page is probably rendered client-side now - find the JSON endpoint in the Network tab."
-    );
-  }
-
-  // Reuse the established cache/history writer to avoid duplicating the
-  // rep_tracker_ranking_history data model with parallel snapshot tables.
-  const rankingHistory = await recordRankingSnapshot({
-    ...parsed.ranking,
-    fetchedAt: new Date().toISOString(),
-    source: PAGE_URL
-  });
-
-  // Finished-season war results are a separate dataset not present in the
-  // canonical ranking-history table.
   let warRows = 0;
+
+  // A page with no completed war results is a valid no-op; ranking history
+  // remains independently managed by the canonical ranking-cache path.
   if (parsed.war.length) {
     await mustOk(
       await sb("clan_war_results?on_conflict=season,rank", {
@@ -174,10 +164,7 @@ export async function syncClans() {
   }
 
   return {
-    ranking_rows: parsed.ranking.rows.length,
-    season: parsed.ranking.season,
-    season_closed: parsed.ranking.closed,
-    ranking_history: rankingHistory,
+    seasons: [...new Set(parsed.war.map((row) => row.season))],
     war_rows: warRows
   };
 }
