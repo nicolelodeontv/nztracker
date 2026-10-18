@@ -29,7 +29,7 @@ Do not expose these as `NEXT_PUBLIC_*` variables.
 Production sync and diagnostic endpoints use `CRON_SECRET` for server-to-server authorization:
 
 - `/api/sync-all` — production full sync called by Supabase pg_cron.
-- `/api/sync-clans` — protected legacy sync endpoint.
+- `/api/sync-clans` — protected finished-season clan-war results sync endpoint (writes only `clan_war_results`).
 - `/api/monitor` — protected manual diagnostic endpoint.
 - `/api/source-debug` — admin-only persisted upstream source diagnostic endpoint.
 - `/api/monitor-health` — protected external health-check endpoint used by the GitHub backup workflow.
