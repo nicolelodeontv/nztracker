@@ -8,7 +8,7 @@ const USER_AGENT = "nztracker (finished clan war reader)";
 const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
 export function decodeEntities(s) {
-  return s.replace(/&(#x[0-9a-f]+|#\\d+|[a-z]+);/gi, (m, e) => {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
     if (e[0] === "#") {
       const cp = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
       try { return String.fromCodePoint(cp); } catch { return m; }
@@ -20,19 +20,19 @@ export function decodeEntities(s) {
 const textOf = (html) =>
   decodeEntities(
     html
-      .replace(/<script[\\s\\S]*?<\\/script>|<style[\\s\\S]*?<\\/style>/gi, "")
+      .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, "")
       .replace(/<[^>]*>/g, " ")
-  ).replace(/\\s+/g, " ").trim();
+  ).replace(/\s+/g, " ").trim();
 
 const toInt = (s) => {
-  const n = parseInt(String(s).replace(/[^\\d]/g, ""), 10);
+  const n = parseInt(String(s).replace(/[^\d]/g, ""), 10);
   return Number.isFinite(n) ? n : null;
 };
 
 function tableRows(tableHtml) {
   const rows = [];
-  for (const tr of tableHtml.match(/<tr[\\s\\S]*?<\\/tr>/gi) || []) {
-    const cells = [...tr.matchAll(/<t([dh])[^>]*>([\\s\\S]*?)<\\/t\\1>/gi)].map((c) => textOf(c[2]));
+  for (const tr of tableHtml.match(/<tr[\s\S]*?<\/tr>/gi) || []) {
+    const cells = [...tr.matchAll(/<t([dh])[^>]*>([\s\S]*?)<\/t\1>/gi)].map((c) => textOf(c[2]));
     if (cells.length) rows.push(cells);
   }
   return rows;
@@ -40,7 +40,7 @@ function tableRows(tableHtml) {
 
 function memberCount(value) {
   const raw = String(value ?? "");
-  const fraction = raw.match(/(\\d+)\\s*\\/\\s*\\d+/);
+  const fraction = raw.match(/(\d+)\s*\/\s*\d+/);
   return fraction ? Number(fraction[1]) : toInt(raw);
 }
 
@@ -60,7 +60,7 @@ export function parseClanPage(html) {
   const result = { war: [] };
   let previousTableEnd = 0;
 
-  for (const match of String(html ?? "").matchAll(/<table[\\s\\S]*?<\\/table>/gi)) {
+  for (const match of String(html ?? "").matchAll(/<table[\s\S]*?<\/table>/gi)) {
     const start = match.index;
     const before = textOf(String(html).slice(previousTableEnd, start));
     previousTableEnd = start + match[0].length;
@@ -79,9 +79,9 @@ export function parseClanPage(html) {
     // persisted by the existing canonical ranking-cache path.
     if (clanIndex < 0 || masterIndex >= 0 || membersIndex < 0 || reputationIndex < 0) continue;
 
-    const seasonMatch = [...before.matchAll(/Season\\s+(\\d+)/gi)].pop();
+    const seasonMatch = [...before.matchAll(/Season\s+(\d+)/gi)].pop();
     if (!seasonMatch) continue;
-    const endedMatch = [...before.matchAll(/Ended\\s+(\\d{1,2})\\s+([A-Za-z]{3,9})\\s+(\\d{4})/gi)].pop();
+    const endedMatch = [...before.matchAll(/Ended\s+(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})/gi)].pop();
     const season = `Season ${seasonMatch[1]}`;
 
     const parsed = rows.slice(1)
