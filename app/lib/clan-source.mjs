@@ -1,5 +1,5 @@
 // Parse and persist finished Clan War Result tables only.
-// Current ranking snapshots and reputation history are handled by ranking-cache.js.
+// It intentionally does not write the current ranking or reputation history.
 const PAGE_URL = process.env.NZ_PUBLIC_URL || "https://ninjazenshin.online/?panel=clan-ranking";
 const USER_AGENT = "nztracker (finished clan war reader)";
 
