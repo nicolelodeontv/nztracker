@@ -53,7 +53,7 @@ function isoDate(d, mon, y) {
 
 /**
  * Parse finished-season result tables only. The season value is kept in the
- * same text format as rep_tracker_ranking_history (for example, "Season 3").
+ * canonical season text format (for example, "Season 3").
  * This parser deliberately does not parse or write the current ranking table.
  */
 export function parseClanPage(html) {
@@ -76,7 +76,7 @@ export function parseClanPage(html) {
     const reputationIndex = column("reputation");
 
     // Exclude current ranking tables; those have a Master column and are
-    // persisted by the existing canonical ranking-cache path.
+    // Current ranking persistence is handled elsewhere.
     if (clanIndex < 0 || masterIndex >= 0 || membersIndex < 0 || reputationIndex < 0) continue;
 
     const seasonMatch = [...before.matchAll(/Season\s+(\d+)/gi)].pop();
@@ -150,7 +150,7 @@ export async function syncClans() {
   let warRows = 0;
 
   // A page with no completed war results is a valid no-op; ranking history
-  // remains independently managed by the canonical ranking-cache path.
+  // are left to the dedicated ranking monitor.
   if (parsed.war.length) {
     await mustOk(
       await sb("clan_war_results?on_conflict=season,rank", {
