@@ -16,21 +16,21 @@ jobs:
     timeout-minutes: 10
     environment:
       name: nztracker-migration-preflight
-    env:
-      NZTRACKER_DB_URL: ${{ secrets.NZTRACKER_DB_URL }}
     steps:
       - name: Checkout fixed PR snapshot
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 6a2a43855a314711e1dbca55f1a05e82db00ee99
           persist-credentials: false
 
       - name: Check connection string is scoped to the candidate project
         shell: bash
+        env:
+          NZTRACKER_DB_URL: ${{ secrets.NZTRACKER_DB_URL }}
         run: |
           set -euo pipefail
           if [[ -z "${NZTRACKER_DB_URL}" ]]; then
-            echo "::error::Create the nztracker-migration-preflight environment and add its NZTRACKER_DB_URL secret after configuring its protection rules."
+            echo "::error::Configure the nztracker-migration-preflight environment protections and add its NZTRACKER_DB_URL secret."
             exit 1
           fi
           node <<'NODE'
@@ -39,21 +39,29 @@ jobs:
           try {
             url = new URL(raw);
           } catch {
-            console.error("NZTRACKER_DB_URL is not a valid PostgreSQL URL.");
+            console.error("NZTRACKER_DB_URL is not a valid PostgreSQL URL. URL-encode special characters in the password.");
             process.exit(1);
           }
           const user = decodeURIComponent(url.username);
+          if (url.hash) {
+            console.error("The connection URL contains a fragment. URL-encode special characters in the password.");
+            process.exit(1);
+          }
           if (!["postgres:", "postgresql:"].includes(url.protocol)
               || !url.hostname.endsWith(".pooler.supabase.com")
               || !user.includes("duhorigpqixteoaojsot")) {
             console.error("Expected the Supabase Session pooler URL for project duhorigpqixteoaojsot. Use Dashboard → Connect and select Session pooler.");
             process.exit(1);
           }
-          console.log("Connection URL scheme, pooler host, and project username match the intended target.");
+          if (url.searchParams.get("sslmode") !== "require") {
+            console.error("The connection URL must include sslmode=require so the database connection uses TLS.");
+            process.exit(1);
+          }
+          console.log("Connection URL format, target project, and TLS setting validated.");
           NODE
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
 
@@ -68,15 +76,21 @@ jobs:
           fi
 
       - name: Read local and remote migration ledgers
+        env:
+          NZTRACKER_DB_URL: ${{ secrets.NZTRACKER_DB_URL }}
         run: supabase migration list --db-url "$NZTRACKER_DB_URL"
 
       - name: Read existing user-table names (SELECT only)
         shell: bash
+        env:
+          NZTRACKER_DB_URL: ${{ secrets.NZTRACKER_DB_URL }}
+          PGSSLMODE: require
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client
-          psql "$NZTRACKER_DB_URL" -X -v ON_ERROR_STOP=1 --set=sslmode=require             --command="SELECT table_schema, table_name
+          psql "$NZTRACKER_DB_URL" -X -v ON_ERROR_STOP=1 \
+            --command="SELECT table_schema, table_name
                        FROM information_schema.tables
                        WHERE table_type = 'BASE TABLE'
                          AND table_schema NOT IN
@@ -85,4 +99,6 @@ jobs:
                        ORDER BY table_schema, table_name;"
 
       - name: Preview pending migrations without applying them
+        env:
+          NZTRACKER_DB_URL: ${{ secrets.NZTRACKER_DB_URL }}
         run: supabase db push --dry-run --db-url "$NZTRACKER_DB_URL"
