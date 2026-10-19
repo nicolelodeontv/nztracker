@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - ops/nztracker-migration-dry-run
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,25 +14,43 @@ jobs:
     name: Read migration ledger and dry-run only
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment:
+      name: nztracker-migration-preflight
     env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.NZTRACKER_SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.NZTRACKER_SUPABASE_DB_PASSWORD }}
-      SUPABASE_PROJECT_REF: duhorigpqixteoaojsot
+      NZTRACKER_DB_URL: ${{ secrets.NZTRACKER_DB_URL }}
     steps:
-      - name: Checkout PR snapshot
+      - name: Checkout fixed PR snapshot
         uses: actions/checkout@v7
         with:
           ref: 6a2a43855a314711e1dbca55f1a05e82db00ee99
           persist-credentials: false
 
-      - name: Check required secrets
+      - name: Check connection string is scoped to the candidate project
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${SUPABASE_ACCESS_TOKEN}" || -z "${SUPABASE_DB_PASSWORD}" ]]; then
-            echo "::error::Add repository Actions secrets NZTRACKER_SUPABASE_ACCESS_TOKEN and NZTRACKER_SUPABASE_DB_PASSWORD, then re-run this workflow."
+          if [[ -z "${NZTRACKER_DB_URL}" ]]; then
+            echo "::error::Create the nztracker-migration-preflight environment and add its NZTRACKER_DB_URL secret after configuring its protection rules."
             exit 1
           fi
+          node <<'NODE'
+          const raw = process.env.NZTRACKER_DB_URL;
+          let url;
+          try {
+            url = new URL(raw);
+          } catch {
+            console.error("NZTRACKER_DB_URL is not a valid PostgreSQL URL.");
+            process.exit(1);
+          }
+          const user = decodeURIComponent(url.username);
+          if (!["postgres:", "postgresql:"].includes(url.protocol)
+              || !url.hostname.endsWith(".pooler.supabase.com")
+              || !user.includes("duhorigpqixteoaojsot")) {
+            console.error("Expected the Supabase Session pooler URL for project duhorigpqixteoaojsot. Use Dashboard → Connect and select Session pooler.");
+            process.exit(1);
+          }
+          console.log("Connection URL scheme, pooler host, and project username match the intended target.");
+          NODE
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -48,22 +67,22 @@ jobs:
             supabase init --yes
           fi
 
-      - name: Link only the supplied candidate project
-        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
-
       - name: Read local and remote migration ledgers
-        run: supabase migration list --linked
+        run: supabase migration list --db-url "$NZTRACKER_DB_URL"
 
-      - name: Read existing user-table names
-        run: >-
-          supabase db query --linked
-          "SELECT table_schema, table_name
-           FROM information_schema.tables
-           WHERE table_type = 'BASE TABLE'
-             AND table_schema NOT IN
-               ('pg_catalog', 'information_schema', 'auth', 'storage',
-                'extensions', 'graphql', 'graphql_public')
-           ORDER BY table_schema, table_name;"
+      - name: Read existing user-table names (SELECT only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+          psql "$NZTRACKER_DB_URL" -X -v ON_ERROR_STOP=1 --set=sslmode=require             --command="SELECT table_schema, table_name
+                       FROM information_schema.tables
+                       WHERE table_type = 'BASE TABLE'
+                         AND table_schema NOT IN
+                           ('pg_catalog', 'information_schema', 'auth', 'storage',
+                            'extensions', 'graphql', 'graphql_public')
+                       ORDER BY table_schema, table_name;"
 
       - name: Preview pending migrations without applying them
-        run: supabase db push --dry-run --linked
+        run: supabase db push --dry-run --db-url "$NZTRACKER_DB_URL"
