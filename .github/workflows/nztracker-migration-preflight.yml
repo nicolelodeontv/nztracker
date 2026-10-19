@@ -68,6 +68,12 @@ jobs:
       - name: Install pinned Supabase CLI
         run: npm install --global supabase@2.121.0
 
+      - name: Install PostgreSQL client
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
       - name: Initialize temporary local CLI config
         run: |
           set -euo pipefail
@@ -87,8 +93,6 @@ jobs:
           PGSSLMODE: require
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client
           psql "$NZTRACKER_DB_URL" -X -v ON_ERROR_STOP=1 \
             --command="SELECT table_schema, table_name
                        FROM information_schema.tables
